@@ -1,0 +1,24 @@
+# GitHub Actions · RV Terminal headless pull — every 15 minutes, off the shared-runner peaks
+# (:00/:15/:30/:45 are stampede minutes on free runners; the bots learned this the hard way).
+name: rv-terminal-pull
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+concurrency: { group: rv-terminal-pull, cancel-in-progress: false }
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: pull · push · publish
+        env:
+          STRIPE_KEY:  ${{ secrets.STRIPE_KEY }}
+          SB_EMAIL:    ${{ secrets.SB_EMAIL }}
+          SB_PASSWORD: ${{ secrets.SB_PASSWORD }}
+          BIN_ID:      ${{ secrets.BIN_ID }}
+          BIN_KEY:     ${{ secrets.BIN_KEY }}
+        run: node headless/run.js
