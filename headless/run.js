@@ -77,6 +77,9 @@ Object.assign(ctx,{ fetch:fetchX, setTimeout, clearTimeout, Intl, crypto, Respon
      this shim makes it fail QUIETLY instead of printing three stack traces per save. */
   indexedDB:{ open(){ const req={}; setTimeout(()=>{ req.error=new Error('no IndexedDB in headless'); if(req.onerror) req.onerror({target:req}); },0); return req; } },
   TextEncoder, TextDecoder, CompressionStream, DecompressionStream, Blob, structuredClone, performance,
+  /* zPack()/zUnpack() (the compressed bridge bundle: roster, profit, winback, ledgers) need these —
+     without them every publish since the runner went live carried z:null */
+  btoa, atob,
   location:{hash:'',href:'headless',search:'',pathname:'/'}, alert(){}, confirm:()=>false, prompt:()=>null });
 ctx.window=ctx; ctx.self=ctx; ctx.globalThis=ctx;
 const t0=Date.now(), log=m=>console.log(new Date().toISOString().slice(11,19)+'  '+m);
