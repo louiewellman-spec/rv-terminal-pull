@@ -1548,7 +1548,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.80';
+const BUILD = 'v15.81';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10918,16 +10918,31 @@ function sbShape(){
 }
 const SB_CONFLICT={rv_subs:'owner,id', rv_sessions:'owner,skey', rv_snapshots:'owner,d', rv_forecasts:'owner,mk',
   rv_email_sup:'owner,email,reason', rv_recovery_cases:'owner,cust', rv_inv_hist:'owner,sub_id', rv_kv:'owner,k'};
+/* v15.81: push only what THIS device changed since it last pulled. Two writers share the same
+   rows (a browser saving an edit, the runner saving a Stripe refresh) and every upsert is
+   last-writer-wins, so a runner that pushed its whole pulled copy could silently put back a VAT
+   entry, a cost, a check-in or a recovery outcome typed in a browser during the 2-5 minutes its
+   run was in flight. Now a row is sent only when its content differs from the copy taken at
+   pull time (or last push). Untouched rows are never re-sent, so they can never clobber. */
+let _sbBase=null;
+function sbRowKey(table,row){ return (SB_CONFLICT[table]||'').split(',').filter(c=>c!=='owner').map(c=>String(row[c])).join('|'); }
+function sbBaseFrom(shaped){ const base={}; Object.keys(shaped).forEach(t=>{ const m=base[t]={}; shaped[t].forEach(r=>{ m[sbRowKey(t,r)]=JSON.stringify(r); }); }); return base; }
+function sbBaseReset(){ try{ _sbBase=sbBaseFrom(sbShape()); }catch(e){ _sbBase=null; } }
+function sbChangedRows(table, rows){
+  if(!_sbBase || !_sbBase[table]) return rows;                 /* never pulled this session: send everything */
+  const m=_sbBase[table]; return rows.filter(r=>m[sbRowKey(table,r)]!==JSON.stringify(r));
+}
 async function sbPush(){
   const b=sbState(), uid=b.uid; if(!uid) throw new Error('sign in first');
   const shaped=sbShape(); let total=0;
   for(const table of Object.keys(shaped)){
-    const rows=shaped[table]; if(!rows.length) continue;
+    const rows=sbChangedRows(table, shaped[table]); if(!rows.length) continue;
     for(let i=0;i<rows.length;i+=500){
-      const batch=rows.slice(i,i+500).map(r=>Object.assign({owner:uid}, r));
+      const slice=rows.slice(i,i+500), batch=slice.map(r=>Object.assign({owner:uid}, r));
       await sbRest(table+'?on_conflict='+SB_CONFLICT[table], {method:'POST', body:batch,
         prefer:'resolution=merge-duplicates,return=minimal'});
       total+=batch.length;
+      if(_sbBase){ const m=_sbBase[table]||(_sbBase[table]={}); slice.forEach(r=>{ m[sbRowKey(table,r)]=JSON.stringify(r); }); }
       sbStatusMsg('pushing '+table+' · '+Math.min(i+500,rows.length)+'/'+rows.length);
     }
   }
@@ -10998,6 +11013,7 @@ async function sbPull(opts){
   const supObj={bounced:{},stopped:{},control:{}}; sup.forEach(r=>{ if(supObj[r.reason]) supObj[r.reason][r.email]=r.detail||''; });
   mergeSync({emailLog:log.map(r=>({e:r.email, d:r.sent_on, c:r.campaign, t:r.kind})), emailSup:supObj});
   S._sbNightly=syncLast||null; window._wbCache=null; window._emSentMap=null;
+  sbBaseReset();                                   /* v15.81: everything we hold now matches the cloud */
   try{ lastM=compute(); }catch(e){}
   renderAll();
   st('pulled '+n.subs.toLocaleString()+' subs · '+n.sessions.toLocaleString()+' sessions');
