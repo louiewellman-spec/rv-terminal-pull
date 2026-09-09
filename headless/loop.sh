@@ -22,6 +22,21 @@ while :; do
   runs=$((runs+1)); say "pull #$runs"
   $PULL; rc=$?
   if [ $rc -eq 0 ]; then say "pull #$runs ok"; else fails=$((fails+1)); say "::warning::pull #$runs failed (exit $rc)"; fi
+  # The private repo's own crons (Discord hourly, Revolut 4-hourly) get dropped by GitHub just like
+  # this one's did, so the chain kicks them off itself: Discord on the first slot of every hour,
+  # Revolut on the first slot of every 4th hour. Needs PRIVATE_DISPATCH_TOKEN (a fine-grained PAT
+  # with Actions: write on louiewellman-spec/rv-terminal); silently skipped until it exists.
+  if [ -n "${PRIVATE_DISPATCH_TOKEN:-}" ]; then
+    hr=$(date -u +%-H); mn=$(date -u +%-M)
+    if [ "$mn" -lt 15 ]; then
+      say "dispatching rv-discord-sync on the private repo"
+      GH_TOKEN="$PRIVATE_DISPATCH_TOKEN" ${GH:-gh} workflow run rv-discord-sync.yml -R louiewellman-spec/rv-terminal --ref main || say "::warning::discord dispatch failed"
+      if [ $((hr % 4)) -eq 0 ]; then
+        say "dispatching rv-revolut-sync on the private repo"
+        GH_TOKEN="$PRIVATE_DISPATCH_TOKEN" ${GH:-gh} workflow run rv-revolut-sync.yml -R louiewellman-spec/rv-terminal --ref main || say "::warning::revolut dispatch failed"
+      fi
+    fi
+  fi
   now=$(date +%s)
   next=$(( (now-OFFSET)/PERIOD*PERIOD + PERIOD + OFFSET ))
   if [ $next -ge $end ]; then say "budget reached: $runs pulls, $fails failed"; break; fi
