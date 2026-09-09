@@ -1631,7 +1631,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.87';
+const BUILD = 'v15.88';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -11193,8 +11193,12 @@ async function sbAutoSync(opts){
     const localT=(S.lastFetch&&(S.lastFetch.t||S.lastFetch))||0;
     const localEmpty=!(S.subs&&S.subs.length);
     const stale=remoteT>localT+60000;   /* a minute of slack so clock skew never ping-pongs */
-    if(!localEmpty && !stale){ if(!_sbBase) sbBaseReset();   /* v15.82: local == cloud, so this is the baseline */
-      return {skipped: force? 'nothing newer up there' : 'this browser is already up to date', remoteT, localT}; }
+    /* v15.88: "Pull latest" (force) ALWAYS pulls. The freshness check only decides whether the
+       5-minute auto-pull bothers, because it keys on the runner's Stripe fetch time — an edit made
+       on another device (VAT entries, costs, goals) never moves that clock, so a forced pull is the
+       only way to fetch it on demand. Unsent local edits are pushed within 6 s of being made. */
+    if(!localEmpty && !stale && !force){ if(!_sbBase) sbBaseReset();   /* local == cloud, so this is the baseline */
+      return {skipped:'this browser is already up to date', remoteT, localT}; }
     const n=await sbPull({quiet:true});
     S._sbAutoAt=Date.now();
     return {pulled:n, why: localEmpty? 'this browser was empty' : 'Postgres was newer'};
