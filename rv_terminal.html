@@ -1331,7 +1331,10 @@ async function idbBoot(){
   return {moved, loaded, skipped};
 }
 function jget(k,d){ const v=store.get(k); if(v==null) return d; try{ return JSON.parse(v) }catch(e){ return d } }
-const SYNC_KEYS = new Set(['rv_weekly','rv_snapshots','rv_djoins','rv_posts','rv_ads','rv_campaigns','rv_manualattr','rv_handles','rv_forecasts','rv_mrrevents','rv_recovery','rv_changes']);
+/* v15.82: rv_settings is here so goals, costs, VAT, trial periods and business settings typed in a
+   browser are pushed within seconds — before v15.82 they sat local-only and the next auto-pull
+   put the cloud's older copy back over them. */
+const SYNC_KEYS = new Set(['rv_weekly','rv_snapshots','rv_djoins','rv_posts','rv_ads','rv_campaigns','rv_manualattr','rv_handles','rv_forecasts','rv_mrrevents','rv_recovery','rv_changes','rv_settings']);
 let syncMerging=false;
 function jset(k,v){
   if(IDB_KEYS[k]) idbWrite(k,v); else store.set(k, JSON.stringify(v));
@@ -1548,7 +1551,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.81';
+const BUILD = 'v15.82';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10895,7 +10898,7 @@ function sbShape(){
     const k=x.created+'|'+(x.sub||'')+'|'+(x.cust||'');      /* identical to mergeSessions() */
     if(seen[k]) return; seen[k]=1;
     sess[k]={skey:k, cust:x.cust||null, em:x.em||null, sub:x.sub||null, paid:!!x.paid, src:x.src||null, created:iso(x.created), data:x}; });
-  const kv=[]; Object.keys(S).forEach(k=>{ if(SB_BIG.has(k)) return; const v=S[k];
+  const kv=[]; Object.keys(S).forEach(k=>{ if(SB_BIG.has(k) || k[0]==='_') return; const v=S[k];   /* v15.82: _runtime keys stay on this device */
     if(v==null || typeof v==='function') return; kv.push({k, v}); });
   /* v15.78: business settings ride along so every login sees the same goals/thresholds; secrets never do */
   try{ const sh={}; ['goals','goalsEdited','trialPeriods','vat','thresh','manualMembers','invite','costs','ownCodes','fcOffers','fcClaim'].forEach(f=>{ if(S.settings[f]!==undefined) sh[f]=S.settings[f]; });
@@ -11007,7 +11010,7 @@ async function sbPull(opts){
   let syncLast=null, lastFetch=null;
   kv.forEach(r=>{ if(r.k==='stripe_sync_last'){ syncLast=r.v; return; } if(r.k==='lastFetch'){ lastFetch=r.v; return; }
     if(r.k==='settings_shared' && r.v && typeof r.v==='object'){ S.settings=Object.assign({}, S.settings, r.v); jset('rv_settings', S.settings); return; }
-    if(SB_KV_SKIP.has(r.k) || r.v==null) return; S[r.k]=r.v; jset(SB_LS[r.k]||('rv_'+r.k.toLowerCase()), r.v); });
+    if(SB_KV_SKIP.has(r.k) || r.v==null || r.k[0]==='_') return; S[r.k]=r.v; jset(SB_LS[r.k]||('rv_'+r.k.toLowerCase()), r.v); });
   if(syncLast&&syncLast.t&&(!S.lastFetch||syncLast.t>(S.lastFetch.t||0))){ S.lastFetch={t:syncLast.t, build:BUILD, nightly:true}; jset('rv_lastfetch',S.lastFetch); }
   else if(lastFetch&&(!S.lastFetch||(lastFetch.t||0)>(S.lastFetch.t||0))){ S.lastFetch=lastFetch; jset('rv_lastfetch',S.lastFetch); }
   const supObj={bounced:{},stopped:{},control:{}}; sup.forEach(r=>{ if(supObj[r.reason]) supObj[r.reason][r.email]=r.detail||''; });
@@ -11061,8 +11064,8 @@ async function sbAutoSync(opts){
     const localT=(S.lastFetch&&(S.lastFetch.t||S.lastFetch))||0;
     const localEmpty=!(S.subs&&S.subs.length);
     const stale=remoteT>localT+60000;   /* a minute of slack so clock skew never ping-pongs */
-    if(!force && !localEmpty && !stale) return {skipped:'this browser is already up to date', remoteT, localT};
-    if(!localEmpty && !stale && force) return {skipped:'nothing newer up there', remoteT, localT};
+    if(!localEmpty && !stale){ if(!_sbBase) sbBaseReset();   /* v15.82: local == cloud, so this is the baseline */
+      return {skipped: force? 'nothing newer up there' : 'this browser is already up to date', remoteT, localT}; }
     const n=await sbPull({quiet:true});
     S._sbAutoAt=Date.now();
     return {pulled:n, why: localEmpty? 'this browser was empty' : 'Postgres was newer'};
