@@ -611,7 +611,7 @@ html[data-theme="paper"] .hubtabs button.on{box-shadow:0 1px 2px rgba(16,24,40,.
       <div class="card"><h3>Retained</h3><div class="big num gtx gtx-cyan" id="pfNet">—</div><div class="sn" id="pfNetD"></div></div>
     </div>
     <div class="sn" id="pfBalances" style="margin-top:10px"></div>
-    <div class="empty" id="pfEmpty" style="display:none">Needs the jsonbin master key in Settings — the Revolut sync publishes the profit bin, this page only reads it.</div>
+    <div class="empty" id="pfEmpty" style="display:none">Waiting for the cloud runner's next pass (every 15 minutes). It reads the Revolut profit bin and shares it with every login; this page only displays it.</div>
 
     <div class="sec">Banked cash vs MRR <span class="tag">the single most useful gap on this page</span></div>
     <div class="card"><div class="big num" id="pfGap" style="font-size:30px">—</div>
@@ -1391,6 +1391,8 @@ if(!Array.isArray(S.emailLog) || !S.emailSup){
   catch(e){ if(!Array.isArray(S.emailLog)) S.emailLog=[]; if(!S.emailSup) S.emailSup={bounced:{},stopped:{},control:{}}; }
 }
 S.expCamp = jget('rv_expcamp', null);
+S.profitBin = jget('rv_profitbin', null);   /* v15.84: shared by the runner */
+S.emailFlags = jget('rv_emailflags', null);
 if(!S.expCamp || typeof S.expCamp.stamps!=='object') S.expCamp={stamps:{}};
 if(typeof S.expCamp.upTypes!=='object' || !S.expCamp.upTypes) S.expCamp.upTypes={};
 const charts = {};
@@ -1541,7 +1543,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.83';
+const BUILD = 'v15.84';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2061,6 +2063,9 @@ async function refresh(){
     }catch(e){}
     S.pastDue = pd;
 
+    /* v15.84: the runner is the only thing with a jsonbin key — read the two side bins here so
+       the browsers get them through the database */
+    if(S.settings.binKey){ try{ window._rvProfit=null; await fetchProfitBin(); }catch(e){} try{ await fetchEmailFlags(true); }catch(e){} }
     /* keep the cash-collected card current between deep pulls: re-pull just this month's
        and last month's charges and overwrite those two buckets */
     try{
@@ -5068,15 +5073,17 @@ function drawCreditsPage(){
 const PROFIT_BIN='6a940864f5f4af5e295437bd';
 let pfMonthSel=null;
 async function fetchProfitBin(){
-  if(!S.settings.binKey) return null;
+  /* v15.84: browsers have no jsonbin key any more (v15.79), so the RUNNER reads the Revolut profit
+     bin on every pass and shares it as S.profitBin (rv_kv → every login); a browser just reads that. */
+  if(!S.settings.binKey) return (S.profitBin&&S.profitBin.rec)||null;
   if(window._rvProfit && Date.now()-(window._rvProfit._at||0)<10*60*1000) return window._rvProfit;
   try{
     const r=await fetchTimed('https://api.jsonbin.io/v3/b/'+PROFIT_BIN+'/latest',{headers:{'X-Master-Key':S.settings.binKey}});
     if(!r.ok) throw new Error('HTTP '+r.status);
     const j=await r.json(); const rec=(j&&j.record)||null;
-    if(rec){ rec._at=Date.now(); window._rvProfit=rec; }
+    if(rec){ rec._at=Date.now(); window._rvProfit=rec; S.profitBin={at:Date.now(), rec}; jset('rv_profitbin', S.profitBin); }
     return rec;
-  }catch(e){ return window._rvProfit||null; }
+  }catch(e){ return window._rvProfit||(S.profitBin&&S.profitBin.rec)||null; }
 }
 async function drawProfitPage(){
   const emptyEl=document.getElementById('pfEmpty'); if(!emptyEl) return;
@@ -10172,16 +10179,17 @@ function syncStatus(t, cls){ const el=document.getElementById('syncStatus'); if(
    runs off live data instead of a Stripe CSV. Segments and the rollup are computed HERE so
    everyone shares one definition. Email flags come from a small bin the pusher script fills. */
 async function fetchEmailFlags(force){
-  if(!force && S._emailFlags && Date.now()-(S._emailFlags.at||0)<60*60*1000) return S._emailFlags;
+  if(!S.settings.binKey) return S.emailFlags||null;                         /* v15.84: browsers read the runner's shared copy */
+  if(!force && S.emailFlags && Date.now()-(S.emailFlags.at||0)<60*60*1000) return S.emailFlags;
   try{ const r=await fetchTimed('https://api.jsonbin.io/v3/b/'+EMAILFLAGS_BIN+'/latest',{headers:{'X-Master-Key':S.settings.binKey}});
     if(!r.ok) throw new Error('HTTP '+r.status); const j=await r.json(); const rec=(j&&j.record)||{};
-    S._emailFlags={at:Date.now(), updated:rec.updated||null, emails:rec.emails||{}}; }
-  catch(e){ S._emailFlags=S._emailFlags||{at:Date.now(), updated:null, emails:null, error:String(e&&e.message||e)}; }
-  return S._emailFlags;
+    S.emailFlags={at:Date.now(), updated:rec.updated||null, emails:rec.emails||{}}; jset('rv_emailflags', S.emailFlags); }
+  catch(e){ S.emailFlags=S.emailFlags||{at:Date.now(), updated:null, emails:null, error:String(e&&e.message||e)}; }
+  return S.emailFlags;
 }
 function winbackBuild(){
-  const now=Date.now(), flags=(S._emailFlags&&S._emailFlags.emails)||null;
-  const key=((S.lastFetch&&S.lastFetch.t)||0)+':'+((S.subs||[]).length)+':'+((S._emailFlags&&S._emailFlags.at)||0);
+  const now=Date.now(), flags=(S.emailFlags&&S.emailFlags.emails)||null;
+  const key=((S.lastFetch&&S.lastFetch.t)||0)+':'+((S.subs||[]).length)+':'+((S.emailFlags&&S.emailFlags.at)||0);
   if(window._wbCache&&window._wbCache.key===key) return window._wbCache.v;
   const tOf=x=>x.tier||tierOf(null,x.monthly);
   const ghost=x=>x.status==='incomplete'||x.status==='incomplete_expired';
@@ -10257,7 +10265,7 @@ function winbackBuild(){
     if(p.daysSinceChurn<=42){ n6++; if(p.reason==='payment_failed') f6++; } });
   R.last6w=n6; R.failedShareAllPct=people.length? Math.round(R.reason.payment_failed/people.length*1000)/10 : null; R.failedShare6wPct=n6? Math.round(f6/n6*1000)/10 : null;
   if(flags){ let b=0,st=0,e14=0,c=0; people.forEach(p=>{ if(p.flags){ if(p.flags.bounced) b++; if(p.flags.stopped) st++; if(p.flags.emailedLast14d) e14++; if(p.flags.control) c++; } });
-    R.flags={bounced:b, stopped:st, emailedLast14d:e14, control:c, flagsUpdated:(S._emailFlags&&S._emailFlags.updated)||null}; }
+    R.flags={bounced:b, stopped:st, emailedLast14d:e14, control:c, flagsUpdated:(S.emailFlags&&S.emailFlags.updated)||null}; }
   else R.flags={note:'email flags unavailable: run rv-emails/push_email_flags.py; the terminal reads them on the next publish'};
   try{ const rs=(lastM&&lastM.resigns)||null; R.organicRejoinsMonthly=rs? (rs.monthly||[]).slice(-12) : null; }catch(e){ R.organicRejoinsMonthly=null; }
   R.definitions={ person:'one row per Stripe customer email (customer id when no email); abandoned checkouts (incomplete, incomplete_expired) and non-membership products excluded',
