@@ -1,24 +1,34 @@
-# GitHub Actions · RV Terminal headless pull — every 15 minutes, off the shared-runner peaks
-# (:00/:15/:30/:45 are stampede minutes on free runners; the bots learned this the hard way).
+# GitHub Actions · RV Terminal headless pull — a self-chaining job, every 15 minutes.
+# GitHub's cron is best-effort on the free tier (8-9 Sep 2026: 4 ticks fired in 12 h instead of 48),
+# so one job keeps pulling for ~5h35m (headless/loop.sh) and then dispatches its own successor.
+# The cron only restarts the chain if it has died; the concurrency group keeps it to one chain.
 name: rv-terminal-pull
 on:
   schedule:
     - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
 concurrency: { group: rv-terminal-pull, cancel-in-progress: false }
 jobs:
   pull:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
-      - name: pull · push · publish
+      - name: pull every 15 min for ~5h35m
+        id: chain
         env:
           STRIPE_KEY:  ${{ secrets.STRIPE_KEY }}
           SB_EMAIL:    ${{ secrets.SB_EMAIL }}
           SB_PASSWORD: ${{ secrets.SB_PASSWORD }}
           BIN_ID:      ${{ secrets.BIN_ID }}
           BIN_KEY:     ${{ secrets.BIN_KEY }}
-        run: node headless/run.js
+        run: bash headless/loop.sh
+      - name: dispatch the next link of the chain
+        if: steps.chain.outputs.alive == 'true'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh workflow run rv-terminal-pull.yml --ref main -R "$GITHUB_REPOSITORY"
