@@ -6,6 +6,15 @@
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https://zkgxbvarksdxqburzrce.supabase.co https://api.stripe.com https://discord.com https://api.frankfurter.dev https://api.jsonbin.io https://wikimedia.org; object-src 'none'; base-uri 'none'; form-action 'self'">
 <title>RV Terminal</title>
+<!-- v15.87: installable web app. The desktop page is unchanged; these only let Chrome/Safari offer "Install" / "Add to Home Screen" and open it in its own window. -->
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0A0E1A">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RV Terminal">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script>try{var _t=localStorage.getItem('rv_theme');if(_t&&_t!=='vault')document.documentElement.setAttribute('data-theme',_t);}catch(e){}</script>
@@ -1290,6 +1299,10 @@ html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme=
     </div>
     <div class="card" style="margin-top:14px">
       <h3>This browser only</h3>
+      <div class="row" id="installRow" style="margin-top:12px;gap:8px;display:none;align-items:center">
+        <button class="btn" id="installBtn">Install as an app</button>
+        <span class="sn" id="installHint" style="margin-top:0">Opens in its own window, with an icon in your dock or home screen. Same login, same data.</span>
+      </div>
       <div class="row" style="margin-top:12px;gap:8px">
         <button class="btn ghost" id="exportBtn">Export data</button>
         <button class="btn ghost" id="importBtn">Import data</button>
@@ -1618,7 +1631,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.86';
+const BUILD = 'v15.87';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -11483,6 +11496,18 @@ try{ idbBoot().then(r=>{ if(r.moved) status('Moved '+r.moved+' large table'+(r.m
    only ever strips browser-held copies. */
 try{ if(!S.settings.key && (S.settings.binId||S.settings.binKey||S.settings.pubBinId)){
   delete S.settings.binId; delete S.settings.binKey; delete S.settings.pubBinId; jset('rv_settings', S.settings); } }catch(e){}
+/* v15.87: installable web app — register the service worker and surface the install prompt */
+try{ if(typeof navigator!=='undefined' && 'serviceWorker' in navigator && location.protocol==='https:'){
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  let _installEv=null;
+  const row=document.getElementById('installRow'), btn=document.getElementById('installBtn'), hint=document.getElementById('installHint');
+  window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); _installEv=e; if(row) row.style.display='flex'; });
+  window.addEventListener('appinstalled', ()=>{ if(row) row.style.display='none'; _installEv=null; });
+  if(btn) btn.onclick=async()=>{ if(!_installEv) return; _installEv.prompt(); try{ await _installEv.userChoice; }catch(e){} _installEv=null; if(row) row.style.display='none'; };
+  /* iOS Safari never fires beforeinstallprompt: show the Share → Add to Home Screen hint instead */
+  const ios=/iPhone|iPad|iPod/.test(navigator.userAgent) && !window.navigator.standalone;
+  if(ios && row && hint){ row.style.display='flex'; if(btn) btn.style.display='none'; hint.textContent='On iPhone or iPad: tap Share, then "Add to Home Screen" to install this as an app.'; }
+} }catch(e){}
 /* v15.80: the AI layer is gone — drop any key a browser still holds */
 try{ if(S.settings.anthropicKey){ delete S.settings.anthropicKey; jset('rv_settings', S.settings); } }catch(e){}
 try{ if(typeof gatePaint==='function') gatePaint(); }catch(e){}
