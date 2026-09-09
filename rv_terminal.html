@@ -678,7 +678,7 @@ html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme=
   <section class="view" id="v-profit">
     <div class="grid c5">
       <div class="card"><h3>Banked income · this month</h3><div class="big num gtx gtx-green" id="pfIncome">—</div><div class="sn" id="pfIncomeD"></div></div>
-      <div class="card"><h3>Operating costs</h3><div class="big num gtx gtx-red" id="pfCosts">—</div><div class="sn" id="pfCostsD">drawings never counted here</div></div>
+      <div class="card"><h3>Operating costs</h3><div class="big num gtx gtx-red" id="pfCosts">—</div><div class="sn" id="pfCostsD">drawings and VAT to HMRC never counted here</div></div>
       <div class="card"><h3>Profit before drawings</h3><div class="big num gtx gtx-gold" id="pfPBD">—</div><div class="sn" id="pfPBDD"></div></div>
       <div class="card"><h3>Partner drawings</h3><div class="big num" id="pfDraw">—</div><div class="sn">Louie + Tom · equal · LLP</div></div>
       <div class="card"><h3>Retained</h3><div class="big num gtx gtx-cyan" id="pfNet">—</div><div class="sn" id="pfNetD"></div></div>
@@ -1618,7 +1618,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.85';
+const BUILD = 'v15.86';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -5207,7 +5207,7 @@ async function drawProfitPage(){
   if(tf){ tf.innerHTML=months.map(m=>'<button data-m="'+m.month+'"'+(m.month===pfMonthSel?' class="on"':'')+'>'+monLabel(m.month)+'</button>').join('');
     tf.querySelectorAll('button').forEach(b=> b.onclick=()=>{ pfMonthSel=b.dataset.m; drawProfitPage(); }); }
   const sel=months.find(m=>m.month===pfMonthSel)||cur;
-  const cats=Object.entries(sel.categories||{}).filter(([k,v])=>v<0 && k!=='drawings')
+  const cats=Object.entries(sel.categories||{}).filter(([k,v])=>v<0 && k!=='drawings' && k!=='tax_hmrc')   /* v15.86: VAT/tax to HMRC is not an operating cost */
     .sort((a,b)=>a[1]-b[1]);
   const th=document.querySelector('#pfCatTable thead'), tb=document.querySelector('#pfCatTable tbody');
   if(th&&tb){
@@ -5228,7 +5228,8 @@ async function drawProfitPage(){
         +(ageD!=null? longDate(upd)+' ('+ageD+' day'+(ageD===1?'':'s')+' ago)' : 'at an unknown time')
         +'. The figures shown are correct — there is simply no '+monLabel(nowMk)+' data in the feed yet. Run <b>revolut/revolut_sync.py</b> to bring it up to date.</div>'
       : '';
-    setH('pfCatNote', stale+'Drawings for '+monLabel(pfMonthSel)+': <b style="color:var(--text)">'+gbp((sel.categories||{}).drawings||sel.drawingsGBP||0)+'</b> — shown separately on purpose; partner drawings come out of profit, they are not an operating cost.'); }
+    const taxM=Math.abs((sel.categories||{}).tax_hmrc||sel.taxGBP||0);
+    setH('pfCatNote', stale+(taxM? '<b style="color:var(--text)">VAT &amp; tax paid to HMRC for '+monLabel(pfMonthSel)+': '+gbp(taxM)+'</b> — money collected on customers\' behalf and passed on, so it is kept out of operating costs and profit. ':'')+'Drawings for '+monLabel(pfMonthSel)+': <b style="color:var(--text)">'+gbp((sel.categories||{}).drawings||sel.drawingsGBP||0)+'</b> — shown separately on purpose; partner drawings come out of profit, they are not an operating cost.'); }
   /* recent transactions */
   const xh=document.querySelector('#pfTxTable thead'), xb=document.querySelector('#pfTxTable tbody');
   if(xh&&xb){
