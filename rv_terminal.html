@@ -154,6 +154,14 @@ label{display:block;font-size:11px;color:var(--muted);margin:12px 0 4px;font-wei
 .clickable{cursor:pointer}
 .clickable:focus-visible{border-color:rgba(0,168,255,.7)}
 .clickable:hover h3{color:var(--accent)}
+#gate{position:fixed;inset:0;background:var(--bg);z-index:80;display:flex;align-items:center;justify-content:center;padding:24px}
+#gate[hidden]{display:none}
+.gate-box{background:var(--panel);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:26px 28px;width:100%;max-width:380px;box-shadow:0 24px 80px rgba(0,0,0,.5)}
+.gate-box label{display:block;margin:12px 0 4px;font-size:12px;color:var(--muted)}
+.gate-box input{width:100%;box-sizing:border-box}
+.gate-box .btn{width:100%;margin-top:16px}
+.gate-brand{display:flex;gap:12px;align-items:center;margin-bottom:6px}
+.gate-brand .logo{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700}
 .modal-bg{position:fixed;inset:0;background:rgba(3,7,15,.72);backdrop-filter:blur(3px);z-index:60;display:none;align-items:flex-start;justify-content:center;padding:7vh 24px}
 .modal-bg.on{display:flex}
 .modal{background:var(--panel);border:1px solid rgba(255,255,255,.08);border-radius:12px;max-width:880px;width:100%;max-height:82vh;overflow-y:auto;padding:22px 24px;box-shadow:0 24px 80px rgba(0,0,0,.55)}
@@ -479,12 +487,26 @@ label{font-size:10.5px;color:var(--muted)}
     <button data-v="analyst"><span class="dot"></span>AI Analyst</button>
     <div class="navlab">System</div>
     <button data-v="goals"><span class="dot"></span>Goals</button>
-    <button data-v="settings"><span class="dot"></span>Settings</button>
+    <button data-v="settings"><span class="dot"></span>Account</button>
   </nav>
   <div class="side-foot mono" id="persistFoot">storage: checking…</div>
 </aside>
 
 <div class="modal-bg" id="modalBg" role="dialog" aria-modal="true" aria-label="Details"><div class="modal" id="modalBox"></div></div>
+<!-- v15.78: sign-in gate. The terminal is a reader now — data comes from Supabase, pulled by the
+     cloud runner every 15 minutes. Anyone with the login sees exactly the same numbers. -->
+<div id="gate" role="dialog" aria-modal="true" aria-label="Sign in" hidden>
+  <form id="gateForm" class="gate-box" autocomplete="on">
+    <div class="gate-brand"><span class="logo">RV</span><div><b>RV Terminal</b><div class="sn">Resell Vault ops</div></div></div>
+    <label for="gateEmail">Email</label>
+    <input id="gateEmail" type="email" autocomplete="username" required placeholder="you@example.com">
+    <label for="gatePass">Password</label>
+    <input id="gatePass" type="password" autocomplete="current-password" required placeholder="password">
+    <button class="btn" id="gateBtn" type="submit">Sign in</button>
+    <div class="statusline" id="gateStatus" aria-live="polite"></div>
+    <div class="sn" style="margin-top:10px">Stays signed in on this browser. Sign out from the Account page.</div>
+  </form>
+</div>
 <div class="main">
   <div class="topbar">
     <h1 id="viewTitle">Command</h1>
@@ -494,7 +516,7 @@ label{font-size:10.5px;color:var(--muted)}
     <span class="mono sn" id="arCountdown" style="margin-left:4px"></span>
     <div class="spacer"></div>
     <div class="statusline" id="status" aria-live="polite"></div>
-    <button class="btn" id="refreshBtn">Refresh data</button>
+    <button class="btn" id="refreshBtn">Pull latest</button>
   </div>
 
   <!-- COMMAND -->
@@ -1358,85 +1380,44 @@ label{font-size:10.5px;color:var(--muted)}
   <section class="view" id="v-settings">
     <div class="grid c2">
       <div class="card">
-        <h3>Stripe connection</h3>
-        <label for="sKey">Restricted API key · read-only</label>
-        <input id="sKey" type="password" placeholder="rk_live_..." autocomplete="off" spellcheck="false">
-        <div class="sn">Stripe Dashboard → Developers → API keys → Create restricted key. <b>Read</b> on: Subscriptions, Customers, Invoices, Checkout Sessions, Products. Never the secret key. Stored only in this browser, only ever sent to api.stripe.com. Tiers come from product names: Elite = Elite, Pro and Starter = Pro. Mentorship, AI Credits and Reshipping don't count as members. Euro prices convert at the live ECB rate, fetched on each refresh.</div>
-        <label for="sAnthropic">Anthropic API key · powers AI Inbox</label>
-        <input id="sAnthropic" type="password" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
-        <div class="sn">Get one at console.anthropic.com. Parsing a screenshot costs well under a penny. Stored only in this browser, only ever sent to api.anthropic.com.</div>
-        <label for="sOwnCodes">Your own promo codes</label>
-        <input id="sOwnCodes" placeholder="comma separated · e.g. RV15, RV50, CHRISTMAS, DRIP">
-        <div class="sn">These count as your own campaigns — every other code counts as an affiliate on the Attribution page and in the churn-by-channel table.</div>
-        <label for="sTierSplit">Elite fallback price threshold £</label>
-        <input id="sTierSplit" type="number" min="1" step="1" inputmode="decimal">
-        <div class="sn">Used only if the Stripe key cannot read product names. Prices at or above this value count as Elite; lower membership prices count as Pro.</div>
+        <h3>Account</h3>
+        <div class="sn" id="acctWho" style="margin:6px 0 10px"></div>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <button class="btn ghost" id="acctPullBtn">Pull latest</button>
+          <button class="btn ghost" id="sbOutBtn">Sign out</button>
+          <span class="statusline" id="sbStatus" aria-live="polite"></span>
+        </div>
+        <label class="sn" style="display:flex;align-items:center;gap:7px;margin-top:12px;cursor:pointer"><input type="checkbox" id="sAutoRef" aria-label="Pull latest automatically" style="accent-color:var(--accent)"> pull the latest data automatically every 5 minutes</label>
+        <div class="sn" style="margin-top:8px">The numbers come from the cloud runner, which reads Stripe every 15 minutes. Anything you change here — email sends, credits, goals — is saved to the cloud straight away, so everyone signed in sees the same thing.</div>
       </div>
       <div class="card">
-        <h3>Discord connection</h3>
-        <label for="sInvite">Invite code</label>
+        <h3>Business settings</h3>
+        <label for="sInvite">Discord invite code</label>
         <input id="sInvite" value="resellvault">
-        <div class="sn">Just the code, not the full link. Reads the public member count.</div>
         <label for="sManualMembers">Manual member count fallback</label>
         <input type="number" id="sManualMembers" placeholder="e.g. 30000">
+        <label for="sOwnCodes">Your own promo codes</label>
+        <input id="sOwnCodes" placeholder="comma separated · e.g. RV15, RV50, CHRISTMAS, DRIP">
+        <div class="sn">These count as your own campaigns; every other code counts as an affiliate on Attribution.</div>
+        <label for="sTierSplit">Elite fallback price threshold £</label>
+        <input id="sTierSplit" type="number" min="1" step="1" inputmode="decimal">
       </div>
     </div>
     <div class="card" style="margin-top:14px">
-      <h3>Setup · 4 steps</h3>
-      <ol class="setup">
-        <li><b>Stripe key</b> — create the restricted read-only key and paste it above.</li>
-        <li><b>Attribution</b> — add the "where did u hear about rv" dropdown to your Pro payment link in Stripe.</li>
-        <li><b>Deploy</b> — drag this file onto Netlify so data persists day to day.</li>
-        <li><b>Habit</b> — open and Refresh once a day. Each refresh saves that day's snapshot.</li>
-      </ol>
-    </div>
-    <div class="card" style="margin-top:14px">
-      <h3>Data tools</h3>
-      <div class="row" style="margin-top:8px">
-        <label class="sn" style="display:flex;align-items:center;gap:7px;margin-right:6px;cursor:pointer"><input type="checkbox" id="sAutoRef" aria-label="Auto refresh every 15 minutes" style="accent-color:#0a84ff"> Auto refresh every 15 min</label>
-        <button class="btn ghost" id="deepBtn">Pull all-time data</button>
-        <button class="btn ghost" id="recoverBtn">Recover discord handles</button>
-        <button class="btn ghost" id="clearDjBtn">Clear discord joins data</button>
-        <button class="btn danger" id="resetBtn">Reset all data</button>
-      </div>
-      <div class="sn" style="margin-top:8px">Pull all-time data fetches your full charge history (cash collected and refunds by month), all checkout sessions for attribution, and open disputes. Takes 30-60 seconds. Needs Charges and Disputes read added to the key. Refunds are bucketed by the original charge month, an approximation. Reset wipes everything in this browser including keys, export a backup first.</div>
-    </div>
-    <div class="card" style="margin-top:14px">
-      <h3>Cloud sync · optional</h3>
-      <div class="row" style="margin-top:8px">
-        <input id="sBinId" aria-label="JSONBin private Bin ID" placeholder="jsonbin Bin ID" style="width:220px" autocomplete="off" spellcheck="false">
-        <input id="sBinKey" aria-label="JSONBin Master Key" placeholder="jsonbin Master Key" type="password" style="width:260px" autocomplete="off" spellcheck="false">
-        <input id="sPubBin" aria-label="JSONBin public stats Bin ID" placeholder="public stats Bin ID · optional" style="width:230px" autocomplete="off" spellcheck="false">
-        <button class="btn ghost" id="syncPullBtn">Connect & pull</button>
-        <span class="statusline" id="syncStatus" aria-live="polite"></span>
-      </div>
-      <div class="sn" style="margin-top:8px">Auto-saves manual data (daily snapshots, discord joins, posts, campaigns, goals and recovery activity) to a private jsonbin.io bin, then pulls it onto devices with the same Bin ID and key. Stripe records are rebuilt from Stripe; recovery sync strips member names, handles and emails. Your Stripe and Anthropic keys never leave this browser. Setup: jsonbin.io → sign up → Create Bin with just {} inside → copy the Bin ID from the URL and your Master Key from API Keys, paste both here, hit Connect. <b>Public stats bin (optional):</b> create a second bin, flip it to Public in jsonbin, paste its ID in the third box — the terminal publishes aggregates only (no member names or emails) so Claude chats can read your numbers from a plain URL.</div>
-
-      <h3 style="margin-top:18px">Supabase <span class="tag">the data's new home · phase 1, manual</span></h3>
-      <div class="row" style="margin-top:8px;flex-wrap:wrap">
-        <input id="sbAnon" aria-label="Supabase anon key" placeholder="anon key (never the service-role key)" type="password" style="width:300px" autocomplete="off" spellcheck="false">
-        <input id="sbEmail" aria-label="Supabase login email" placeholder="login email" style="width:200px" autocomplete="off" spellcheck="false">
-        <input id="sbPass" aria-label="Supabase password" placeholder="password" type="password" style="width:170px" autocomplete="off">
-        <button class="btn ghost" id="sbSignInBtn">Sign in</button>
-        <button class="btn ghost" id="sbOutBtn" style="display:none">Sign out</button>
-      </div>
-      <div class="row" style="margin-top:8px;flex-wrap:wrap">
-        <button class="btn ghost" id="sbPushBtn" disabled>Push everything up</button>
-        <button class="btn ghost" id="sbPullBtn" disabled>Pull everything down</button>
-        <button class="btn ghost" id="sbCountBtn" disabled>Count rows</button>
-        <span class="statusline" id="sbStatus" aria-live="polite"></span>
-      </div>
-      <div class="sn" id="sbNote" style="margin-top:8px"></div>
-
-      <h3 style="margin-top:18px">Backup</h3>
-      <div class="row" style="margin-top:8px">
+      <h3>This browser only</h3>
+      <label for="sAnthropic">Anthropic API key · powers AI Inbox</label>
+      <input id="sAnthropic" type="password" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+      <div class="sn">Stored only in this browser, only ever sent to api.anthropic.com. Not shared with other logins.</div>
+      <div class="row" style="margin-top:12px;gap:8px">
         <button class="btn ghost" id="exportBtn">Export data</button>
         <button class="btn ghost" id="importBtn">Import data</button>
         <input type="file" id="importFile" aria-label="Import RV Terminal backup" accept="application/json" style="display:none;width:auto">
         <button class="btn" id="saveBtn">Save settings</button>
       </div>
-      <div class="sn" style="margin-top:8px">Everything lives in this browser. Export weekly. Backup files contain member names and emails, but never API keys—store them privately.</div>
+      <div class="sn" style="margin-top:8px">Backup files contain member names and emails but never keys — store them privately.</div>
     </div>
+    <!-- kept for the headless runner + old handlers; never shown -->
+    <div hidden><input id="sKey"><input id="sBinId"><input id="sBinKey"><input id="sPubBin"><input id="sbAnon"><input id="sbEmail"><input id="sbPass"><button id="sbSignInBtn"></button><button id="sbPushBtn"></button><button id="sbPullBtn"></button><button id="sbCountBtn"></button><button id="syncPullBtn"></button><button id="deepBtn"></button><button id="recoverBtn"></button><button id="clearDjBtn"></button><button id="resetBtn"></button><span id="sbNote"></span><span id="syncStatus"></span></div>
   </section>
 </div>
 </div>
@@ -1725,7 +1706,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.77';
+const BUILD = 'v15.78';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10135,7 +10116,7 @@ function memberListModal(title, rows, note, series){
 }
 
 /* ---------- nav ---------- */
-const titles={ emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', inbox:'AI Inbox', analyst:'AI Analyst', goals:'Goals', settings:'Settings'};
+const titles={ emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', inbox:'AI Inbox', analyst:'AI Analyst', goals:'Goals', settings:'Account'};
 function enhanceInteractive(root){
   (root||document).querySelectorAll('.clickable,.hero,.alertline').forEach(el=>{
     if(el.matches('button,a,input,select,textarea')||typeof el.onclick!=='function') return;
@@ -10166,24 +10147,57 @@ function switchView(v){
   enhanceInteractive(view);
 }
 document.querySelectorAll('aside nav button').forEach(b=> b.onclick=()=>switchView(b.dataset.v));
-document.getElementById('refreshBtn').onclick=refresh;
+/* v15.78: the browser is a READER. "Pull latest" = Supabase, never Stripe. refresh() (Stripe)
+   still exists for the headless runner, which seeds a key; a browser never has one. */
+async function pullLatest(){
+  const btn=document.getElementById('refreshBtn'); if(btn) btn.disabled=true;
+  try{ status('Pulling the latest…');
+    const r=await sbAutoSync({force:true});
+    if(r&&r.pulled){ renderAll(); status('Pulled '+((r.pulled.subs||0)).toLocaleString()+' subs · up to date','ok'); }
+    else if(r&&r.skipped){ status('Already up to date','ok'); }
+    else if(r&&r.error){ status('Pull failed: '+r.error,'err'); }
+    else status('Sign in first','err');
+  }catch(e){ status('Pull failed: '+(e&&e.message||e),'err'); }
+  finally{ if(btn) btn.disabled=false; }
+}
+document.getElementById('refreshBtn').onclick=()=>{ if(S.settings.key) return refresh(); return pullLatest(); };
+/* ---- sign-in gate ---- */
+function gateShow(on){ const g=document.getElementById('gate'); if(!g) return; g.hidden=!on; }
+function gatePaint(){ const on=sbReady(); gateShow(!on);
+  const who=document.getElementById('acctWho'); if(who) who.innerHTML= on? 'Signed in as <b style="color:var(--text)">'+esc((S.sb&&S.sb.email)||'')+'</b>' : 'Not signed in';
+  const ob=document.getElementById('sbOutBtn'); if(ob) ob.style.display=on?'':'none'; }
+(function(){ const f=document.getElementById('gateForm'); if(!f) return;
+  f.onsubmit=async ev=>{ ev.preventDefault(); const b=sbState(); const st=document.getElementById('gateStatus');
+    const email=(document.getElementById('gateEmail').value||'').trim(), pass=document.getElementById('gatePass').value||'';
+    const btn=document.getElementById('gateBtn'); btn.disabled=true; if(st) st.textContent='Signing in…';
+    try{ await sbAuth({grant:'password', payload:{email, password:pass}});
+      b.email=email; b.pw=pass; b.remember=true; sbSave(); gatePaint();
+      if(st) st.textContent='Pulling your data…';
+      const r=await sbAutoSync({force:true}); renderAll();
+      status(r&&r.pulled? 'Signed in · pulled '+((r.pulled.subs||0)).toLocaleString()+' subs' : 'Signed in','ok');
+      document.getElementById('gatePass').value='';
+    }catch(e){ if(st) st.textContent='Sign-in failed: '+(e&&e.message||e); }
+    finally{ btn.disabled=false; } };
+  const pb=document.getElementById('acctPullBtn'); if(pb) pb.onclick=pullLatest;
+})();
 /* ---------- auto refresh every 15 minutes ---------- */
 let _arBusy=false, _arNext=0;
 const AR_MS = 15*60*1000;
+const AP_MS = 5*60*1000;   /* v15.78: browsers auto-PULL from Supabase every 5 min */
 async function arTick(){
-  if(S.settings.autoRefresh===false || !S.settings.key || _arBusy) return;
+  if(S.settings.autoRefresh===false || _arBusy) return;
   _arBusy=true;
-  try{ await refresh(); }catch(e){}
-  try{ if(S.settings.binId && S.settings.binKey){ await pullSync(false); renderAll(); } }catch(e){}
+  try{ if(S.settings.key){ await refresh(); if(S.settings.binId && S.settings.binKey){ await pullSync(false); renderAll(); } }
+       else if(sbReady()){ const r=await sbAutoSync({force:true}); if(r&&r.pulled) renderAll(); } }catch(e){}
   _arBusy=false;
-  _arNext = Date.now() + AR_MS;
+  _arNext = Date.now() + (S.settings.key? AR_MS : AP_MS);
 }
-function arSchedule(){ _arNext = Date.now() + AR_MS; }
-setInterval(()=>{ if(S.settings.autoRefresh!==false && S.settings.key && Date.now()>=_arNext) arTick(); }, 20*1000);
+function arSchedule(){ _arNext = Date.now() + (S.settings.key? AR_MS : AP_MS); }
+setInterval(()=>{ if(S.settings.autoRefresh!==false && (S.settings.key || sbReady()) && Date.now()>=_arNext) arTick(); }, 20*1000);
 setInterval(()=>{
   const el=document.getElementById('arCountdown'); if(!el) return;
-  if(S.settings.autoRefresh===false || !S.settings.key){ el.textContent=''; return; }
-  el.textContent = _arBusy ? 'auto · refreshing' : 'auto · '+Math.max(1,Math.ceil((_arNext-Date.now())/60000))+'m';
+  if(S.settings.autoRefresh===false || !(S.settings.key || sbReady())){ el.textContent=''; return; }
+  el.textContent = _arBusy ? (S.settings.key?'auto · refreshing':'auto · pulling') : 'auto · '+Math.max(1,Math.ceil((_arNext-Date.now())/60000))+'m';
 }, 5000);
 document.addEventListener('visibilitychange', ()=>{
   if(document.hidden) return;
@@ -11153,6 +11167,9 @@ function sbShape(){
     sess[k]={skey:k, cust:x.cust||null, em:x.em||null, sub:x.sub||null, paid:!!x.paid, src:x.src||null, created:iso(x.created), data:x}; });
   const kv=[]; Object.keys(S).forEach(k=>{ if(SB_BIG.has(k)) return; const v=S[k];
     if(v==null || typeof v==='function') return; kv.push({k, v}); });
+  /* v15.78: business settings ride along so every login sees the same goals/thresholds; secrets never do */
+  try{ const sh={}; ['goals','goalsEdited','trialPeriods','vat','thresh','manualMembers','invite','costs','ownCodes','fcOffers','fcClaim'].forEach(f=>{ if(S.settings[f]!==undefined) sh[f]=S.settings[f]; });
+    kv.push({k:'settings_shared', v:sh}); }catch(e){}
   return {
     rv_subs:(S.subs||[]).filter(x=>x&&x.id).map(x=>({id:x.id, cust:x.cust||null, cemail:x.cemail||null,
       status:x.status||null, tier:x.tier||null, monthly:x.monthly==null?null:x.monthly,
@@ -11244,6 +11261,7 @@ async function sbPull(opts){
   if(inv.length){ S.invHist=S.invHist||{}; inv.forEach(r=>{ S.invHist[r.sub_id]=r.rows; }); jset('rv_invhist',S.invHist); }
   let syncLast=null, lastFetch=null;
   kv.forEach(r=>{ if(r.k==='stripe_sync_last'){ syncLast=r.v; return; } if(r.k==='lastFetch'){ lastFetch=r.v; return; }
+    if(r.k==='settings_shared' && r.v && typeof r.v==='object'){ S.settings=Object.assign({}, S.settings, r.v); jset('rv_settings', S.settings); return; }
     if(SB_KV_SKIP.has(r.k) || r.v==null) return; S[r.k]=r.v; jset(SB_LS[r.k]||('rv_'+r.k.toLowerCase()), r.v); });
   if(syncLast&&syncLast.t&&(!S.lastFetch||syncLast.t>(S.lastFetch.t||0))){ S.lastFetch={t:syncLast.t, build:BUILD, nightly:true}; jset('rv_lastfetch',S.lastFetch); }
   else if(lastFetch&&(!S.lastFetch||(lastFetch.t||0)>(S.lastFetch.t||0))){ S.lastFetch=lastFetch; jset('rv_lastfetch',S.lastFetch); }
@@ -11333,7 +11351,7 @@ function sbWire(){
     }catch(e){ sbStatusMsg('sign-in failed: '+e.message,'err'); }
   };
   if(outBtn) outBtn.onclick=()=>{ if(!confirm('Sign out and forget the saved login on this browser?')) return;
-    S.sb={anon:b.anon}; sbSave(); sbStatusMsg('signed out · login forgotten'); paint(); };
+    S.sb={anon:b.anon}; sbSave(); sbStatusMsg('signed out · login forgotten'); paint(); try{ gatePaint(); }catch(e){} };
   const push=$('sbPushBtn'); if(push) push.onclick=async()=>{
     if(!confirm('Copy everything in this browser up to Supabase?\n\nThis overwrites rows with the same key up there. It does not touch anything locally.')) return;
     push.disabled=true;
@@ -11369,10 +11387,16 @@ function sbWire(){
     const n=$('sbNote'); if(n && ns.last){ const L=ns.last; n.innerHTML+=' <br><b style="color:var(--text)">Nightly job</b> last ran '+new Date(L.t).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
       +(L.error? ' · <span class="gtx gtx-red">failed: '+esc(L.error)+'</span>' : L.skipped? ' · skipped ('+esc(L.skipped)+')' : ' · '+(L.subs||0).toLocaleString()+' subs · MRR £'+(L.mrr||0).toLocaleString()+' · '+(L.active||0)+' paying'+(L.members? ' · '+L.members.toLocaleString()+' in Discord':'')); } });
 }
+let _sbEditTimer=null;
 function scheduleSync(){
-  if(!S.settings.binId || !S.settings.binKey) return;
-  clearTimeout(syncTimer);
-  syncTimer=setTimeout(()=>void pushSync(), 4000);
+  if(S.settings.binId && S.settings.binKey){       /* the runner: publish the bridge (and write through) */
+    clearTimeout(syncTimer); syncTimer=setTimeout(()=>void pushSync(), 4000); return; }
+  /* v15.78: a signed-in BROWSER pushes its edits straight to Supabase, so every login sees them
+     and the runner carries them into the next bridge publish. Debounced; failures are non-fatal. */
+  if(!sbReady()) return;
+  clearTimeout(_sbEditTimer);
+  _sbEditTimer=setTimeout(()=>{ sbPush().then(n=>{ try{ sbStatusMsg(n.toLocaleString()+' rows saved to the cloud','ok'); }catch(e){} })
+    .catch(e=>{ try{ console.warn('supabase push', e.message); status('Cloud save failed: '+e.message,'err'); }catch(e2){} }); }, 6000);
 }
 async function pushSync(){
   if(!S.settings.binId || !S.settings.binKey) return false;
@@ -11588,9 +11612,11 @@ if(S.settings.binId && S.settings.binKey) Promise.resolve(pullSync(false)).then(
 /* v15.41: load subs/sessions/invoices out of IndexedDB (and migrate them off localStorage) */
 try{ idbBoot().then(r=>{ if(r.moved) status('Moved '+r.moved+' large table'+(r.moved===1?'':'s')+' into the browser database — saving works again','ok'); }); }catch(e){}
 /* v15.42: signed-in browsers sign themselves back in and pull if Postgres is ahead */
+try{ if(typeof gatePaint==='function') gatePaint(); }catch(e){}
 try{ idbOpen().catch(()=>{}); setTimeout(()=>{ try{ sbAutoSync().then(r=>{
-  if(r&&r.pulled) status('Pulled '+r.pulled.subs.toLocaleString()+' subs from Supabase · '+r.why,'ok');
+  if(r&&r.pulled){ renderAll(); status('Pulled '+r.pulled.subs.toLocaleString()+' subs from Supabase · '+r.why,'ok'); }
   else if(r&&r.error) syncStatus('supabase auto-sync: '+r.error,'err');
+  try{ gatePaint(); }catch(e){}
 }); }catch(e){} }, 1500); }catch(e){}
 /* v15.27: a fresh browser that is signed in and holds nothing pulls itself from Postgres */
 function pubAgeTick(){
