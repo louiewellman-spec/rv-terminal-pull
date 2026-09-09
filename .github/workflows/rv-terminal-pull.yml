@@ -27,7 +27,10 @@ jobs:
           SB_PASSWORD: ${{ secrets.SB_PASSWORD }}
           BIN_ID:      ${{ secrets.BIN_ID }}
           BIN_KEY:     ${{ secrets.BIN_KEY }}
-        run: bash headless/loop.sh
+          PRIVATE_DISPATCH_TOKEN: ${{ secrets.PRIVATE_DISPATCH_TOKEN }}
+        # run a COPY: the loop refreshes the checkout every slot, and bash must not have its own
+        # script file rewritten underneath it
+        run: cp headless/loop.sh /tmp/rv-loop.sh && bash /tmp/rv-loop.sh
       - name: dispatch the next link of the chain
         if: steps.chain.outputs.alive == 'true'
         env: { GH_TOKEN: "${{ github.token }}" }
