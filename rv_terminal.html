@@ -283,6 +283,13 @@ tbody tr:hover td{background:color-mix(in srgb,var(--text) 3%,transparent)}
 @media(max-width:1180px){ .hero-grid{grid-template-columns:repeat(2,minmax(0,1fr))} }
 @media(max-width:640px){ .hero-grid{grid-template-columns:1fr} .hero{min-height:0} }
 
+/* ---------- hub tab strip ---------- */
+.hubtabs{display:flex;gap:4px;margin:0 0 14px;padding:4px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;width:max-content;max-width:100%;overflow-x:auto}
+.hubtabs button{background:transparent;border:0;color:var(--muted);border-radius:999px;padding:6px 14px;font-size:12.5px;font-weight:500;font-family:var(--sans);white-space:nowrap;transition:background .12s ease,color .12s ease}
+.hubtabs button:hover{color:var(--text)}
+.hubtabs button.on{background:var(--panel);color:var(--text);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+html[data-theme="paper"] .hubtabs button.on{box-shadow:0 1px 2px rgba(16,24,40,.12)}
+@media(max-height:820px){ .hubtabs{margin-bottom:12px} }
 /* ---------- appearance picker (Account) ---------- */
 .themes{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
 .theme-opt{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r-sm);padding:8px 12px 8px 8px;color:var(--text);font-size:12px;font-weight:500;cursor:pointer}
@@ -342,26 +349,14 @@ tbody tr:hover td{background:color-mix(in srgb,var(--text) 3%,transparent)}
   <nav aria-label="Dashboard sections">
     <div class="navlab">Today</div>
     <button data-v="command" class="on" aria-current="page"><span class="dot"></span>Command</button>
-    <button data-v="reports"><span class="dot"></span>Reports</button>
-    <div class="navlab">Do today</div>
-    <button data-v="recovery"><span class="dot"></span>Recovery</button>
-    <button data-v="expansion"><span class="dot"></span>Expansion</button>
-    <button data-v="emails"><span class="dot"></span>Emails</button>
+    <button data-v="recovery" data-hub="dotoday"><span class="dot"></span>Do today</button>
     <div class="navlab">Money</div>
-    <button data-v="revenue"><span class="dot"></span>Revenue</button>
-    <button data-v="profit"><span class="dot"></span>Profit</button>
-    <button data-v="credits"><span class="dot"></span>Credits</button>
-    <div class="navlab">Growth</div>
-    <button data-v="growth"><span class="dot"></span>Growth</button>
-    <button data-v="attribution"><span class="dot"></span>Attribution</button>
-    <button data-v="joins"><span class="dot"></span>New joins</button>
-    <button data-v="lurk"><span class="dot"></span>Lurk gap</button>
-    <div class="navlab">Retention</div>
-    <button data-v="retention"><span class="dot"></span>Retention</button>
-    <button data-v="cancels"><span class="dot"></span>Cancels</button>
-    <button data-v="resigns"><span class="dot"></span>Resign-ups</button>
+    <button data-v="revenue" data-hub="revenue"><span class="dot"></span>Revenue</button>
+    <button data-v="reports"><span class="dot"></span>Reports</button>
+    <div class="navlab">Members</div>
+    <button data-v="growth" data-hub="growth"><span class="dot"></span>Growth</button>
+    <button data-v="retention" data-hub="retention"><span class="dot"></span>Retention</button>
     <div class="navlab">Setup</div>
-    <button data-v="goals"><span class="dot"></span>Goals</button>
     <button data-v="settings"><span class="dot"></span>Account</button>
     <details id="navMore"><summary>More</summary>
       <button data-v="trials"><span class="dot"></span>Trials</button>
@@ -537,11 +532,12 @@ tbody tr:hover td{background:color-mix(in srgb,var(--text) 3%,transparent)}
       <div class="card"><h3>ARR run-rate</h3><div class="big num gtx gtx-cyan" id="rvARR">—</div><div class="sn" id="rvARRD">MRR × 12 · annualised run-rate</div></div>
       <div class="card"><h3>Profit · last month</h3><div class="big num gtx gtx-green" id="rvProfit">—</div><div class="sn" id="rvProfitD">set monthly costs on the Goals page</div></div>
     </div>
-    <div class="grid c4" style="margin-top:14px">
+    <div class="grid c5" style="margin-top:14px">
       <div class="card"><h3>ARPU</h3><div class="big num" id="rvARPU">—</div><div class="sn" id="rvARPUD"></div></div>
       <div class="card"><h3>LTV · actual vs expected</h3><div class="big num gtx gtx-blue" id="rvLTV">—</div><div class="sn" id="rvLTVD"></div></div>
       <div class="card"><h3>Quick ratio · 30d</h3><div class="big num" id="rvQuick">—</div><div class="sn" id="rvQuickD">£ gained ÷ £ lost · above 1 = growing</div></div>
       <div class="card clickable" id="rvRiskCard"><h3>MRR at risk</h3><div class="big num gtx gtx-gold" id="rvRisk">—</div><div class="sn" id="rvRiskD"></div></div>
+      <div class="card"><h3>New-customer ARPU · 30d</h3><div class="big num gtx gtx-cyan" id="rvNewArpu">—</div><div class="sn" id="rvNewArpuD">average £/mo of members who first paid in the last 30 days · the earliest read on whether the £18 entry offer is diluting the book</div></div>
     </div>
 
     <div class="sec">What a member is worth <span class="tag">milestones · % who get there × £ they end up paying</span></div>
@@ -552,7 +548,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--text) 3%,transparent)}
         <div class="sn" style="margin-top:8px">Average total £ paid by month N — quitters included, frozen at whatever they paid. This is your break-even line for paid acquisition: an ad CPA below the Mo3 point pays for itself inside a quarter.</div></div>
       <div class="card"><h3>Who pays the bills · MRR by tenure</h3><div class="chartbox"><canvas id="chMrrTenure"></canvas></div>
         <div class="sn" id="mrrTenureD" style="margin-top:8px"></div></div>
-      <div class="card"><h3>Pro vs Elite · realised value</h3><div class="chartbox"><canvas id="chTierVal"></canvas></div>
+      <div class="card"><h3>Pro vs Elite · realised value</h3><div class="grid c2" style="margin-top:6px"><div><div class="sn" style="margin-top:0">Pro · avg £ paid to date</div><div class="big num gtx gtx-blue" id="tvPro">—</div><div class="sn" id="tvProD"></div></div><div><div class="sn" style="margin-top:0">Elite · avg £ paid to date</div><div class="big num gtx gtx-gold" id="tvElite">—</div><div class="sn" id="tvEliteD"></div></div></div>
         <div class="sn" id="tierValD" style="margin-top:8px"></div></div>
     </div>
 
@@ -692,9 +688,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--text) 3%,transparent)}
       <div class="card"><h3>Net members · this month</h3><div class="big num" id="gwNet">—</div><div class="sn" id="gwNetD"></div></div>
       <div class="card"><h3>On track for the MRR goal?</h3><div class="big" id="gwFc" style="font-size:21px">—</div><div class="sn" id="gwFcD">on the forecast model's pace</div></div>
     </div>
-    <div class="sec">Customer growth accounting <span class="tag">monthly · people, not pounds</span></div>
-    <div class="card"><div class="chartbox tall"><canvas id="chGrowthAcct"></canvas></div>
-      <div class="sn" style="margin-top:8px">New (green) and returning (cyan) members above the line, churned below, gold is the net. Same picture as the Revenue waterfall but in people — if the two disagree, your tier mix is shifting. Click a month for the members.</div></div>
     <div class="sec">MRR forecast <span class="tag">median-anchored model · band from measured error</span></div>
     <div class="card"><div class="chartbox tall"><canvas id="chForecast"></canvas></div>
       <div class="sn" id="fcNote" style="margin-top:8px"></div><div id="fcSeason"></div></div>
@@ -730,8 +723,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--text) 3%,transparent)}
       <div class="card"><h3>Paying members over time</h3><div class="chartbox"><canvas id="chNet"></canvas></div></div>
       <div class="card"><h3>Discord member count</h3><div class="chartbox"><canvas id="chMembers"></canvas></div></div>
     </div>
-    <div class="card" style="margin-top:14px"><h3>Re-signup share of paid starts · weekly</h3><div class="chartbox"><canvas id="chResign"></canvas></div>
-      <div class="sn">A return signal, not acquisition: first-time paid starts remain the clean new-subscriber metric everywhere else.</div></div>
   </section>
 
   <!-- ATTRIBUTION -->
@@ -768,10 +759,8 @@ tbody tr:hover td{background:color-mix(in srgb,var(--text) 3%,transparent)}
     <div class="sec">Cancel flow over time <span class="tag">voluntary vs payment failed · daily + 7d and 14d averages · read the 14d line, the daily bars are noisy</span></div>
     <div class="tfbtns" id="cfTf" style="margin-bottom:10px"><button data-d="30">30d</button><button data-d="60">60d</button><button data-d="90" class="on">90d</button><button data-d="180">180d</button></div>
     <div class="grid c2">
-      <div class="card"><h3>Voluntary cancels per day</h3><div class="chartbox"><canvas id="chCancVol"></canvas></div>
-        <div class="sn" id="cancVolNote" style="margin-top:8px"></div></div>
-      <div class="card"><h3>Payment-failed cancels per day</h3><div class="chartbox"><canvas id="chCancPF"></canvas></div>
-        <div class="sn" id="cancPFNote" style="margin-top:8px"></div></div>
+      <div class="card" style="grid-column:1 / -1"><h3>Cancels per day · voluntary vs payment failed</h3><div class="chartbox tall"><canvas id="chCancVol"></canvas></div>
+        <div class="sn" id="cancVolNote" style="margin-top:8px"></div><div class="sn" id="cancPFNote" style="margin-top:4px"></div></div>
     </div>
   </section>
 
@@ -1086,6 +1075,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--text) 3%,transparent)}
     <div class="grid c4" style="margin-top:14px">
       <div class="card"><h3>Voluntary churn · 30d</h3><div class="big num gtx gtx-gold" id="reVol">—</div><div class="sn">churned subscribers who chose to leave · stripe basis</div></div>
       <div class="card"><h3>Payment-failed churn · 30d</h3><div class="big num gtx gtx-red" id="reInvol">—</div><div class="sn">churned subscribers whose card died · recoverable</div></div>
+      <div class="card" style="grid-column:1 / -1"><h3>Two ways to say churn <span class="tag">read benchmarks on the right one</span></h3><div class="sn" id="reChurnBases" style="margin-top:0"></div></div>
       <div class="card clickable" id="reEarlyCard"><h3>Early churn · 7-day cliff</h3><div class="big num gtx gtx-red" id="reEarly">—</div><div class="sn" id="reEarlyD">of last-30d joins gone within a week</div></div>
       <div class="card"><h3>Median lifetime</h3><div class="big num" id="reMedian">—</div><div class="sn" id="reMedianD">of members who cancelled · paid days only</div></div>
     </div>
@@ -1115,11 +1105,9 @@ tbody tr:hover td{background:color-mix(in srgb,var(--text) 3%,transparent)}
       <div class="empty" id="cohortEmpty" style="display:none">Refresh data to build cohorts.</div>
     </div>
     <div class="note">Same maths as Stripe's subscriber retention table: cohort = the month someone first became a paying member, Mo1 = still active at the end of that month, and so on. Re-signups count in their original cohort, so columns can tick back up. Faded rows are small cohorts (under 30 joins) — one cancel moves them several points, don't react to those. In <b>Δ vs average</b> mode each cell shows how many points that cohort sits above (green) or below (red) the weighted average for that month.</div>
-    <div class="sec">Cohort comparison <span class="tag">which cohorts churn faster</span></div>
+    <div class="sec">Newest cohort vs the norm <span class="tag">the survival curves above already show every cohort</span></div>
     <div class="card">
-      <div class="tfbtns" id="cmpTf" style="margin-bottom:10px"><button data-v="curves" class="on">survival curves</button><button data-v="bars">Mo1 + Mo3 bars</button></div>
-      <div class="chartbox tall"><canvas id="chCohCmp"></canvas></div>
-      <div class="sn" id="cohCallout" style="margin-top:8px"></div>
+      <div class="sn" id="cohCallout" style="margin-top:0"></div>
     </div>
     <div class="sec">Early retention by join month <span class="tag">D7 / D30 / D60 · the trial-test instrument</span></div>
     <div class="card"><div class="chartbox tall"><canvas id="chDayCoh"></canvas></div>
@@ -1178,17 +1166,6 @@ tbody tr:hover td{background:color-mix(in srgb,var(--text) 3%,transparent)}
     </div>
   </section>
 
-  <!-- GOALS -->
-  <section class="view" id="v-goals">
-    <div class="grid c3">
-      <div class="card"><h3>MRR target £</h3><input type="number" id="goalMRR" aria-label="MRR target in pounds"><label for="goalMRRDate">Deadline</label><input type="date" id="goalMRRDate"></div>
-      <div class="card"><h3>Active subs target</h3><input type="number" id="goalSubs" aria-label="Active subscriber target"><label for="goalSubsDate">Deadline</label><input type="date" id="goalSubsDate"></div>
-      <div class="card"><h3>Churn target %</h3><input type="number" id="goalChurn" step="0.1" aria-label="Churn target percentage"><div class="sn" id="goalChurnD" style="margin-top:10px">monthly churn to stay under · powers the pill on the Command churn card</div></div>
-      <div class="card"><h3>Monthly costs £</h3><input type="number" id="goalCosts" step="1" placeholder="tools, bots, creator payouts…" aria-label="Monthly costs in pounds"><div class="sn" style="margin-top:10px">everything the business spends per month · powers the Profit card on Revenue</div></div>
-    </div>
-    <div class="row" style="margin-top:14px"><button class="btn" id="saveGoalsBtn">Save goals</button></div>
-    <div class="note">These power the progress bars at the top of Command and the on-track card on Growth.</div>
-  </section>
 
   <!-- SETTINGS -->
   <section class="view" id="v-settings">
@@ -1216,6 +1193,16 @@ tbody tr:hover td{background:color-mix(in srgb,var(--text) 3%,transparent)}
         <label for="sTierSplit">Elite fallback price threshold £</label>
         <input id="sTierSplit" type="number" min="1" step="1" inputmode="decimal">
       </div>
+    </div>
+    <div id="goalsCard" style="margin-top:14px">
+      <div class="sec" style="margin-top:0">Goals <span class="tag">power the progress bars on Command and the on-track card on Growth</span></div>
+    <div class="grid c3">
+      <div class="card"><h3>MRR target £</h3><input type="number" id="goalMRR" aria-label="MRR target in pounds"><label for="goalMRRDate">Deadline</label><input type="date" id="goalMRRDate"></div>
+      <div class="card"><h3>Active subs target</h3><input type="number" id="goalSubs" aria-label="Active subscriber target"><label for="goalSubsDate">Deadline</label><input type="date" id="goalSubsDate"></div>
+      <div class="card"><h3>Churn target %</h3><input type="number" id="goalChurn" step="0.1" aria-label="Churn target percentage"><div class="sn" id="goalChurnD" style="margin-top:10px">monthly churn to stay under · powers the pill on the Command churn card</div></div>
+      <div class="card"><h3>Monthly costs £</h3><input type="number" id="goalCosts" step="1" placeholder="tools, bots, creator payouts…" aria-label="Monthly costs in pounds"><div class="sn" style="margin-top:10px">everything the business spends per month · powers the Profit card on Revenue</div></div>
+    </div>
+    <div class="row" style="margin-top:14px"><button class="btn" id="saveGoalsBtn">Save goals</button></div>
     </div>
     <div class="card" style="margin-top:14px">
       <h3>Appearance <span class="tag">this browser</span></h3>
@@ -1538,6 +1525,9 @@ async function stripeGet(path, params){
     await new Promise(z=>setTimeout(z, 2000*(a+1)));
   }
 }
+/* v15.83: Stripe's processing fee on a charge — expanded balance_transaction.fee in minor units.
+   Zero (not a guess) when the charge was fetched before the expand was added. */
+function stripeFeeOf(c){ const bt=c&&c.balance_transaction; return (bt&&typeof bt==='object'&&isFinite(bt.fee))? bt.fee/100 : 0; }
 async function stripeAll(path, params, maxPages, label){
   let out=[], after=null;
   for(let p=0;p<maxPages;p++){
@@ -1551,7 +1541,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.82';
+const BUILD = 'v15.83';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2076,14 +2066,15 @@ async function refresh(){
     try{
       if(S.cash && S.cash.byMonth){
         const nd=new Date(); const pmStart=Date.UTC(nd.getUTCFullYear(), nd.getUTCMonth()-1, 1);
-        const rch = await stripeAll('/v1/charges', {'created[gte]': Math.floor(pmStart/1000)}, 30, 'recent charges');
+        const rch = await stripeAll('/v1/charges', {'created[gte]': Math.floor(pmStart/1000), 'expand[]':['data.balance_transaction']}, 30, 'recent charges');
         const bm={}, bd={};
         rch.forEach(c=>{ const k=new Date(c.created*1000).toISOString().slice(0,7);
           const dk2=new Date(c.created*1000).toISOString().slice(0,10);
-          const b=bm[k]||(bm[k]={paid:0,refunded:0});
-          const b2=bd[dk2]||(bd[dk2]={paid:0,refunded:0});
+          const b=bm[k]||(bm[k]={paid:0,refunded:0,fee:0});
+          const b2=bd[dk2]||(bd[dk2]={paid:0,refunded:0,fee:0});
           const f=(c.currency||'gbp')==='eur'?EURGBP:1;
-          if(c.paid && c.status==='succeeded'){ b.paid += c.amount/100*f; b2.paid += c.amount/100*f; }
+          if(c.paid && c.status==='succeeded'){ b.paid += c.amount/100*f; b2.paid += c.amount/100*f;
+            const fee=stripeFeeOf(c)*f; b.fee=(b.fee||0)+fee; b2.fee=(b2.fee||0)+fee; }
           if(c.amount_refunded){ b.refunded += c.amount_refunded/100*f; b2.refunded += c.amount_refunded/100*f; } });
         Object.keys(bm).forEach(k=>{ S.cash.byMonth[k]=bm[k]; });
         S.cash.byDay=Object.assign({}, S.cash.byDay||{}, bd);
@@ -3136,7 +3127,9 @@ function compute(){
   return {active:custCount, subsCount:payers.length, pastDue:pastDueSubs.length, pdMRR,
     attrMonths, attrCov, attrSince, mrrSeries, wkFlow, joins, proJ7, eliteJ7, onceMRR, newDetail,
     pausedN:pausedSubs.length, pausedMRR, capeN:capeSubs.length, capeMRR, zeroN, firstPaymentPendingN:firstPaymentPending.length, firstPaymentPendingMRR, fOffSum, rOffSum, netMRR, pdDetail, pdStalled, pdCancelled, cancelsDetail, capeList, mrrMove:mv, joinsAll, trialsAll, excl:excl.length, exclMRR, eurCount:eurSubs.length, eurMRR, elite, pro, eliteSubs, proSubs, mrr, grossMRR, ghosts30, statusCounts,
-    arpu, churn, churnTrailing, churnBase30:baseCust.length, churnAdded30:addedCust.length, churnGone30:goneCust.length, ltv, new30, new7, canc30:c30.length,
+    arpu, churn, churnTrailing, churnBase30:baseCust.length, churnAdded30:addedCust.length, churnGone30:goneCust.length,
+    /* v15.83: the same 30 days on the opening-base denominator (churned ÷ members 30 days ago), which is what Baremetrics and ChartMogul benchmarks quote */
+    churnOpening: baseCust.length? goneCust.length/baseCust.length*100 : NaN, ltv, new30, new7, canc30:c30.length,
     vol:goneCust.length-invol, invol, newPerDay, cancPerDay, cohorts, cohortsByTier, m12, worstDrop, tenureBuckets, attr,
     waterfall:monthRows, nrrSeries, dayCohorts, tenureHazard, tenureHazardWin, realizedLTV, medianTenure, earlyChurn, earlyChurnWin, cancelsByMonth, cmgr, mrrForecast, channelChurn, channelEcon, affChurn, affEcon, laneUse, tierChurn, tierChurnTrend, recoveryData, resigns, expansion, lurk,
     valueLadder, cumValue, mrrTenure, tierValue};
@@ -3156,6 +3149,11 @@ window.Chart=new Proxy(window.Chart,{ construct(target,args){
   const a0=args[0], el=a0&&a0.canvas? a0.canvas : a0, id=el&&el.id;
   if(id){ chartCfg[id]=args[1]; chartBuiltHidden[id]=(el.offsetParent===null); }
   return inst; } });
+/* v15.83: series memo. The heavy chart series (a full sweep of the subscriber list per point)
+   are computed once per data version and reused until the next pull or a timeframe change. */
+let _memoVer='', _memo={};
+function seriesVersion(){ return String((S.lastFetch&&(S.lastFetch.t||S.lastFetch))||0)+'|'+(S.subs? S.subs.length:0)+'|'+(S.sessions? S.sessions.length:0)+'|'+(S.recovery&&S.recovery.cases? Object.keys(S.recovery.cases).length:0); }
+function memoSeries(key, fn){ const v=seriesVersion(); if(v!==_memoVer){ _memo={}; _memoVer=v; } if(!(key in _memo)) _memo[key]=fn(); return _memo[key]; }
 function chart(id,cfg){
   const cv=document.getElementById(id); if(!cv) return null;
   if(charts[id]) charts[id].destroy();
@@ -3351,7 +3349,7 @@ function renderAll(){
     el3.textContent = m.vol+' chose to leave · '+m.invol+' payment failed';
     el3.title = m.churnGone30+' churned of '+m.churnBase30+' members 30 days ago + '+m.churnAdded30+' new joins in the window (Stripe subscriber-churn methodology)';
     const cf=document.getElementById('ovChurnFoot');
-    if(cf) cf.innerHTML = m.churnGone30+' of '+m.churnBase30+' members'+(gCh? ' · <span class="'+(m.churn<=gCh?'gtx gtx-green':'gtx gtx-red')+'">target '+gCh+'%</span>':''); }
+    if(cf) cf.innerHTML = m.churnGone30+' of '+m.churnBase30+' members'+(isFinite(m.churnOpening)? ' · <span title="churned ÷ members 30 days ago — the Baremetrics / ChartMogul denominator; Stripe adds new joins to the base, so ours reads lower">'+m.churnOpening.toFixed(1)+'% opening-base</span>':'')+(gCh? ' · <span class="'+(m.churn<=gCh?'gtx gtx-green':'gtx gtx-red')+'">target '+gCh+'%</span>':''); }
   document.getElementById('ovLTV').textContent = (m.realizedLTV&&m.realizedLTV.gbp!=null)? fmtGBP(m.realizedLTV.gbp) : (isFinite(m.ltv)? fmtGBP(m.ltv):'—');
   { const lvd=document.getElementById('ovLTVD');
     if(lvd) lvd.textContent='really paid per joiner'+(isFinite(m.ltv)? ' · expected '+fmtGBP(m.ltv)+' if today’s churn holds':'')+' · click for the expected trend'; }
@@ -3388,7 +3386,7 @@ function renderAll(){
     const pk = pd.toISOString().slice(0,7);
     const cm = S.cash.byMonth[mk]||{paid:0,refunded:0}, pm = S.cash.byMonth[pk]||{paid:0,refunded:0};
     document.getElementById('ovCash').textContent = fmtGBP(cm.paid);
-    document.getElementById('ovCashD').textContent = 'last month '+fmtGBP(pm.paid)+' · updated '+new Date(S.cash.recentAt||S.cash.updated).toLocaleDateString('en-GB');
+    document.getElementById('ovCashD').textContent = 'last month '+fmtGBP(pm.paid)+(cm.fee>0? ' · Stripe fees '+fmtGBP(cm.fee)+' ('+(cm.fee/cm.paid*100).toFixed(1)+'%) · net '+fmtGBP(cm.paid-cm.fee):'')+' · updated '+new Date(S.cash.recentAt||S.cash.updated).toLocaleDateString('en-GB');
     document.getElementById('ovRef').textContent = fmtGBP(cm.refunded);
     const refRate=(cm.paid>0 && cm.refunded!=null)? cm.refunded/cm.paid*100 : null;
     document.getElementById('ovRefD').innerHTML = 'last month '+fmtGBP(pm.refunded)
@@ -3414,56 +3412,62 @@ function renderAll(){
       : 'none open';
   }
 
-  drawMRRChart();
-
-  /* growth */
-  drawJoinsBig();
-  try{ drawJoinsNeeded(); }catch(e){ reportNonFatal('Joins needed panel', e); }
-  drawNetFlow('chCancBig');
-  drawGrowthFlow(m);
+  /* ---- always: state that other pages, the bridge digest and the runner rely on ---- */
+  document.getElementById('topKpi').innerHTML = '<span class="gtx gtx-blue">'+fmtGBP(m.mrr)+'</span> · <span class="gtx gtx-gold">'+m.active+' subs</span> · <span class="gtx gtx-red">'+(isFinite(m.churn)? m.churn.toFixed(1):'—')+'% churn</span>';
+  document.getElementById('ovCape').textContent = m.capeN;
+  document.getElementById('ovCapeD').textContent = fmtGBP(m.capeMRR)+'/mo leaving unless saved · click for the list';
+  try{ weeklyState(); }catch(e){ reportNonFatal('Weekly lock', e); }          /* writes S.weekly locks/scores — was a side effect of drawJoinsNeeded */
+  try{ rcMaintain(m); }catch(e){ reportNonFatal('Recovery cases', e); }       /* opens/closes recovery cases — was a side effect of drawRecoveryPage */
+  drawJoinsPage();                                                             /* joinsRowsCur feeds the Command "already gone" list and the exports */
+  /* ---- v15.83 render engine: every page is marked stale, only the open one is painted now;
+     the rest paint on arrival (switchView). A 5-minute auto-pull used to rebuild ~50 charts
+     on 18 hidden pages; now it rebuilds the 5-11 you are looking at. ---- */
+  Object.keys(PAGE_DRAWS).forEach(v=>{ pageDirty[v]=true; });
+  const cv=currentView();
+  paintPage(cv, m);
+  enhanceInteractive(document.getElementById('v-'+cv)||document);
+}
+/* page → the painters that only touch that page. Pure paints only: anything with a side effect
+   another page or the bridge reads is in the always-block above. */
+const PAGE_DRAWS={
+  command:[m=>drawMrrMove(m), m=>{ buildAlerts(m); drawHeroExtras(m); setPulseExtras(m); }, m=>drawFunnelStrip(m)],
+  revenue:[()=>drawMRRChart(), ()=>drawRevenuePage()],
+  growth:[()=>drawJoinsBig(), ()=>drawJoinsNeeded(), ()=>drawNetFlow('chCancBig'), m=>drawGrowthFlow(m), m=>drawGrowthCharts(m), ()=>drawGrowthExtras()],
+  attribution:[()=>drawAttribution()],
+  credits:[()=>drawCreditsPage()],
+  cancels:[()=>drawCancelsPage()],
+  trials:[()=>drawTrialsPage()],
+  retention:[()=>drawRetentionPage()],
+  expansion:[()=>{ twCount(); drawExpEmails(); drawUpgrades(); drawCheckins(); }, ()=>drawExpansionPage()],
+  reports:[()=>drawReportsPage()],
+  recovery:[()=>drawRecoveryPage()],
+  resigns:[()=>drawResignsPage()],
+  changes:[()=>drawChangesPage()],
+  lurk:[()=>drawLurkPage()],
+  profit:[()=>{ void drawProfitPage(); }],
+  emails:[()=>drawEmailsPage()]
+};
+const PAGE_LABEL={command:'Command',revenue:'Revenue',growth:'Growth',attribution:'Attribution',credits:'Credits',cancels:'Cancels',trials:'Trials',retention:'Retention',expansion:'Expansion',reports:'Reports',recovery:'Recovery',resigns:'Resign-ups',changes:'Pro revamp',lurk:'Lurk gap',profit:'Profit',emails:'Emails'};
+const pageDirty={};
+function currentView(){ const el=document.querySelector('.view.on'); return el&&el.id? el.id.slice(2) : 'command'; }
+function paintPage(v, m){
+  const fns=PAGE_DRAWS[v]; if(!fns) return false;
+  if(m==null) m=lastM; if(!m) return false;
+  fns.forEach(f=>{ try{ f(m); }catch(e){ reportNonFatal((PAGE_LABEL[v]||v)+' page', e); } });
+  pageDirty[v]=false; return true;
+}
+function drawGrowthCharts(m){
+  const snaps=S.snapshots||[];
   /* paying members reconstructed */
-  const subsAll = liveSubsList(), nowT=Date.now();
-  const payLbl=[], payVal=[], payFull=[], payPrev=[];
-  for(let i=179;i>=0;i-=2){ const t=nowT-i*D; payLbl.push(dayKey(t).slice(5)); payFull.push(longDate(t)); payVal.push(activeAt(subsAll,t)); payPrev.push(activeAt(subsAll, t-180*D)); }
+  const nowT=Date.now();
+  const {payLbl,payVal,payFull,payPrev}=memoSeries('chNet|'+dayKey(nowT), ()=>{ const subsAll=liveSubsList(), payLbl=[], payVal=[], payFull=[], payPrev=[];
+    for(let i=179;i>=0;i-=2){ const t=nowT-i*D; payLbl.push(dayKey(t).slice(5)); payFull.push(longDate(t)); payVal.push(activeAt(subsAll,t)); payPrev.push(activeAt(subsAll, t-180*D)); }
+    return {payLbl,payVal,payFull,payPrev}; });
   chart('chNet',{type:'line',data:{labels:payLbl,fullDates:payFull,datasets:[
     {label:'Paying members',data:payVal,borderColor:PAL.good,pointRadius:0,borderWidth:2},
     {label:'previous period',data:payPrev,borderColor:rgbaOf(PAL.muted,.55),borderDash:[4,4],borderWidth:1.5,pointRadius:0}]},options:{...op,plugins:{...op.plugins,legend:{display:true,labels:{color:PAL.muted,boxWidth:10,boxHeight:10}}},scales:{x:{...sc.x,ticks:{...sc.x.ticks,maxTicksLimit:9}},y:{...sc.y,beginAtZero:false}}}});
-  /* re-signup share weekly */
-  const rsL=[], rsV=[], rsFull=[];
-  const monR=mondayOf(nowT);
-  for(let w=11;w>=0;w--){ const start=monR-w*7*D, end=Math.min(start+7*D, nowT+1);
-    const inw=(m.newDetail||[]).filter(x=>x.t>=start&&x.t<end);
-    rsL.push(new Date(start).toLocaleDateString('en-GB',{day:'numeric',month:'short'}));
-    rsFull.push('week of '+longDate(start));
-    rsV.push(inw.length? Math.round(inw.filter(x=>x.resign).length/inw.length*100) : 0); }
-  chart('chResign',{type:'line',data:{labels:rsL,fullDates:rsFull,datasets:[{label:'% re-signups',data:rsV,borderColor:PAL.gold,backgroundColor:rgbaOf(PAL.gold,.1),fill:true,tension:.3,pointRadius:3,borderWidth:2.5}]},options:{...op,plugins:{...op.plugins,legend:{display:false}},scales:{x:sc.x,y:{...sc.y,ticks:{...sc.y.ticks,callback:v=>v+'%'}}}}});
   chart('chMembers',{type:'line',data:{labels:snaps.map(s=>s.d.slice(5)),fullDates:snaps.map(s=>longDate(Date.parse(s.d))),datasets:[{label:'Discord members',data:snaps.map(s=>s.members),borderColor:PAL.gold,backgroundColor:rgbaOf(PAL.gold,.1),fill:true,tension:.3,pointRadius:2}]},options:{...op,scales:{...sc,y:{...sc.y,beginAtZero:false}}}});
 
-  document.getElementById('topKpi').innerHTML = '<span class="gtx gtx-blue">'+fmtGBP(m.mrr)+'</span> · <span class="gtx gtx-gold">'+m.active+' subs</span> · <span class="gtx gtx-red">'+(isFinite(m.churn)? m.churn.toFixed(1)+'% churn':'—')+'</span>';
-  document.getElementById('ovCape').textContent = m.capeN;
-  document.getElementById('ovCapeD').textContent = fmtGBP(m.capeMRR)+'/mo leaving unless saved · click for the list';
-  drawMrrMove(m);
-  buildAlerts(m); drawHeroExtras(m); setPulseExtras(m);
-  try{ drawFunnelStrip(m); }catch(e){ reportNonFatal('Command funnel',e); }
-  drawAttribution();
-
-  drawJoinsPage();
-  try{ if(document.getElementById('v-profit').classList.contains('on')) void drawProfitPage(); }catch(e){}
-  try{ drawCreditsPage(); }catch(e){}
-  try{ drawCancelsPage(); }catch(e){ reportNonFatal('Cancels page',e); }
-  try{ drawTrialsPage(); }catch(e){ reportNonFatal('Trials page',e); }
-  try{ drawRevenuePage(); }catch(e){ reportNonFatal('Revenue page',e); }
-
-  /* retention + growth extras */
-  try{ drawRetentionPage(); }catch(e){ reportNonFatal('Retention page',e); }
-  try{ drawGrowthExtras(); }catch(e){ reportNonFatal('Growth page',e); }
-  try{ drawReportsPage(); }catch(e){ reportNonFatal('Reports page',e); }
-  try{ drawRecoveryPage(); }catch(e){ reportNonFatal('Recovery page',e); }
-  try{ drawResignsPage(); }catch(e){ reportNonFatal('Resign-ups page',e); }
-  try{ drawChangesPage(); }catch(e){ reportNonFatal('Pro revamp page',e); }
-  try{ drawExpansionPage(); }catch(e){ reportNonFatal('Expansion page',e); }
-  try{ drawLurkPage(); }catch(e){ reportNonFatal('Lurk gap page',e); }
-  enhanceInteractive(document);
 }
 
 /* ---------- goals / settings / backup ---------- */
@@ -3603,21 +3607,21 @@ async function deepPull(){
   try{
     await fetchFx();
     status('Deep pull · charge history (can take a minute)…');
-    const ch = await stripeAll('/v1/charges', {}, 1000, 'charges');
+    const ch = await stripeAll('/v1/charges', {'expand[]':['data.balance_transaction']}, 1000, 'charges');
     const byMonth = {};
     ch.forEach(c=>{
       const k = new Date(c.created*1000).toISOString().slice(0,7);
-      const m = byMonth[k] || (byMonth[k]={paid:0,refunded:0});
+      const m = byMonth[k] || (byMonth[k]={paid:0,refunded:0,fee:0});
       const f = (c.currency||'gbp')==='eur' ? EURGBP : 1;
-      if(c.paid && c.status==='succeeded') m.paid += c.amount/100*f;
+      if(c.paid && c.status==='succeeded'){ m.paid += c.amount/100*f; m.fee=(m.fee||0)+stripeFeeOf(c)*f; }
       if(c.amount_refunded) m.refunded += c.amount_refunded/100*f;
     });
     const byDay={};
     ch.forEach(c=>{
       const k=new Date(c.created*1000).toISOString().slice(0,10);
-      const b=byDay[k]||(byDay[k]={paid:0,refunded:0});
+      const b=byDay[k]||(byDay[k]={paid:0,refunded:0,fee:0});
       const f=(c.currency||'gbp')==='eur' ? EURGBP : 1;
-      if(c.paid && c.status==='succeeded') b.paid += c.amount/100*f;
+      if(c.paid && c.status==='succeeded'){ b.paid += c.amount/100*f; b.fee=(b.fee||0)+stripeFeeOf(c)*f; }
       if(c.amount_refunded) b.refunded += c.amount_refunded/100*f;
     });
     /* keep ~14 months so "same date last month" always has a partner, and never drop
@@ -3716,7 +3720,7 @@ function buildExport(){
       d.computed={
         asOf:new Date().toISOString(), build:BUILD,
         headline:{ mrrGBP:Math.round(m.mrr), grossMrrGBP:Math.round(m.grossMRR), activeSubscribers:m.active, subscriptions:m.subsCount,
-          pro:m.pro, elite:m.elite, churnPct:+((m.churn||0).toFixed(2)), churnBase30:m.churnBase30, churnGone30:m.churnGone30, churnTrailingPct:+((m.churnTrailing||0).toFixed(2)), arpuGBP:+((m.arpu||0).toFixed(2)),
+          pro:m.pro, elite:m.elite, churnPct:+((m.churn||0).toFixed(2)), churnOpeningBasePct:isFinite(m.churnOpening)? +m.churnOpening.toFixed(2):null, churnBase30:m.churnBase30, churnGone30:m.churnGone30, churnTrailingPct:+((m.churnTrailing||0).toFixed(2)), arpuGBP:+((m.arpu||0).toFixed(2)),
           pastDue:{members:m.pastDue, mrrGBP:Math.round(m.pdMRR)}, pendingCancels:{members:m.capeN, mrrGBP:Math.round(m.capeMRR)},
           pausedN:m.pausedN, new30:m.new30, new7:m.new7, cancels30:m.canc30, cancels30PaymentFailed:(m.pdCancelled||[]).length,
         subscriberChurn30d:{base:m.churnBase30, added:m.churnAdded30, churned:m.churnGone30, churnedVoluntary:m.vol, churnedPaymentFailed:m.invol} },
@@ -4065,7 +4069,10 @@ function analystDigest(){
       pendingCancellations:{members:m.capeN, mrrAtRiskGBP:Math.round(m.capeMRR), note:'scheduled to leave at period end, saveable now'},
       pastDueInvoices:{members:m.pastDue, mrrAtRiskGBP:Math.round(m.pdMRR), note:'dunning has 7 days to recover each'},
       newSubsLast30d:m.new30, cancelsLast30d:m.canc30, ofWhichPaymentFailed:(m.pdCancelled||[]).length,
-      subscriberChurn30d:{membersInBase30dAgo:m.churnBase30, newInWindow:m.churnAdded30, churned:m.churnGone30, churnedVoluntary:m.vol, churnedPaymentFailed:m.invol, note:'stripe subscriber churn methodology',
+      stripeFees:(function(){ try{ const bm=S.cash&&S.cash.byMonth; if(!bm) return null; const mk=new Date().toISOString().slice(0,7); const pd=new Date(); pd.setUTCDate(1); pd.setUTCMonth(pd.getUTCMonth()-1); const pk=pd.toISOString().slice(0,7);
+        const f=k=>{ const b=bm[k]; if(!b||!(b.fee>0)) return null; return {grossGBP:Math.round(b.paid), feesGBP:Math.round(b.fee), netGBP:Math.round(b.paid-b.fee), feePct:+(b.fee/b.paid*100).toFixed(2)}; };
+        return {thisMonth:f(mk), lastMonth:f(pk), note:'Stripe processing fees from balance_transaction.fee on succeeded charges; null until the runner has refetched charges with the fee expanded'}; }catch(e){ return null; } })(),
+      subscriberChurn30d:{membersInBase30dAgo:m.churnBase30, newInWindow:m.churnAdded30, churned:m.churnGone30, churnedVoluntary:m.vol, churnedPaymentFailed:m.invol, openingBasePct:isFinite(m.churnOpening)? +m.churnOpening.toFixed(2):null, note:'stripe subscriber churn methodology; openingBasePct = churned ÷ members 30d ago (Baremetrics/ChartMogul basis)',
         byTier:(function(){ const cut=now-30*D, agg={pro:{voluntary:0,paymentFailed:0}, elite:{voluntary:0,paymentFailed:0}};
           ((m.cancelsDetail)||[]).filter(r=>r.created>=cut).forEach(r=>{ agg[r.tier==='elite'?'elite':'pro'][r.reason==='payment failed'?'paymentFailed':'voluntary']++; });
           agg.note='subscription-level counts; the customer-level churned figure above can differ slightly'; return agg; })()},
@@ -4188,9 +4195,11 @@ function drawNetFlow(cid){
   const now=Date.now();
   const nd=(lastM&&lastM.newDetail)||[];
   const labels=[], jv=[], cvv=[], nv=[], fulls=[];
+  const fv=[], rv=[];
   const countIn=(t0,t1)=>{
-    const j=nd.filter(x=>x.t>=t0&&x.t<t1).length;
-    return [j,coachCancels(t0,t1).length];
+    const inw=nd.filter(x=>x.t>=t0&&x.t<t1); const f=inw.filter(x=>!x.resign).length, r=inw.length-f;
+    fv.push(f); rv.push(r);
+    return [inw.length,coachCancels(t0,t1).length];
   };
   if(growthGran==='d'){
     for(let i=29;i>=0;i--){ const t1=Date.parse(dayKey(now-i*D))+24*3600*1000, t0=t1-24*3600*1000;
@@ -4208,12 +4217,17 @@ function drawNetFlow(cid){
   if(charts[cid]) charts[cid].destroy();
   const baseTT=(op.plugins&&op.plugins.tooltip)||{};
   const flowSets=[
-    {type:'bar',label:'Joins',data:jv,backgroundColor:rgbaOf(PAL.good,.75),borderRadius:4,stack:'s'},
+    {type:'bar',label:'New',data:fv,backgroundColor:rgbaOf(PAL.good,.75),borderRadius:4,stack:'s'},
+    {type:'bar',label:'Resurrected',data:rv,backgroundColor:rgbaOf(PAL.cyan,.75),borderRadius:4,stack:'s'},
     {type:'bar',label:'Cancels',data:cvv,backgroundColor:rgbaOf(PAL.bad,.7),borderRadius:4,stack:'s'},
     {type:'line',label:growthGran==='d'?'Net · daily':'Net',data:nv,borderColor:growthGran==='d'?rgbaOf(PAL.gold,.35):PAL.gold,borderWidth:growthGran==='d'?1.5:2.5,pointRadius:growthGran==='d'?1:3,tension:.3}
   ];
   if(growthGran==='d') flowSets.push({type:'line',label:'Net · 7-day average',data:movAvg(nv,7),borderColor:PAL.gold,borderWidth:3,pointRadius:0,tension:.25});
-  charts[cid]=new Chart(cv,{data:{labels,fullDates:fulls,rvMeta:(growthGran==='d'?'daily · rolling 7-day signal':growthGran==='w'?'weekly · weeks start Monday':'monthly'),datasets:flowSets},options:{...op,plugins:{...op.plugins,legend:{display:true,labels:{color:PAL.muted}},
+  const wfRows=(lastM&&lastM.waterfall)||[];
+  charts[cid]=new Chart(cv,{data:{labels,fullDates:fulls,rvMeta:(growthGran==='d'?'daily · rolling 7-day signal':growthGran==='w'?'weekly · weeks start Monday':'monthly'),datasets:flowSets},options:{...op,
+    onClick:(e,els,c)=>{ if(growthGran!=='m') return; const pts=c.getElementsAtEventForMode(e,'index',{intersect:false},true); if(!pts.length) return;
+      const row=wfRows.find(r=>r.label===labels[pts[0].index]); if(row) wfMonthModal(row); },
+    plugins:{...op.plugins,legend:{display:true,labels:{color:PAL.muted}},
     tooltip:{...baseTT,callbacks:{...(baseTT.callbacks||{}),
       label:(item)=> item.dataset.label+': '+(item.dataset.label==='Cancels'? Math.abs(item.parsed.y) : item.parsed.y),
       footer:(items)=>{ const i=items[0].dataIndex; const n=nv[i]; return 'net active change: '+(n>=0?'+':'')+n; }}}},
@@ -4236,15 +4250,19 @@ function drawJoinsBig(){
   }
   const cv=document.getElementById('chJoinsBig'); if(!cv) return;
   if(charts.chJoinsBig) charts.chJoinsBig.destroy();
-  charts.chJoinsBig=new Chart(cv,{type:'line',data:{labels,fullDates:fulls,datasets:[
-    {label:'Discord joins · 7d avg',data:movAvg(dj,7),borderColor:PAL.accent,borderWidth:3,pointRadius:0,tension:.35,yAxisID:'y'},
-    {label:'Discord joins · daily',data:dj,borderColor:rgbaOf(PAL.accent,.3),borderWidth:1.5,pointRadius:0,tension:.3,yAxisID:'y'},
-    {label:'Paid joins · 7d avg',data:movAvg(pj,7),borderColor:PAL.good,borderWidth:3,pointRadius:0,tension:.35,yAxisID:'y1'},
-    {label:'Paid joins · daily',data:pj,borderColor:rgbaOf(PAL.good,.3),borderWidth:1.5,pointRadius:0,tension:.3,yAxisID:'y1'}
-  ]},options:{...op,plugins:{...op.plugins,legend:{display:true,labels:{color:PAL.muted,filter:i=>/avg/.test(i.text)}}},scales:{
+  /* v15.83: Discord joins (~40/day) and paid joins (~1-2/day) on two axes looked comparable and
+     differ thirty-fold. Bars for joins, and a line for paid-that-day as a % of joins-that-day. */
+  const rat7=[]; for(let i=0;i<pj.length;i++){ let a=0,b=0; for(let k=Math.max(0,i-6);k<=i;k++){ a+=pj[k]||0; b+=dj[k]||0; } rat7.push(b>0? Math.round(a/b*1000)/10 : null); }
+  charts.chJoinsBig=new Chart(cv,{type:'bar',data:{labels,fullDates:fulls,datasets:[
+    {type:'bar',label:'Discord joins',data:dj,backgroundColor:rgbaOf(PAL.accent,.55),borderRadius:4,yAxisID:'y',order:3},
+    {type:'line',label:'Discord joins · 7d avg',data:movAvg(dj.map(v=>v==null?0:v),7),borderColor:PAL.accent,borderWidth:2.5,pointRadius:0,tension:.35,yAxisID:'y',order:2},
+    {type:'line',label:'Paid joins as % of Discord joins · 7d',data:rat7,borderColor:PAL.good,borderWidth:3,pointRadius:0,tension:.35,yAxisID:'y1',order:1,spanGaps:true}
+  ]},options:{...op,plugins:{...op.plugins,legend:{display:true,labels:{color:PAL.muted}},tooltip:{...TT,callbacks:{...TT.callbacks,
+      label:c=>c.dataset.yAxisID==='y1'? c.dataset.label+': '+(c.raw==null?'—':(Math.round(c.raw*10)/10)+'%') : c.dataset.label+': '+(c.raw==null?'—':Math.round(c.raw*10)/10),
+      footer:items=>{ const i=items[0].dataIndex; return 'paid joins that day: '+pj[i]; }}}},scales:{
     x:{grid:{color:rgbaOf(PAL.muted,.1)},ticks:{color:PAL.muted,maxTicksLimit:12}},
     y:{position:'left',grid:{color:rgbaOf(PAL.muted,.1)},ticks:{color:PAL.accent},beginAtZero:true,title:{display:true,text:'discord joins',color:PAL.accent,font:{size:11}}},
-    y1:{position:'right',grid:{drawOnChartArea:false},ticks:{color:PAL.good},beginAtZero:true,title:{display:true,text:'paid joins',color:PAL.good,font:{size:11}}}
+    y1:{position:'right',grid:{drawOnChartArea:false},ticks:{color:PAL.good,callback:v=>v+'%'},beginAtZero:true,title:{display:true,text:'paid ÷ discord joins · 7 days',color:PAL.good,font:{size:11}}}
   }}});
 }
 /* ---------- net MRR movement ---------- */
@@ -4533,10 +4551,11 @@ function drawCancelFlow(){
      Daily cancel counts are SMALL (0-4) — the 14d line is the readable signal. */
   if(!lastM) return;
   const all=(lastM.cancelsDetail)||[], now=Date.now();
+  /* v15.83: one bucketing pass instead of 360 filters, memoised until the next pull */
+  const byDay=memoSeries('cancelFlow|'+dayKey(now)+'|'+all.length, ()=>{ const o={}; all.forEach(r=>{ const k=dayKey(r.created); const b=o[k]||(o[k]={}); b[r.reason]=(b[r.reason]||0)+1; }); return o; });
   const mk=reason=>{
     const days=[], counts=[];
-    for(let i=179;i>=0;i--){ const k=dayKey(now-i*D); days.push(k.slice(5));
-      counts.push(all.filter(r=>r.reason===reason && dayKey(r.created)===k).length); }
+    for(let i=179;i>=0;i--){ const k=dayKey(now-i*D); days.push(k.slice(5)); counts.push((byDay[k]&&byDay[k][reason])||0); }
     return {days, counts, ma7:movAvg(counts,7), ma14:movAvg(counts,14)};
   };
   const noiseNote=(counts,label)=>{
@@ -4547,21 +4566,19 @@ function drawCancelFlow(){
            : '<span style="color:var(--dim)">within noise at these counts (a swing of ±'+Math.ceil(2*Math.sqrt(a+b||1))+' means nothing)</span>')
       +'. '+label;
   };
-  const draw=(id, noteId, reason, col, label)=>{
-    const s=mk(reason), cut=180-cfTfD;
-    chart(id,{type:'bar',data:{labels:s.days.slice(cut),datasets:[
-      {label:'Cancels',data:s.counts.slice(cut),backgroundColor:col+'B0',borderRadius:2,order:3},
-      {label:'7-day avg',data:s.ma7.slice(cut),type:'line',borderColor:PAL.muted,borderWidth:1.5,borderDash:[5,4],pointRadius:0,tension:.3,order:2,noGlow:true},
-      {label:'14-day avg',data:s.ma14.slice(cut),type:'line',borderColor:PAL.gold,borderWidth:2.5,pointRadius:0,tension:.3,order:1}]},
-      options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,
-        label:c=>c.datasetIndex===0? c.raw+' cancel'+(c.raw===1?'':'s') : c.dataset.label+': '+(Math.round(c.raw*100)/100)+'/day'}}},
-        scales:{x:{grid:{display:false},ticks:{color:tickCol,autoSkip:true,maxTicksLimit:10}},
-          y:{beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol,stepSize:1}}}}});
-    setH2(noteId, noiseNote(s.counts, label));
-  };
-  const setH2=(id,v)=>{ const el=document.getElementById(id); if(el) el.innerHTML=v; };
-  draw('chCancVol','cancVolNote','voluntary',PAL.gold,'Voluntary = they chose to leave — offer, content and expectation problems live here.');
-  draw('chCancPF','cancPFNote','payment failed',PAL.bad,'Payment-failed = dunning problems, not product problems — the Recovery page works this list.');
+  const sv=mk('voluntary'), sp=mk('payment failed'), cut=180-cfTfD;
+  const tot=sv.counts.map((v,i)=>v+sp.counts[i]);
+  chart('chCancVol',{type:'bar',data:{labels:sv.days.slice(cut),datasets:[
+    {label:'Voluntary',data:sv.counts.slice(cut),backgroundColor:rgbaOf(PAL.gold,.7),borderRadius:2,stack:'c',order:3},
+    {label:'Payment failed',data:sp.counts.slice(cut),backgroundColor:rgbaOf(PAL.bad,.7),borderRadius:2,stack:'c',order:3},
+    {label:'All cancels · 14-day avg',data:movAvg(tot,14).slice(cut),type:'line',borderColor:PAL.text,borderWidth:2.5,pointRadius:0,tension:.3,order:1},
+    {label:'Payment failed · 14-day avg',data:sp.ma14.slice(cut),type:'line',borderColor:PAL.bad,borderWidth:1.5,borderDash:[5,4],pointRadius:0,tension:.3,order:2,noGlow:true}]},
+    options:{...op,plugins:{...op.plugins,legend:{display:true,labels:{color:PAL.muted}},tooltip:{...TT,callbacks:{...TT.callbacks,
+      label:c=>c.dataset.type==='line'? c.dataset.label+': '+(Math.round(c.raw*100)/100)+'/day' : c.dataset.label+': '+c.raw+' cancel'+(c.raw===1?'':'s')}}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{color:tickCol,autoSkip:true,maxTicksLimit:10}},
+        y:{stacked:true,beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol,stepSize:1}}}}});
+  setH2('cancVolNote', noiseNote(sv.counts, 'Voluntary = they chose to leave — offer, content and expectation problems live here.'));
+  setH2('cancPFNote', noiseNote(sp.counts, 'Payment-failed = dunning problems, not product problems — the Recovery page works this list.'));
 }
 /* ---------- credit tracking: what the free months / discounted saves actually cost ---------- */
 function creditView(){
@@ -5090,7 +5107,8 @@ async function drawProfitPage(){
     const banked=Math.round(cur.incomeGBP||0);
     const pct=mrrM? Math.round(banked/mrrM*100):null;
     setH('pfGap', '£'+banked.toLocaleString()+' banked <span style="color:var(--dim);font-size:20px">vs</span> £'+mrrM.toLocaleString()+' MRR <span class="pill '+(pct>=80?'good':pct>=65?'mid':'bad')+'" style="font-size:14px;vertical-align:middle">'+(pct!=null? pct+'%':'—')+'</span>');
-    setH('pfGapD', 'The wedge between what MRR promises and what actually lands in the bank = intro discounts + failed payments + Stripe fees + billing timing. Watch this percentage month to month: MRR growth that doesn\\u2019t move it is discount-bought growth.'
+    const feeM=(S.cash&&S.cash.byMonth&&S.cash.byMonth[cur.month]&&S.cash.byMonth[cur.month].fee)||0, grossM=(S.cash&&S.cash.byMonth&&S.cash.byMonth[cur.month]&&S.cash.byMonth[cur.month].paid)||0;
+    setH('pfGapD', (feeM>0? '<b style="color:var(--text)">Stripe fees this month £'+Math.round(feeM).toLocaleString()+'</b> ('+(grossM? (feeM/grossM*100).toFixed(1):'—')+'% of £'+Math.round(grossM).toLocaleString()+' collected), so net of fees £'+Math.round(grossM-feeM).toLocaleString()+'. ':'')+'The wedge between what MRR promises and what actually lands in the bank = intro discounts + failed payments + Stripe fees + billing timing. Watch this percentage month to month: MRR growth that doesn\\u2019t move it is discount-bought growth.'
       +(cur.month===new Date().toISOString().slice(0,7)? ' <b style="color:var(--text)">Current month is still filling.</b>':''));
   }catch(e){}
   /* six-month trend */
@@ -5431,10 +5449,12 @@ function drawRevenuePage(){
   /* profit: last full month's cash minus the costs set on Goals */
   try{ const costs=Number(S.settings.costs)||0;
     const pd2=new Date(); const pk2=(pd2.getUTCMonth()===0? (pd2.getUTCFullYear()-1)+'-12' : pd2.getUTCFullYear()+'-'+String(pd2.getUTCMonth()).padStart(2,'0'));
-    const cashPrev=(S.cash&&S.cash.byMonth&&S.cash.byMonth[pk2]&&S.cash.byMonth[pk2].paid!=null)? S.cash.byMonth[pk2].paid : null;
+    /* v15.83: last month's cash net of refunds and Stripe fees (fees are 0 until the runner refetches with the fee expanded) */
+    const cb2=(S.cash&&S.cash.byMonth&&S.cash.byMonth[pk2])||null;
+    const cashPrev=(cb2&&cb2.paid!=null)? cb2.paid-(cb2.refunded||0)-(cb2.fee||0) : null;
     if(cashPrev!=null && costs>0){ const prof=cashPrev-costs, mg=Math.round(prof/cashPrev*100);
       set('rvProfit', (prof<0?'−£':'£')+Math.abs(Math.round(prof)).toLocaleString());
-      setH('rvProfitD', mg+'% margin on £'+Math.round(cashPrev).toLocaleString()+' cash − £'+Math.round(costs).toLocaleString()+' costs. '+(mg>=80? 'Healthy SaaS margin — growth is the constraint, not efficiency.' : mg>=60? 'Decent — biggest lever is still revenue, not cost cutting.' : 'Margin thin for software — check what in the £'+Math.round(costs).toLocaleString()+' actually earns members.'));
+      setH('rvProfitD', mg+'% margin on £'+Math.round(cashPrev).toLocaleString()+' net cash'+(cb2&&cb2.fee>0? ' (after £'+Math.round(cb2.fee).toLocaleString()+' Stripe fees)':'')+' − £'+Math.round(costs).toLocaleString()+' costs. '+(mg>=80? 'Healthy SaaS margin — growth is the constraint, not efficiency.' : mg>=60? 'Decent — biggest lever is still revenue, not cost cutting.' : 'Margin thin for software — check what in the £'+Math.round(costs).toLocaleString()+' actually earns members.'));
     } else if(cashPrev!=null){ set('rvProfit','—'); setH('rvProfitD','£'+Math.round(cashPrev).toLocaleString()+' cash last month — set monthly costs on the Goals page to see profit and margin'); }
   }catch(e){}
   const grrFull=(m.nrrSeries||[]).filter(r=>!r.partial && r.grr!=null).slice(-3);
@@ -5446,6 +5466,9 @@ function drawRevenuePage(){
       +(grr3!=null? (grr3<80? 'Below 80% a month the bucket leaks faster than upsells can refill it: retention before acquisition.' : 'Every point of GRR is worth about £'+Math.round(m.mrr/100)+'/mo — save-list DMs move this directly.') : ''); }
   set('rvARR', fmtGBP(m.mrr*12));
   set('rvARPU', '£'+(Math.round((m.arpu||0)*10)/10));
+  { const na=newCustomerArpu(); set('rvNewArpu', na.now!=null? '£'+na.now.toFixed(2) : '—');
+    setH('rvNewArpuD', na.now==null? 'no first payments in the last 30 days'
+      : na.n+' new payer'+(na.n===1?'':'s')+(na.prev!=null? ' · prior 30d £'+na.prev.toFixed(2)+' <span class="'+(na.now>=na.prev?'up':'down')+'">'+(na.now>=na.prev?'+':'−')+'£'+Math.abs(na.now-na.prev).toFixed(2)+'</span>':'')+' · book ARPU £'+(Math.round((m.arpu||0)*10)/10)); }
   const drag=m.grossMRR>0? (m.grossMRR-m.mrr)/m.grossMRR*100 : 0;
   set('rvARPUD', m.active+' payers · coupons trim '+(Math.round(drag*10)/10)+'% off list');
   const rl=m.realizedLTV||{};
@@ -5700,13 +5723,12 @@ function drawRevenuePage(){
   }
   const TV=m.tierValue||[];
   if(TV.length){
-    chart('chTierVal',{type:'bar',data:{labels:TV.map(r=>(r.tier==='elite'?'Elite':'Pro')+' (n='+r.n+')'),datasets:[
-      {label:'avg £ paid to date · members 3+ months old',data:TV.map(r=>r.avgGbp!=null?Math.round(r.avgGbp):null),backgroundColor:[rgbaOf(PAL.accent,.75),rgbaOf(PAL.gold,.75)],borderRadius:6}]},
-      options:{...op,plugins:{...op.plugins,legend:{display:false},tooltip:{...TT,callbacks:{...TT.callbacks,
-        label:c=>'£'+c.raw+' avg paid',
-        footer:items=>{ const r=TV[items[0].dataIndex]; return r.mo3!=null? Math.round(r.mo3)+'% pass month 3' : ''; }}}},
-        scales:{x:{grid:{display:false},ticks:{color:tickCol}},y:{beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol,callback:v=>'£'+v}}}}});
+    /* v15.83: two bars said less than two numbers */
     const pv=TV.find(r=>r.tier==='pro'), ev=TV.find(r=>r.tier==='elite');
+    const tvSet=(id,r)=>{ const el=document.getElementById(id), d=document.getElementById(id+'D'); if(!el) return;
+      el.textContent= (r&&r.avgGbp!=null)? '£'+Math.round(r.avgGbp).toLocaleString() : '—';
+      if(d) d.textContent= r? ('n='+r.n+' · members 3+ months old'+(r.mo3!=null? ' · '+Math.round(r.mo3)+'% pass month 3':'')) : 'not enough members yet'; };
+    tvSet('tvPro',pv); tvSet('tvElite',ev);
     if(pv&&ev&&pv.avgGbp!=null&&ev.avgGbp!=null&&ev.n>=15)
       setH('tierValD','An Elite member has paid <b>£'+Math.round(ev.avgGbp)+'</b> on average vs <b>£'+Math.round(pv.avgGbp)+'</b> for Pro (members 3+ months old) — one Pro→Elite upsell is worth roughly <b>£'+Math.round(ev.avgGbp-pv.avgGbp)+'</b> of lifetime value, not just £32/mo.');
     else setH('tierValD','Too few Elite members past 3 months to compare fairly yet — check back as the tier matures.');
@@ -5716,11 +5738,12 @@ document.querySelectorAll('#wfTf button').forEach(b=> b.onclick=()=>{ wfTfMonths
 document.getElementById('rvRiskCard').onclick = ()=>{ const el=document.getElementById('cardRisk'); if(el) el.onclick(); };
 
 /* ---------- retention page ---------- */
-let cohMode='pct', cmpMode='curves';
+let cohMode='pct';
 function drawRetentionPage(){
   if(!lastM) return;
   const m=lastM, set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
   set('reVol', m.vol); set('reInvol', m.invol);
+  { const el=document.getElementById('reChurnBases'); if(el) el.innerHTML='<b style="color:var(--text)">'+pct(m.churn)+'</b> Stripe basis — '+m.churnGone30+' churned ÷ ('+m.churnBase30+' members 30 days ago + '+m.churnAdded30+' new in the window). '+(isFinite(m.churnOpening)? '<b style="color:var(--text)">'+m.churnOpening.toFixed(1)+'%</b> opening-base basis — the same '+m.churnGone30+' ÷ '+m.churnBase30+' only, which is how Baremetrics and ChartMogul (and most published benchmarks) count it. Compare to them with the second number.':''); }
   const ec=m.earlyChurn||{};
   set('reEarly', ec.pct!=null? (Math.round(ec.pct*10)/10)+'%' : '—');
   set('reEarlyD', ec.n? (ec.gone+' of '+ec.n+' joins gone within a week · click for who') : 'no joins in the last 30 days');
@@ -5733,9 +5756,11 @@ function drawRetentionPage(){
   set('tcPro', tcFmt(tcP)); set('tcElite', tcFmt(tcE));
   set('tcProD', tcD(tcP)); set('tcEliteD', tcD(tcE));
   const tt=m.tierChurnTrend||[];
+  const gChT=(S.settings&&S.settings.goals&&Number(S.settings.goals.churn))||null;
   if(tt.length) chart('chTierChurn',{type:'line',data:{labels:tt.map(r=>r.label+(r.partial?' ·':'')),datasets:[
     {label:'Pro',data:tt.map(r=>r.pro),borderColor:PAL.accent,backgroundColor:PAL.accent,borderWidth:2.5,pointRadius:3,pointBackgroundColor:PAL.accent},
-    {label:'Elite',data:tt.map(r=>r.elite),borderColor:PAL.gold,backgroundColor:PAL.gold,borderWidth:2.5,pointRadius:3,pointBackgroundColor:PAL.gold}]},
+    {label:'Elite',data:tt.map(r=>r.elite),borderColor:PAL.gold,backgroundColor:PAL.gold,borderWidth:2.5,pointRadius:3,pointBackgroundColor:PAL.gold},
+    ...(gChT? [{label:'target '+gChT+'%',data:tt.map(()=>gChT),borderColor:rgbaOf(PAL.muted,.8),borderDash:[6,4],borderWidth:1.5,pointRadius:0,noGlow:true}] : [])]},
     options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,label:c=>c.dataset.label+': '+c.raw+'% · trailing 30d',
       footer:items=>{ const r=tt[items[0].dataIndex]; return 'Pro n='+r.proN+' · Elite n='+r.eliteN+(r.partial?' · month in progress':''); }}}},
       scales:{x:{grid:{color:gridCol},ticks:{color:tickCol}},y:{beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol,callback:v=>v+'%'}}}}});
@@ -5814,27 +5839,7 @@ function drawRetentionPage(){
   }).join('');
   document.getElementById('cohortEmpty').style.display = m.cohorts.some(c=>c.n>0)?'none':'block';
   /* cohort comparison: Mo1+Mo3 bars OR survival curve overlay */
-  const cmpCv=document.getElementById('chCohCmp');
-  if(cmpCv){
-    if(charts.chCohCmp) charts.chCohCmp.destroy();
-    if(cmpMode==='bars'){
-      const cs=m.cohorts.filter(c=>c.n>0).slice(-8);
-      charts.chCohCmp=new Chart(cmpCv,{type:'bar',data:{labels:cs.map(c=>c.label+' (n='+c.n+')'),datasets:[
-        {label:'Mo1 %',data:cs.map(c=>c.surv[0]!=null?Math.round(c.surv[0]):null),backgroundColor:cs.map(c=>c.n<30?rgbaOf(PAL.accent,.3):rgbaOf(PAL.accent,.75)),borderRadius:4},
-        {label:'Mo3 %',data:cs.map(c=>c.surv[2]!=null?Math.round(c.surv[2]):null),backgroundColor:cs.map(c=>c.n<30?rgbaOf(PAL.cyan,.3):rgbaOf(PAL.cyan,.75)),borderRadius:4},
-        {label:'Mo1 avg',type:'line',data:cs.map(()=>cAvg[0]!=null?Math.round(cAvg[0]):null),borderColor:rgbaOf(PAL.gold,.8),borderDash:[6,4],pointRadius:0,borderWidth:1.5,noGlow:true},
-        {label:'Mo3 avg',type:'line',data:cs.map(()=>cAvg[2]!=null?Math.round(cAvg[2]):null),borderColor:rgbaOf(PAL.orange,.8),borderDash:[6,4],pointRadius:0,borderWidth:1.5,noGlow:true}
-      ]},options:{...op,scales:{x:{grid:{display:false},ticks:{color:tickCol}},y:{...sc.y,max:100,ticks:{...sc.y.ticks,callback:v=>v+'%'}}}}});
-    } else {
-      const cs=m.cohorts.filter(c=>c.n>0);
-      const recent=cs.slice(-4), older=cs.slice(0,-4);
-      const oldAvg=Array.from({length:12},(_,k)=>{ let wn=0,wv=0; older.forEach(c=>{ if(c.surv[k]!=null){ wn+=c.n; wv+=c.surv[k]*c.n; } }); return wn? Math.round(wv/wn) : null; });
-      const cols=[PAL.accent,PAL.good,PAL.gold,PAL.bad];
-      charts.chCohCmp=new Chart(cmpCv,{type:'line',data:{labels:Array.from({length:12},(_,i)=>'Mo'+(i+1)),datasets:[
-        ...recent.map((c,i)=>({label:c.label+' (n='+c.n+')',data:c.surv.map(v=>v!=null?Math.round(v):null),borderColor:cols[i%4],backgroundColor:cols[i%4],borderWidth:2.5,pointRadius:3,tension:.3})),
-        {label:'older cohorts avg',data:oldAvg,borderColor:rgbaOf(PAL.muted,.7),borderDash:[6,4],borderWidth:2,pointRadius:0,noGlow:true}
-      ]},options:{...op,scales:{x:sc.x,y:{...sc.y,max:100,ticks:{...sc.y.ticks,callback:v=>v+'%'}}}}});
-    }
+  {
     /* auto callout: newest observable cohort vs trailing-6 average, suppressed on tiny samples */
     const co=document.getElementById('cohCallout');
     if(co){
@@ -5894,7 +5899,6 @@ function drawRetentionPage(){
   try{ twCount(); drawExpEmails(); drawUpgrades(); drawCheckins(); }catch(e){}
 }
 document.querySelectorAll('#cohTf button').forEach(b=> b.onclick=()=>{ cohMode=b.dataset.c; document.querySelectorAll('#cohTf button').forEach(x=>x.classList.toggle('on',x===b)); drawRetentionPage(); });
-document.querySelectorAll('#cmpTf button').forEach(b=> b.onclick=()=>{ cmpMode=b.dataset.v; document.querySelectorAll('#cmpTf button').forEach(x=>x.classList.toggle('on',x===b)); drawRetentionPage(); });
 document.getElementById('reEarlyCard').onclick=()=>{ if(!lastM||!lastM.earlyChurn) return;
   memberListModal('Gone within 7 days of joining · last 30d joins', lastM.earlyChurn.list||[], 'Source shows why they left. These people decided fast — this list is your onboarding and expectation-setting feedback, message them and ask.'); };
 
@@ -5942,19 +5946,6 @@ function drawGrowthExtras(){
       set('gwFcD', on? ('projected '+fmtGBP(projected)+' by '+g.mrrDate+' vs '+fmtGBP(g.mrr)+' target')
         : ('need '+fmtGBP(needPace)+'/mo, running at '+fmtGBP(fc.pace)+'/mo — gap '+fmtGBP(Math.max(0,needPace-fc.pace))+'/mo'));
     }
-  }
-  /* customer growth accounting */
-  const gaCv=document.getElementById('chGrowthAcct');
-  if(gaCv){
-    if(charts.chGrowthAcct) charts.chGrowthAcct.destroy();
-    charts.chGrowthAcct=new Chart(gaCv,{type:'bar',data:{labels:wf.map(r=>r.label+(r.partial?' ·':'')),datasets:[
-      {label:'New',data:wf.map(r=>r.newC),backgroundColor:rgbaOf(PAL.good,.75),stack:'g',borderRadius:3},
-      {label:'Resurrected',data:wf.map(r=>r.reactC),backgroundColor:rgbaOf(PAL.cyan,.75),stack:'g',borderRadius:3},
-      {label:'Churned',data:wf.map(r=>-r.churnC),backgroundColor:rgbaOf(PAL.bad,.75),stack:'g',borderRadius:3},
-      {label:'Net',type:'line',data:wf.map(r=>r.netC),borderColor:PAL.gold,borderWidth:2.5,pointRadius:4,tension:.3}
-    ]},options:{...op,interaction:{mode:'index',intersect:false},
-      onClick:(e,els,c)=>{ const pts=c.getElementsAtEventForMode(e,'index',{intersect:false},true); if(pts.length) wfMonthModal(wf[pts[0].index]); },
-      scales:{x:{stacked:true,grid:{color:gridCol},ticks:{color:tickCol}},y:{stacked:true,grid:{color:gridCol},ticks:{color:tickCol}}}}});
   }
   /* MRR forecast chart: 12mo actual + 6mo projection with best/worst band + goal line */
   const fcv=document.getElementById('chForecast');
@@ -6013,6 +6004,14 @@ document.getElementById('cardRejoin').onclick = ()=>{ const lab=pulseTfDays===1?
 document.getElementById('cardEliteShare').onclick = ()=>{ seriesModal('Elite share of MRR % · uses the plan and price active on each date, including Pro→Elite expansions', (arr,t)=>{ const v=eliteShareAt(t); return v==null?null:Math.round(v*10)/10; }, v=>Number(v).toFixed(1)+'%', {ma:true}); };
 /* Shared customer-level event helpers used by reports, retention and expansion. */
 function coachSubsLive(){ return liveSubsList().filter(x=>hasFirstPayment(x) && !(x.trialEnd && x.canceled && x.canceled<=x.trialEnd)); }
+/* v15.83: new-customer ARPU — mean £/mo (net of discounts) of customers whose FIRST payment landed
+   in the window, vs the prior window. Baremetrics calls this ASP. */
+function newCustomerArpu(asOf){
+  const now=asOf||Date.now(), W=30*D;
+  const mean=list=>{ const v=list.map(x=>Number(x.monthly)||0).filter(x=>x>0); return v.length? v.reduce((a,b)=>a+b,0)/v.length : null; };
+  const cur=coachActs(now-W, now), prev=coachActs(now-2*W, now-W);
+  return {now:mean(cur), prev:mean(prev), n:cur.length, nPrev:prev.length};
+}
 function coachActs(a,b){
   /* Stripe "new subscribers": first-ever positive MRR per customer. Re-signups are
      tracked separately and must not inflate this driver. */
@@ -9292,13 +9291,18 @@ function drawGrowthFlow(m){
   }
   const cv=document.getElementById('chFlow'); if(!cv) return;
   if(charts.chFlow) charts.chFlow.destroy();
+  /* v15.83: the re-signup share (its own weekly chart until now) rides on the right axis */
+  const share=firsts.map((f,i)=>{ const n=f+resigns[i]; return (n>=(growthGran==='d'?3:1))? Math.round(resigns[i]/n*100) : null; });
   const flowSets=[
-    {label:'First time',data:firsts,backgroundColor:rgbaOf(PAL.accent,.78),stack:'n',borderRadius:5},
-    {label:'Re-signups',data:resigns,backgroundColor:rgbaOf(PAL.gold,.8),stack:'n',borderRadius:5}
+    {label:'First time',data:firsts,backgroundColor:rgbaOf(PAL.accent,.78),stack:'n',borderRadius:5,yAxisID:'y'},
+    {label:'Re-signups',data:resigns,backgroundColor:rgbaOf(PAL.gold,.8),stack:'n',borderRadius:5,yAxisID:'y'},
+    {type:'line',label:'Re-signup share %',data:share,borderColor:PAL.gold,borderWidth:2,pointRadius:growthGran==='d'?0:3,tension:.3,yAxisID:'y1',spanGaps:true,noGlow:true,order:0}
   ];
-  if(growthGran==='d') flowSets.push({type:'line',label:'All paid starts · 7-day average',data:movAvg(firsts.map((v,i)=>v+resigns[i]),7),borderColor:PAL.cyan,borderWidth:3,pointRadius:0,tension:.25,stack:'trend',order:0});
+  if(growthGran==='d') flowSets.push({type:'line',label:'All paid starts · 7-day average',data:movAvg(firsts.map((v,i)=>v+resigns[i]),7),borderColor:PAL.cyan,borderWidth:3,pointRadius:0,tension:.25,stack:'trend',order:0,yAxisID:'y'});
   charts.chFlow = new Chart(cv,{type:'bar',data:{labels,fullDates:fulls,rvMeta:(growthGran==='d'?'daily · rolling 7-day signal':growthGran==='w'?'weekly · weeks start Monday':'monthly'),datasets:flowSets},
-    options:{...op,scales:{x:{grid:{color:rgbaOf(PAL.muted,.1)},ticks:{color:PAL.muted},stacked:true},y:{grid:{color:rgbaOf(PAL.muted,.1)},ticks:{color:PAL.muted},stacked:true,beginAtZero:true}}}});
+    options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,label:c=>c.dataset.yAxisID==='y1'? c.dataset.label+': '+(c.raw==null?'—':c.raw+'%') : c.dataset.label+': '+c.raw}}},
+      scales:{x:{grid:{color:rgbaOf(PAL.muted,.1)},ticks:{color:PAL.muted},stacked:true},y:{grid:{color:rgbaOf(PAL.muted,.1)},ticks:{color:PAL.muted},stacked:true,beginAtZero:true},
+        y1:{position:'right',grid:{drawOnChartArea:false},ticks:{color:PAL.gold,callback:v=>v+'%'},beginAtZero:true,max:100}}}});
 }
 document.querySelectorAll('#growthTf button').forEach(b=> b.onclick=()=>{
   growthGran=b.dataset.g;
@@ -9493,10 +9497,14 @@ function openModal(html){
   requestAnimationFrame(()=>box.querySelector('[data-modal-close]')?.focus());
 }
 /* ---------- history helpers (from subscription lifespans) ---------- */
+let _lslVer='', _lsl=null;
 function liveSubsList(){
+  /* v15.83: one array per data version. Every caller used to get a fresh filter, which threw away
+     the per-array coverage memos (_pcc/_bc/_iv) and made every chart point a full rebuild. */
+  const v=seriesVersion(); if(_lsl && v===_lslVer) return _lsl;
   const tOf = x => x.tier || tierOf(null, x.monthly);
   const ghost = x => x.status==='incomplete' || x.status==='incomplete_expired';
-  return (S.subs||[]).filter(x=>tOf(x)!=='other' && !ghost(x) && x.status!=='trialing');
+  _lsl=(S.subs||[]).filter(x=>tOf(x)!=='other' && !ghost(x) && x.status!=='trialing'); _lslVer=v; return _lsl;
 }
 function activeAt(subsArr, t){
   let n=0; classicCov(subsArr).forEach(c=>{ if(custLiveAt(c.ivs,t)) n++; }); return n;
@@ -9715,14 +9723,12 @@ function stripeify(cfg){
   return cfg;
 }
 const CHART_GRAIN={
-  chMove:'MRR movement',chValLadder:'member milestones',chCumVal:'monthly tenure',chMrrTenure:'tenure bands',chTierVal:'plan comparison',
-  chWaterfall:'monthly',chQuick:'monthly · 3-month average',chNRR:'monthly',chTierMix:'monthly',chMRR:'daily stock',chCashFc:'daily forecast',chCashRev:'monthly',
-  chGrowthAcct:'monthly',chForecast:'monthly actual + projection',chJoinsBig:'daily · rolling 7-day average',chCancBig:'subscriber events',chFlow:'new-subscriber events',
-  chNet:'2-day samples',chMembers:'saved snapshots',chResign:'weekly',chLaneCodes:'daily',chInvJoins:'daily',chInvPaid:'daily',chAttrTime:'time series',
+  chMove:'MRR movement',chValLadder:'member milestones',chCumVal:'monthly tenure',chMrrTenure:'tenure bands',
+  chWaterfall:'monthly',chQuick:'monthly · 3-month average',chNRR:'monthly',chTierMix:'monthly',chMRR:'daily stock',chCashFc:'daily forecast',chCashRev:'monthly',chForecast:'monthly actual + projection',chJoinsBig:'daily · rolling 7-day average',chCancBig:'subscriber events',chFlow:'new-subscriber events',
+  chNet:'2-day samples',chMembers:'saved snapshots',chLaneCodes:'daily',chInvJoins:'daily',chInvPaid:'daily',chAttrTime:'time series',
   chChanChurn:'trailing 30 days',chChanLTV:'all-time value',chJoinConv:'daily · weighted 7-day average',chLurkH1D:'daily · rolling 7-day average',
   chLurk:'hours 1–24',chLurkTail:'days 2–14',chLurkTrend:'join-month cohorts',chRcHist:'monthly',chResignGap:'return-gap bands',chResignTrend:'monthly',
-  chExHaz:'tenure bands',chExTrend:'monthly',chCohSurv:'join-month cohorts',chTierChurn:'monthly trailing-30-day',chTenure:'tenure bands',
-  chCohCmp:'cohort comparison',chDayCoh:'join-month cohorts',chChurnMix:'monthly'
+  chExHaz:'tenure bands',chExTrend:'monthly',chCohSurv:'join-month cohorts',chTierChurn:'monthly trailing-30-day',chTenure:'tenure bands',chDayCoh:'join-month cohorts',chChurnMix:'monthly'
 };
 function annotateChart(input,cfg){
   try{
@@ -9736,11 +9742,16 @@ function annotateChart(input,cfg){
     const first=clean((full.length&&full[0])||labels[0]), last=clean((full.length&&full[labels.length-1])||labels[labels.length-1]);
     const span=labels.length? (labels.length+' '+(/categor|band|comparison|milestone/.test(grain)?'groups':'points')+(first!=null&&last!=null?' · '+first+' → '+last:'')) : 'no observations';
     const lf=S&&S.lastFetch, stamp=lf&&new Date(lf.t||lf).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+    const varsTxt=grain+(names.length?' · '+names.slice(0,4).join(' / ')+(names.length>4?' +'+(names.length-4):''):'');
+    const timeTxt=span+(stamp?' · refreshed '+stamp:' · local cache');
+    const sig=varsTxt+'\u0001'+timeTxt;
     let meta=box.previousElementSibling;
     if(!meta||!meta.classList.contains('chartmeta')){ meta=document.createElement('div'); meta.className='chartmeta'; box.before(meta); }
+    if(meta.dataset.sig===sig) return;                      /* v15.83: nothing changed — no DOM write, no reflow */
+    meta.dataset.sig=sig;
     meta.innerHTML='<span class="cm-vars"></span><span class="cm-time"></span>';
-    meta.querySelector('.cm-vars').textContent=grain+(names.length?' · '+names.slice(0,4).join(' / ')+(names.length>4?' +'+(names.length-4):''):'');
-    meta.querySelector('.cm-time').textContent=span+(stamp?' · refreshed '+stamp:' · local cache');
+    meta.querySelector('.cm-vars').textContent=varsTxt;
+    meta.querySelector('.cm-time').textContent=timeTxt;
     const card=cv.closest('.card'), heading=card&&card.querySelector('h3');
     cv.setAttribute('role','img');
     cv.setAttribute('aria-label',((heading&&heading.textContent.trim())||grain)+'. '+span+'. Series: '+(names.join(', ')||'none'));
@@ -9861,22 +9872,43 @@ document.addEventListener('keydown',e=>{
   if(!el||el.matches('button,a,input,select,textarea')||typeof el.onclick!=='function') return;
   if(e.key==='Enter'||e.key===' '){ e.preventDefault(); el.click(); }
 });
-function switchView(v){
+/* v15.83: hubs. Every page keeps its own <section> (so every draw function, element id, deep link
+   and #hash keeps working) — a hub is a tab strip rendered at the top of each member page, and one
+   sidebar entry per hub. Goals folded into Account. */
+const HUBS={ dotoday:{label:'Do today', views:['recovery','expansion','emails']},
+  revenue:{label:'Revenue', views:['revenue','profit','credits']},
+  growth:{label:'Growth', views:['growth','attribution','joins','lurk']},
+  retention:{label:'Retention', views:['retention','cancels','resigns']} };
+const HUB_OF={}; Object.keys(HUBS).forEach(h=>HUBS[h].views.forEach(v=>{ HUB_OF[v]=h; }));
+const TAB_LABEL={recovery:'Recovery',expansion:'Expansion',emails:'Emails',revenue:'Overview',profit:'Profit',credits:'Credits',
+  growth:'Growth',attribution:'Attribution',joins:'New joins',lurk:'Lurk gap',retention:'Retention',cancels:'Cancels',resigns:'Resign-ups'};
+function renderHubTabs(v){
   const view=document.getElementById('v-'+v); if(!view) return;
-  document.querySelectorAll('aside nav button').forEach(b=>{ const on=b.dataset.v===v; b.classList.toggle('on',on); if(on)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current'); });
+  const hub=HUB_OF[v]; let bar=view.querySelector(':scope > .hubtabs');
+  if(!hub){ if(bar) bar.remove(); return; }
+  if(!bar){ bar=document.createElement('div'); bar.className='hubtabs'; bar.setAttribute('role','tablist'); view.prepend(bar); }
+  bar.innerHTML=HUBS[hub].views.map(k=>'<button type="button" role="tab" data-tab="'+k+'" aria-selected="'+(k===v)+'"'+(k===v?' class="on"':'')+'>'+esc(TAB_LABEL[k]||titles[k]||k)+'</button>').join('');
+  bar.querySelectorAll('button').forEach(b=>{ b.onclick=()=>switchView(b.dataset.tab); });
+}
+function switchView(v){
+  if(v==='goals'){ switchView('settings'); setTimeout(()=>{ const g=document.getElementById('goalsCard'); if(g) g.scrollIntoView({block:'start',behavior:'smooth'}); },60); return; }
+  const view=document.getElementById('v-'+v); if(!view) return;
+  const hub=HUB_OF[v];
+  document.querySelectorAll('aside nav button').forEach(b=>{ const on=b.dataset.v===v || (!!hub && b.dataset.hub===hub); b.classList.toggle('on',on); if(on)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current'); });
   document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on',s===view));
-  document.getElementById('viewTitle').textContent=titles[v]||v;
+  renderHubTabs(v);
+  document.getElementById('viewTitle').textContent= hub? (HUBS[hub].label+' · '+(TAB_LABEL[v]||titles[v]||v)) : (titles[v]||v);
   history.replaceState(null,'','#'+v);
   document.querySelector('.main').scrollTop=0;
-  if(v==='profit'){ try{ void drawProfitPage(); }catch(e){} }
-  if(v==='credits'){ try{ drawCreditsPage(); }catch(e){} }
-  if(v==='emails'){ try{ drawEmailsPage(); }catch(e){ reportNonFatal('Emails page', e); } }
+  /* v15.83: a page repaints on arrival if data changed since it was last painted (or it never was).
+     Profit and Emails always repaint: Profit fetches the Revolut bin, Emails rebuilds its queues. */
+  if(pageDirty[v]!==false || v==='profit' || v==='emails') paintPage(v);
   /* v15.02: charts built while this view was display:none are rebuilt now, fresh at the real size (see chart()).
      Charts built visible only get a resize nudge in case the window changed while they were away. */
   requestAnimationFrame(()=>{ view.querySelectorAll('canvas').forEach(cv=>{ const id=cv.id; if(!id) return; const c=Chart.getChart(cv); if(!c) return;
     if(chartBuiltHidden[id] && chartCfg[id]){ try{ c.destroy(); charts[id]=new Chart(cv, chartCfg[id]); }catch(e){} return; }
     try{ c.resize(); }catch(e){} }); });
-  document.querySelector('aside nav button[data-v="'+v+'"]')?.scrollIntoView({block:'nearest',inline:'nearest'});
+  (document.querySelector('aside nav button.on')||document.querySelector('aside nav button[data-v="'+v+'"]'))?.scrollIntoView({block:'nearest',inline:'nearest'});
   enhanceInteractive(view);
 }
 document.querySelectorAll('aside nav button').forEach(b=> b.onclick=()=>switchView(b.dataset.v));
