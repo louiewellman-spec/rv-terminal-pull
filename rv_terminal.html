@@ -1280,6 +1280,23 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
     </div>
   </section>
 
+  <!-- SUCCESS REWARDS (v16.04): who posts a win in #success after joining, the RV tag, and whether the 10% got applied -->
+  <section class="view" id="v-rewards">
+    <div class="sec">Success rewards <span class="tag">a new member posts a win in #success wearing the RV tag → 10% off their next renewal, applied by staff</span></div>
+    <div class="grid c4">
+      <div class="card"><h3>Posted a win · 30d</h3><div class="big num" id="swPosts">—</div><div class="sn" id="swPostsD"></div></div>
+      <div class="card"><h3>With the RV tag</h3><div class="big num" id="swTag">—</div><div class="sn" id="swTagD"></div></div>
+      <div class="card"><h3>10% applied</h3><div class="big num" id="swApplied">—</div><div class="sn" id="swAppliedD"></div></div>
+      <div class="card"><h3>Paid, no post yet · 30d</h3><div class="big num" id="swNone">—</div><div class="sn" id="swNoneD"></div></div>
+    </div>
+    <div class="sec">To apply <span class="tag">rewarded, but the 10% is not on their Stripe yet — put it on before the next charge</span></div>
+    <div class="card"><div id="swTodoNote" class="sn" style="margin-bottom:8px"></div><div style="overflow-x:auto"><table id="swTodoTable"><thead></thead><tbody></tbody></table></div></div>
+    <div class="sec">Every success post <span class="tag">newest first · click a name or id to copy it</span></div>
+    <div class="card"><div id="swAllNote" class="sn" style="margin-bottom:8px"></div><div style="overflow-x:auto"><table id="swTable"><thead></thead><tbody></tbody></table></div></div>
+    <div class="sec">Paid recently, no success post <span class="tag">linked by the bot in the last 30 days and yet to post a win</span></div>
+    <div class="card"><div id="swNoneNote" class="sn" style="margin-bottom:8px"></div><div style="overflow-x:auto"><table id="swNoneTable"><thead></thead><tbody></tbody></table></div></div>
+  </section>
+
   <!-- EVENTS & REMINDERS -->
   <!-- Planner section removed on request -->
 
@@ -1804,7 +1821,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.03';
+const BUILD = 'v16.04';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3739,6 +3756,7 @@ const PAGE_DRAWS={
   trials:[()=>drawTrialsPage()],
   retention:[()=>drawRetentionPage()],
   expansion:[()=>{ twCount(); drawExpEmails(); drawUpgrades(); drawCheckins(); }, ()=>drawExpansionPage()],
+  rewards:[()=>drawRewardsPage()],
   reports:[()=>drawReportsPage()],
   recovery:[()=>drawRecoveryPage()],
   resigns:[()=>drawResignsPage()],
@@ -3747,7 +3765,7 @@ const PAGE_DRAWS={
   profit:[()=>{ void drawProfitPage(); }],
   emails:[()=>drawEmailsPage()]
 };
-const PAGE_LABEL={command:'Command',revenue:'Revenue',growth:'Growth',attribution:'Attribution',affiliates:'Affiliates',projects:'Projects',credits:'Credits',cancels:'Cancels',trials:'Trials',retention:'Retention',expansion:'Expansion',reports:'Reports',recovery:'Recovery',resigns:'Resign-ups',changes:'Pro revamp',lurk:'Lurk gap',profit:'Profit',emails:'Emails'};
+const PAGE_LABEL={rewards:'Rewards',command:'Command',revenue:'Revenue',growth:'Growth',attribution:'Attribution',affiliates:'Affiliates',projects:'Projects',credits:'Credits',cancels:'Cancels',trials:'Trials',retention:'Retention',expansion:'Expansion',reports:'Reports',recovery:'Recovery',resigns:'Resign-ups',changes:'Pro revamp',lurk:'Lurk gap',profit:'Profit',emails:'Emails'};
 const pageDirty={};
 function currentView(){ const el=document.querySelector('.view.on'); return el&&el.id? el.id.slice(2) : 'command'; }
 function paintPage(v, m){
@@ -9914,6 +9932,96 @@ document.getElementById('cardPD').onclick = ()=>{ if(!lastM) return;
      ...(lastM.pdCancelled||[]).map(r=>({...r, st:'cancelled', stc:'bad'}))],
     'Dates are when the payment actually failed. Retrying means Stripe attempts again on the date shown, a card update saves them with nothing lost. No more retries means Stripe gave up but left the sub stuck past due, they will never self-recover, send them their open invoice link or cancel them. Cancelled means the sub already auto-cancelled in the last 30 days, those need a re-signup link.'); };
 
+/* ---------- success rewards (v16.04) ----------
+   Source: the Discord sync parses the bot's "Success reward" / "Success reward held" posts in the
+   payment-logs channel (and re-reads recent ones, because the bot edits the message with an
+   "applied by <staff>" line when the 10% goes on). They ride the bot-links bin → runner → cloud. */
+function rewardsView(){
+  const bl=S.botLinks||{}, links=bl.links||[], succ=bl.success||[];
+  const now=Date.now(), W=30*D;
+  const byId={};                                   /* discord id → latest paid link */
+  links.forEach(a=>{ if(!Array.isArray(a)) return; const id=String(a[1]||''); if(!/^\d{15,}$/.test(id)) return;
+    const t=Date.parse(String(a[0])+'Z')||0; if(!byId[id] || t>byId[id].t) byId[id]={t, u:a[2]||'', tier:a[3]||''}; });
+  /* the member's Stripe subs: by the id the checkout captured, else by the bot's username */
+  const subById={}, subByName={};
+  (S.subs||[]).forEach(x=>{ const d=x.duser? String(x.duser).trim():''; if(!d) return;
+    if(/^\d{15,}$/.test(d)) (subById[d]=subById[d]||[]).push(x); else (subByName[d.toLowerCase()]=subByName[d.toLowerCase()]||[]).push(x); });
+  const live=x=>x.status==='active'||x.status==='past_due';
+  const byM={};
+  succ.slice().sort((a,b)=>a.t-b.t).forEach(e=>{
+    const m=byM[e.id]||(byM[e.id]={id:e.id, first:e.t, events:[]});
+    m.events.push(e); m.last=e;
+    if(e.rewarded){ m.rewarded=true; m.rewardT=e.t; m.tag=e.tag; m.via=e.via; m.ack=e.ack; } else { m.held=true; m.heldT=e.t; }
+    if(e.applied){ m.applied=true; m.by=e.by; m.amt=e.amt; }
+  });
+  const rows=Object.values(byM).map(m=>{
+    const lk=byId[m.id]||null, subs=subById[m.id]||(lk&&lk.u? subByName[String(lk.u).toLowerCase()] : null)||[];
+    const cur=subs.filter(live).sort((a,b)=>(b.cpe||0)-(a.cpe||0))[0]||subs[0]||null;
+    const state=m.applied? 'applied' : m.rewarded? 'toapply' : 'held';
+    const paidT=lk? lk.t : (cur? stripeStartOf(cur) : null);
+    return {id:m.id, name:(lk&&lk.u)||(cur&&(cur.duser&&!/^\d{15,}$/.test(cur.duser)? cur.duser : cur.cname))||null, email:(cur&&cur.cemail)||null,
+      paidT, tier:lk? (lk.tier==='e'?'elite':lk.tier==='p'?'pro':'') : (cur? (cur.tier||''):''),
+      t:m.last.t, rewardT:m.rewardT||null, heldT:m.heldT||null, tag:m.rewarded? m.tag : 0, via:m.via||'', ack:m.ack||'',
+      state, by:m.by||'', amt:m.amt||0, nextT:(cur&&live(cur))? (cur.cpe||null) : null, nextGBP:cur? Math.round(cur.monthly||0) : null,
+      lag:(paidT&&m.first)? Math.round((m.first-paidT)/D) : null};
+  }).sort((a,b)=>b.t-a.t);
+  const in30=rows.filter(r=>r.t>=now-W);
+  const tagged30=in30.filter(r=>r.state!=='held');
+  const posted=new Set(rows.map(r=>r.id));
+  const recent=Object.keys(byId).filter(id=>byId[id].t>=now-W && !posted.has(id))
+    .map(id=>({id, name:byId[id].u, paidT:byId[id].t, tier:byId[id].tier==='e'?'elite':'pro', days:Math.floor((now-byId[id].t)/D)}))
+    .sort((a,b)=>b.paidT-a.paidT);
+  const paid30=Object.keys(byId).filter(id=>byId[id].t>=now-W).length;
+  return {rows, in30, posts30:in30.length, tag30:tagged30.length, applied30:in30.filter(r=>r.state==='applied').length, held30:in30.length-tagged30.length,
+    recent, paid30, todo:rows.filter(r=>r.state==='toapply'), updated:bl.updated||null, has:!!succ.length};
+}
+function drawRewardsPage(){
+  const $=id=>document.getElementById(id); if(!$('swPosts')) return;
+  const v=rewardsView();
+  const pct=(a,b)=>b? Math.round(a/b*100)+'%' : '—';
+  const dt=t=>t? new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : '—';
+  const pill=r=> r.state==='applied'? '<span class="pill good">APPLIED'+(r.amt? ' £'+r.amt.toFixed(2):'')+'</span>'+(r.by? ' <span class="sn">by '+esc(r.by)+'</span>':'')
+             : r.state==='toapply'? '<span class="pill bad">TO APPLY</span>'
+             : '<span class="pill mid">HELD · no RV tag</span>';
+  if(!v.has){
+    $('swPosts').textContent='—'; $('swPostsD').textContent='no success-reward data in this browser yet';
+    $('swTag').textContent='—'; $('swTagD').textContent=''; $('swApplied').textContent='—'; $('swAppliedD').textContent=''; $('swNone').textContent='—'; $('swNoneD').textContent='';
+    $('swTodoNote').innerHTML='<span class="sn">Arrives with the next Discord sync (hourly) and the runner\'s next pull (15 min). Press Pull latest after that.</span>';
+    $('swAllNote').innerHTML=''; $('swNoneNote').innerHTML='';
+    ['swTodoTable','swTable','swNoneTable'].forEach(id=>{ const t=$(id); t.querySelector('thead').innerHTML=''; t.querySelector('tbody').innerHTML=''; });
+    return;
+  }
+  $('swPosts').textContent=v.posts30; $('swPostsD').textContent=v.paid30? pct(v.posts30,v.paid30)+' of the '+v.paid30+' members who paid in the last 30 days' : 'members who posted a win in the last 30 days';
+  $('swTag').textContent=pct(v.tag30,v.posts30); $('swTagD').textContent=v.tag30+' with the tag · '+v.held30+' posted without it (held until the tag goes on)';
+  $('swApplied').textContent=pct(v.applied30,v.tag30); $('swAppliedD').textContent=v.applied30+' of '+v.tag30+' rewards applied in Stripe · '+v.todo.length+' waiting overall';
+  $('swNone').textContent=v.recent.length; $('swNoneD').textContent='paid in the last 30 days, no win posted yet';
+  const copy=(v2)=>' style="cursor:pointer" data-copy="'+esc(String(v2||'')).replace(/"/g,'&quot;')+'"';
+  /* to apply */
+  const todo=v.todo;
+  $('swTodoNote').innerHTML= todo.length? '<b style="color:var(--text)">'+todo.length+'</b> reward'+(todo.length===1?'':'s')+' waiting · soonest charge first' : '<span class="sn">Nothing waiting — every reward has been applied.</span>';
+  const th1=$('swTodoTable').querySelector('thead'), tb1=$('swTodoTable').querySelector('tbody');
+  if(todo.length){
+    th1.innerHTML='<tr><th>Member</th><th>Discord ID</th><th>Rewarded</th><th>Next charge</th><th>Email</th></tr>';
+    tb1.innerHTML=todo.slice().sort((a,b)=>(a.nextT||9e15)-(b.nextT||9e15)).map(r=>'<tr><td'+copy(r.name)+' style="color:var(--text);font-weight:600;cursor:pointer">'+esc(r.name||'—')+'</td><td class="mono"'+copy(r.id)+'>'+esc(r.id)+'</td><td>'+dt(r.rewardT)+'</td>'
+      +'<td>'+(r.nextT? dt(r.nextT)+(r.nextGBP!=null? ' · £'+r.nextGBP:'') : '<span class="sn">no live sub found</span>')+'</td><td'+copy(r.email)+'>'+esc(r.email||'—')+'</td></tr>').join('');
+  } else { th1.innerHTML=''; tb1.innerHTML=''; }
+  /* every post */
+  const all=v.rows.slice(0,80);
+  $('swAllNote').innerHTML='<b style="color:var(--text)">'+v.rows.length+'</b> members have posted a win'+(v.updated? ' · Discord synced '+new Date(v.updated).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'');
+  const th2=$('swTable').querySelector('thead'), tb2=$('swTable').querySelector('tbody');
+  th2.innerHTML='<tr><th>Member</th><th>Discord ID</th><th>Posted</th><th>Reward</th><th>RV tag</th><th>Via</th><th>Ack</th><th>Paid on</th><th>Days to post</th></tr>';
+  tb2.innerHTML=all.map(r=>'<tr><td'+copy(r.name)+' style="color:var(--text);font-weight:600;cursor:pointer">'+esc(r.name||'—')+'</td><td class="mono"'+copy(r.id)+'>'+esc(r.id)+'</td><td>'+dt(r.t)+'</td><td>'+pill(r)+'</td>'
+    +'<td>'+(r.tag===1? '<span class="gtx gtx-green">✓ on</span>' : r.tag===0? '<span class="gtx gtx-red">✗ off</span>' : '<span class="sn">—</span>')+'</td>'
+    +'<td>'+esc(r.via||'—')+'</td><td>'+esc(r.ack||'—')+'</td><td>'+dt(r.paidT)+'</td><td class="num">'+(r.lag!=null? r.lag : '—')+'</td></tr>').join('');
+  /* paid, no post */
+  const th3=$('swNoneTable').querySelector('thead'), tb3=$('swNoneTable').querySelector('tbody');
+  $('swNoneNote').innerHTML= v.recent.length? '<b style="color:var(--text)">'+v.recent.length+'</b> of '+v.paid30+' recent members have not posted · newest first' : '<span class="sn">Everyone who paid in the last 30 days has posted a win.</span>';
+  if(v.recent.length){
+    th3.innerHTML='<tr><th>Member</th><th>Discord ID</th><th>Paid on</th><th>Days ago</th><th>Tier</th></tr>';
+    tb3.innerHTML=v.recent.slice(0,80).map(r=>'<tr><td'+copy(r.name)+' style="color:var(--text);font-weight:600;cursor:pointer">'+esc(r.name||'—')+'</td><td class="mono"'+copy(r.id)+'>'+esc(r.id)+'</td><td>'+dt(r.paidT)+'</td><td class="num">'+r.days+'</td><td><span class="pill '+(r.tier==='elite'?'good':'cold')+'">'+esc(r.tier.toUpperCase())+'</span></td></tr>').join('');
+  } else { th3.innerHTML=''; tb3.innerHTML=''; }
+  $('v-rewards').querySelectorAll('[data-copy]').forEach(el=> el.onclick=()=>{ const val=el.getAttribute('data-copy'); if(val) navigator.clipboard.writeText(val).then(()=>status('Copied: '+val,'ok')); });
+}
 /* ---------- modal ---------- */
 const modalBg = document.getElementById('modalBg');
 let modalReturnFocus=null;
@@ -10488,7 +10596,7 @@ function mtabsPaint(v){
 }
 try{ mtabsBuild(); }catch(e){}
 /* ---------- nav ---------- */
-const titles={ emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', affiliates:'Affiliates', projects:'Projects', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', goals:'Goals', settings:'Account'};
+const titles={ rewards:'Success rewards', emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', affiliates:'Affiliates', projects:'Projects', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', goals:'Goals', settings:'Account'};
 function enhanceInteractive(root){
   (root||document).querySelectorAll('.clickable,.hero,.alertline').forEach(el=>{
     if(el.matches('button,a,input,select,textarea')||typeof el.onclick!=='function') return;
@@ -10503,12 +10611,12 @@ document.addEventListener('keydown',e=>{
 /* v15.83: hubs. Every page keeps its own <section> (so every draw function, element id, deep link
    and #hash keeps working) — a hub is a tab strip rendered at the top of each member page, and one
    sidebar entry per hub. Goals folded into Account. */
-const HUBS={ dotoday:{label:'Do today', views:['recovery','expansion','emails']},
+const HUBS={ dotoday:{label:'Do today', views:['recovery','expansion','rewards','emails']},
   revenue:{label:'Revenue', views:['revenue','profit','credits']},
   growth:{label:'Growth', views:['growth','attribution','affiliates','joins','lurk']},
   retention:{label:'Retention', views:['retention','cancels','resigns']} };
 const HUB_OF={}; Object.keys(HUBS).forEach(h=>HUBS[h].views.forEach(v=>{ HUB_OF[v]=h; }));
-const TAB_LABEL={recovery:'Recovery',expansion:'Expansion',emails:'Emails',revenue:'Overview',profit:'Profit',credits:'Credits',
+const TAB_LABEL={recovery:'Recovery',expansion:'Expansion',rewards:'Rewards',emails:'Emails',revenue:'Overview',profit:'Profit',credits:'Credits',
   growth:'Growth',attribution:'Attribution',affiliates:'Affiliates',joins:'New joins',lurk:'Lurk gap',retention:'Retention',cancels:'Cancels',resigns:'Resign-ups'};
 function renderHubTabs(v){
   const view=document.getElementById('v-'+v); if(!view) return;
@@ -11961,7 +12069,12 @@ function blNormalize(rec){
   const links=rec.links.map(a=> Array.isArray(a) && typeof a[0]==='number'
     ? [new Date(a[0]*60000).toISOString().slice(0,19), String(a[5]||''), a[1], a[2]||'', a[3]||0, (a[4]>=0 && inv[a[4]])||'']
     : a);
-  return {v:rec.v||2, updated:rec.updated||'', links, days:rec.days||null, invDays:rec.invDays||null};
+  const staff=Array.isArray(rec.staff)? rec.staff : [];
+  /* v16.04 success rewards: [tMin, id, rewarded, tag, via, ack, applied, staffIdx, amtPence] */
+  const success=Array.isArray(rec.success)? rec.success.map(a=> Array.isArray(a) && typeof a[0]==='number'
+    ? {t:a[0]*60000, id:String(a[1]||''), rewarded:a[2]===1, tag:(a[3]==null? -1 : a[3]), via:a[4]||'', ack:a[5]||'', applied:a[6]===1, by:(a[7]>=0 && staff[a[7]])||'', amt:(a[8]||0)/100}
+    : a).filter(x=>x && x.id) : [];
+  return {v:rec.v||2, updated:rec.updated||'', links, days:rec.days||null, invDays:rec.invDays||null, staff, success};
 }
 function mergeSync(rm){
   if(!rm || typeof rm!=='object') return;
