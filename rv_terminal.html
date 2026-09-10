@@ -370,6 +370,22 @@ html[data-theme="frost"] input,html[data-theme="frost"] select,html[data-theme="
 html[data-theme="glass"] .track,html[data-theme="glass"] .hero .htrack{background:rgba(255,255,255,.12)}
 html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme="frost"] .modal-bg{background:rgba(30,41,70,.25)}
 @media(prefers-reduced-motion:reduce){ html[data-theme="glass"] body::before,html[data-theme="frost"] body::before{animation:none} }
+/* ---------- projects ---------- */
+.pjrow{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--r-sm);cursor:pointer;border:1px solid transparent}
+.pjrow:hover{background:var(--panel2)} .pjrow.on{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
+.pjrow .pjt{flex:1;min-width:0;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pjrow .pjs{font-family:var(--mono);font-size:10px;color:var(--dim);white-space:nowrap}
+.pjrow .pjp{width:6px;height:6px;border-radius:50%;flex:none;background:var(--dim)} .pjrow .pjp.p1{background:var(--bad)} .pjrow .pjp.p2{background:var(--gold)}
+.tl{position:relative;padding:6px 0 6px 22px;border-left:2px solid var(--line);margin-left:6px}
+.tl::before{content:'';position:absolute;left:-6px;top:11px;width:10px;height:10px;border-radius:50%;background:var(--panel3);border:2px solid var(--dim)}
+.tl.done::before{background:var(--good);border-color:var(--good)} .tl.late::before{border-color:var(--bad);background:var(--bad-soft)}
+.tl .tld{font-family:var(--mono);font-size:10.5px;color:var(--dim)} .tl.late .tld{color:var(--bad)}
+.tl .tlt{font-size:12.5px;color:var(--text)} .tl.done .tlt{color:var(--dim);text-decoration:line-through}
+.tl .tlx{display:flex;gap:8px;align-items:flex-start} .tl .tlx .tdchk{margin-top:2px}
+.tl button.tlrm,.pjn button.pnrm{background:none;border:0;color:var(--dim);cursor:pointer;font-size:12px;padding:0 4px} .tl button.tlrm:hover,.pjn button.pnrm:hover{color:var(--bad)}
+.pjn{padding:9px 0;border-bottom:1px solid var(--line)} .pjn:last-child{border-bottom:0}
+.pjn .pnd{font-family:var(--mono);font-size:10.5px;color:var(--dim);display:flex;gap:8px;align-items:center} .pjn .pnt{font-size:12.5px;color:var(--text);white-space:pre-wrap;margin-top:2px}
+@media(max-width:1180px){ #pjGrid{grid-template-columns:1fr!important} }
 /* ---------- appearance picker (Account) ---------- */
 .themes{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
 .theme-opt{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r-sm);padding:8px 12px 8px 8px;color:var(--text);font-size:12px;font-weight:500;cursor:pointer}
@@ -434,6 +450,7 @@ html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme=
     <div class="navlab">Today</div>
     <button data-v="command" class="on" aria-current="page"><span class="dot"></span>Command</button>
     <button data-v="recovery" data-hub="dotoday"><span class="dot"></span>Do today</button>
+    <button data-v="projects"><span class="dot"></span>Projects</button>
     <div class="navlab">Money</div>
     <button data-v="revenue" data-hub="revenue"><span class="dot"></span>Revenue</button>
     <button data-v="reports"><span class="dot"></span>Reports</button>
@@ -952,6 +969,61 @@ html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme=
     <div class="note" style="margin-top:14px"><b>Who counts as an affiliate.</b> Any promo code that is not one of your own campaign codes (set those on Account). Active = paying or past due right now; past due is flagged so you can chase it. Joined and months are from the first payment.</div>
   </section>
 
+  <!-- PROJECTS · v15.92: every plan, its notes and its timeline, saved to the database for both logins -->
+  <section class="view" id="v-projects">
+    <div class="grid c4">
+      <div class="card"><h3>Live projects</h3><div class="big num gtx gtx-blue" id="pjKActive">—</div><div class="sn">planned or in progress</div></div>
+      <div class="card"><h3>Due this week</h3><div class="big num gtx gtx-gold" id="pjKWeek">—</div><div class="sn" id="pjKWeekD">timeline items and project deadlines</div></div>
+      <div class="card"><h3>Overdue</h3><div class="big num gtx gtx-red" id="pjKLate">—</div><div class="sn">past their date and not ticked off</div></div>
+      <div class="card"><h3>Done · 30d</h3><div class="big num gtx gtx-green" id="pjKDone">—</div><div class="sn">projects finished this month</div></div>
+    </div>
+    <div class="row" style="margin-top:14px;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn" id="pjNew">New project</button>
+      <input id="pjSearch" placeholder="search projects…" style="width:220px">
+      <div class="tfbtns" id="pjFilter" style="margin:0"><button data-s="open" class="on">open</button><button data-s="active">in progress</button><button data-s="planned">planned</button><button data-s="idea">ideas</button><button data-s="done">done</button><button data-s="parked">parked</button><button data-s="all">all</button></div>
+    </div>
+    <div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(0,3fr);margin-top:12px" id="pjGrid">
+      <div class="card" style="padding:8px 8px">
+        <div id="pjList"></div>
+        <div class="empty" id="pjEmpty" style="display:none">No projects yet. Click New project and write the first one down.</div>
+      </div>
+      <div class="card" id="pjDetail">
+        <div class="empty" id="pjNone">Pick a project on the left, or start a new one.</div>
+        <div id="pjForm" style="display:none">
+          <input id="pjTitle" placeholder="Project title" style="font-size:16px;font-weight:600;padding:9px 12px">
+          <div class="grid c4" style="margin-top:10px;gap:10px">
+            <div><label for="pjStatus" style="margin-top:0">Status</label><select id="pjStatus"><option value="idea">Idea</option><option value="planned">Planned</option><option value="active">In progress</option><option value="done">Done</option><option value="parked">Parked</option></select></div>
+            <div><label for="pjOwner" style="margin-top:0">Owner</label><select id="pjOwner"><option value="Louie">Louie</option><option value="Tom">Tom</option><option value="Both">Both</option></select></div>
+            <div><label for="pjPriority" style="margin-top:0">Priority</label><select id="pjPriority"><option value="1">High</option><option value="2">Normal</option><option value="3">Low</option></select></div>
+            <div><label for="pjDue" style="margin-top:0">Deadline</label><input type="date" id="pjDue"></div>
+          </div>
+          <label for="pjArea">Area <span class="sn" style="display:inline">(e.g. retention, marketing, product, ops)</span></label>
+          <input id="pjArea" placeholder="one or two words">
+          <label for="pjSummary">What it is and why it matters</label>
+          <textarea id="pjSummary" rows="4" style="width:100%;resize:vertical" placeholder="the goal, the plan, what done looks like…"></textarea>
+          <div class="sec" style="margin-top:16px">Timeline <span class="tag">dated steps · tick them off</span></div>
+          <div id="pjTimeline"></div>
+          <div class="row" style="margin-top:8px;gap:8px;flex-wrap:nowrap">
+            <input type="date" id="pjTlDate" style="width:160px">
+            <input id="pjTlText" placeholder="what happens on that date" style="flex:1;min-width:0">
+            <button class="btn sm" id="pjTlAdd">Add</button>
+          </div>
+          <div class="sec" style="margin-top:16px">Notes <span class="tag">newest first · stamped</span></div>
+          <div id="pjNotes"></div>
+          <div class="row" style="margin-top:8px;gap:8px;flex-wrap:nowrap;align-items:flex-start">
+            <textarea id="pjNoteText" rows="2" placeholder="a thought, a result, a link, a decision…" style="flex:1;min-width:0;resize:vertical"></textarea>
+            <button class="btn sm" id="pjNoteAdd">Add note</button>
+          </div>
+          <div class="row" style="margin-top:16px;gap:8px;align-items:center">
+            <span class="sn" id="pjMeta" style="margin-top:0;flex:1"></span>
+            <button class="btn danger" id="pjDelete">Delete project</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="note" style="margin-top:14px"><b>Saved to the database.</b> Every field saves as you type and reaches the other login within seconds. Both of you can add notes and steps; if you both edit the same project in the same minute, the later save wins.</div>
+  </section>
+
   <!-- NEW JOINS -->
   <section class="view" id="v-joins">
     <div id="joinsRangeBar" style="margin-bottom:14px"></div>
@@ -1442,7 +1514,7 @@ function jget(k,d){ const v=store.get(k); if(v==null) return d; try{ return JSON
 /* v15.82: rv_settings is here so goals, costs, VAT, trial periods and business settings typed in a
    browser are pushed within seconds — before v15.82 they sat local-only and the next auto-pull
    put the cloud's older copy back over them. */
-const SYNC_KEYS = new Set(['rv_weekly','rv_snapshots','rv_djoins','rv_posts','rv_ads','rv_campaigns','rv_manualattr','rv_handles','rv_forecasts','rv_mrrevents','rv_recovery','rv_changes','rv_settings']);
+const SYNC_KEYS = new Set(['rv_weekly','rv_snapshots','rv_djoins','rv_posts','rv_ads','rv_campaigns','rv_manualattr','rv_handles','rv_forecasts','rv_mrrevents','rv_recovery','rv_changes','rv_settings','rv_projects']);
 let syncMerging=false;
 function jset(k,v){
   if(IDB_KEYS[k]) idbWrite(k,v); else store.set(k, JSON.stringify(v));
@@ -1514,6 +1586,7 @@ if(!Array.isArray(S.emailLog) || !S.emailSup){
 S.expCamp = jget('rv_expcamp', null);
 S.profitBin = jget('rv_profitbin', null);   /* v15.84: shared by the runner */
 S.emailFlags = jget('rv_emailflags', null);
+S.projects = jget('rv_projects', null);   /* v15.92: projects, notes, timelines — synced */
 if(!S.expCamp || typeof S.expCamp.stamps!=='object') S.expCamp={stamps:{}};
 if(typeof S.expCamp.upTypes!=='object' || !S.expCamp.upTypes) S.expCamp.upTypes={};
 const charts = {};
@@ -1664,7 +1737,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.91';
+const BUILD = 'v15.92';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3589,6 +3662,7 @@ const PAGE_DRAWS={
   growth:[()=>drawJoinsBig(), ()=>drawJoinsNeeded(), ()=>drawNetFlow('chCancBig'), m=>drawGrowthFlow(m), m=>drawGrowthCharts(m), ()=>drawGrowthExtras()],
   attribution:[()=>drawAttribution()],
   affiliates:[()=>drawAffiliatesPage()],
+  projects:[()=>drawProjectsPage()],
   credits:[()=>drawCreditsPage()],
   cancels:[()=>drawCancelsPage()],
   trials:[()=>drawTrialsPage()],
@@ -3602,7 +3676,7 @@ const PAGE_DRAWS={
   profit:[()=>{ void drawProfitPage(); }],
   emails:[()=>drawEmailsPage()]
 };
-const PAGE_LABEL={command:'Command',revenue:'Revenue',growth:'Growth',attribution:'Attribution',affiliates:'Affiliates',credits:'Credits',cancels:'Cancels',trials:'Trials',retention:'Retention',expansion:'Expansion',reports:'Reports',recovery:'Recovery',resigns:'Resign-ups',changes:'Pro revamp',lurk:'Lurk gap',profit:'Profit',emails:'Emails'};
+const PAGE_LABEL={command:'Command',revenue:'Revenue',growth:'Growth',attribution:'Attribution',affiliates:'Affiliates',projects:'Projects',credits:'Credits',cancels:'Cancels',trials:'Trials',retention:'Retention',expansion:'Expansion',reports:'Reports',recovery:'Recovery',resigns:'Resign-ups',changes:'Pro revamp',lurk:'Lurk gap',profit:'Profit',emails:'Emails'};
 const pageDirty={};
 function currentView(){ const el=document.querySelector('.view.on'); return el&&el.id? el.id.slice(2) : 'command'; }
 function paintPage(v, m){
@@ -10073,8 +10147,78 @@ function drawAffiliatesPage(){
   const gone=a.subs.filter(x=>!(x.status==='active'||x.status==='past_due'));
   setH('afSelPast', gone.length? '<b style="color:var(--text)">'+gone.length+' former subscriber'+(gone.length===1?'':'s')+'</b> from this code have left'+(gone.length? ' — most recent: '+esc(String(gone.sort((x,y)=>(y.canceled||0)-(x.canceled||0))[0].duser||gone[0].cname||gone[0].cemail||'member').slice(0,30)):'')+'.' : 'Nobody from this code has left yet.');
 }
+/* ---------- projects page (v15.92) ---------- */
+let pjSel=null, pjFilterS='open', pjSaveT=null;
+function pjState(){ if(!S.projects||typeof S.projects!=='object'||!Array.isArray(S.projects.items)) S.projects={items:[]}; return S.projects; }
+function pjSave(){ jset('rv_projects', pjState()); }
+function pjId(){ return 'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function pjCur(){ return pjState().items.find(x=>x.id===pjSel)||null; }
+const PJ_STATUS={idea:'Idea',planned:'Planned',active:'In progress',done:'Done',parked:'Parked'};
+function pjTouch(p){ p.updated=Date.now(); pjSave(); }
+function drawProjectsPage(){
+  const st=pjState(), items=st.items, now=Date.now(), today=dayKey(now);
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
+  const live=items.filter(p=>p.status==='active'||p.status==='planned');
+  const wk=dayKey(now+7*D);
+  let dueWk=0, late=0;
+  items.forEach(p=>{ if(p.status==='done'||p.status==='parked') return;
+    if(p.due){ if(p.due<today) late++; else if(p.due<=wk) dueWk++; }
+    (p.timeline||[]).forEach(t=>{ if(t.done||!t.d) return; if(t.d<today) late++; else if(t.d<=wk) dueWk++; }); });
+  set('pjKActive', live.length); set('pjKWeek', dueWk); set('pjKLate', late);
+  set('pjKDone', items.filter(p=>p.status==='done' && p.doneAt && now-p.doneAt<=30*D).length);
+  const q=(document.getElementById('pjSearch')||{}).value||''; const ql=q.trim().toLowerCase();
+  const shown=items.filter(p=>{
+    const okS = pjFilterS==='all' ? true : pjFilterS==='open' ? (p.status!=='done'&&p.status!=='parked') : p.status===pjFilterS;
+    const okQ = !ql || [p.title,p.area,p.summary,(p.notes||[]).map(n=>n.text).join(' ')].join(' ').toLowerCase().includes(ql);
+    return okS && okQ; }).sort((a,b)=>(a.priority||2)-(b.priority||2) || (a.due||'9999').localeCompare(b.due||'9999') || (b.updated||0)-(a.updated||0));
+  const list=document.getElementById('pjList'), empty=document.getElementById('pjEmpty'); if(!list) return;
+  list.innerHTML=shown.map(p=>{ const next=(p.timeline||[]).filter(t=>!t.done&&t.d).sort((a,b)=>a.d.localeCompare(b.d))[0];
+    return '<div class="pjrow'+(p.id===pjSel?' on':'')+'" data-id="'+p.id+'"><span class="pjp p'+(p.priority||2)+'"></span><span class="pjt">'+esc(p.title||'Untitled')+'</span>'
+      +'<span class="pill '+(p.status==='active'?'good':p.status==='done'?'cold':p.status==='parked'?'cold':'mid')+'">'+esc(PJ_STATUS[p.status]||p.status)+'</span>'
+      +'<span class="pjs">'+esc(p.owner||'')+(next? ' · '+new Date(next.d).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : p.due? ' · due '+new Date(p.due).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'')+'</span></div>'; }).join('');
+  if(empty) empty.style.display=items.length?'none':'block';
+  list.querySelectorAll('.pjrow').forEach(r=>{ r.onclick=()=>{ pjSel=r.dataset.id; drawProjectsPage(); }; });
+  document.querySelectorAll('#pjFilter button').forEach(b=>b.classList.toggle('on', b.dataset.s===pjFilterS));
+  const p=pjCur(), form=document.getElementById('pjForm'), none=document.getElementById('pjNone');
+  if(!p){ if(form) form.style.display='none'; if(none) none.style.display='block'; return; }
+  if(form) form.style.display='block'; if(none) none.style.display='none';
+  /* never overwrite a field the user is typing in (renderAll can land mid-keystroke) */
+  const focused=document.activeElement, fill=(id,v)=>{ const el=document.getElementById(id); if(el && el!==focused) el.value=v==null?'':v; };
+  fill('pjTitle',p.title); fill('pjStatus',p.status||'idea'); fill('pjOwner',p.owner||'Louie'); fill('pjPriority',String(p.priority||2)); fill('pjDue',p.due||''); fill('pjArea',p.area||''); fill('pjSummary',p.summary||'');
+  const tl=(p.timeline||[]).slice().sort((a,b)=>(a.d||'').localeCompare(b.d||''));
+  const tlEl=document.getElementById('pjTimeline');
+  if(tlEl) tlEl.innerHTML=tl.length? tl.map(t=>{ const lateT=!t.done&&t.d&&t.d<today;
+    return '<div class="tl'+(t.done?' done':'')+(lateT?' late':'')+'"><div class="tlx"><button type="button" class="tdchk'+(t.done?' on':'')+'" data-tl="'+t.id+'" title="tick off">'+(t.done?'✓':'')+'</button><div style="flex:1;min-width:0"><div class="tld">'+(t.d? new Date(t.d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'2-digit'}):'no date')+(lateT?' · overdue':'')+'</div><div class="tlt">'+esc(t.text)+'</div></div><button type="button" class="tlrm" data-rm="'+t.id+'" title="remove">×</button></div></div>'; }).join('')
+    : '<div class="sn">No steps yet. Add the first date below.</div>';
+  tlEl&&tlEl.querySelectorAll('button.tdchk').forEach(b=>{ b.onclick=()=>{ const t=(p.timeline||[]).find(x=>x.id===b.dataset.tl); if(t){ t.done=!t.done; t.doneAt=t.done?Date.now():null; pjTouch(p); drawProjectsPage(); } }; });
+  tlEl&&tlEl.querySelectorAll('button.tlrm').forEach(b=>{ b.onclick=()=>{ p.timeline=(p.timeline||[]).filter(x=>x.id!==b.dataset.rm); pjTouch(p); drawProjectsPage(); }; });
+  const notes=(p.notes||[]).slice().sort((a,b)=>(b.t||0)-(a.t||0)), nEl=document.getElementById('pjNotes');
+  if(nEl) nEl.innerHTML=notes.length? notes.map(n=>'<div class="pjn"><div class="pnd">'+new Date(n.t).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+(n.by?' · '+esc(n.by):'')+'<button type="button" class="pnrm" data-rm="'+n.id+'" title="remove">×</button></div><div class="pnt">'+esc(n.text)+'</div></div>').join('')
+    : '<div class="sn">No notes yet.</div>';
+  nEl&&nEl.querySelectorAll('button.pnrm').forEach(b=>{ b.onclick=()=>{ p.notes=(p.notes||[]).filter(x=>x.id!==b.dataset.rm); pjTouch(p); drawProjectsPage(); }; });
+  set('pjMeta', 'created '+new Date(p.created||now).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit'})+' · updated '+new Date(p.updated||p.created||now).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}));
+}
+(function pjWire(){
+  const $=id=>document.getElementById(id); if(!$('pjNew')) return;
+  $('pjNew').onclick=()=>{ const p={id:pjId(), title:'', status:'idea', owner:'Louie', priority:2, due:'', area:'', summary:'', timeline:[], notes:[], created:Date.now(), updated:Date.now()};
+    pjState().items.unshift(p); pjSel=p.id; pjFilterS='all'; pjSave(); drawProjectsPage(); setTimeout(()=>{ const t=$('pjTitle'); if(t){ t.focus(); } },30); };
+  $('pjSearch').oninput=()=>drawProjectsPage();
+  document.querySelectorAll('#pjFilter button').forEach(b=>{ b.onclick=()=>{ pjFilterS=b.dataset.s; drawProjectsPage(); }; });
+  const field=(id,key,fn)=>{ const el=$(id); if(!el) return; el.addEventListener('input',()=>{ const p=pjCur(); if(!p) return; p[key]=fn? fn(el.value):el.value; if(key==='status'){ if(el.value==='done'&&!p.doneAt) p.doneAt=Date.now(); if(el.value!=='done') p.doneAt=null; }
+    p.updated=Date.now(); clearTimeout(pjSaveT); pjSaveT=setTimeout(()=>{ pjSave(); drawProjectsPage(); }, 500); }); };
+  field('pjTitle','title'); field('pjStatus','status'); field('pjOwner','owner'); field('pjPriority','priority',v=>Number(v)||2); field('pjDue','due'); field('pjArea','area'); field('pjSummary','summary');
+  ['pjStatus','pjOwner','pjPriority','pjDue'].forEach(id=>{ const el=$(id); if(el) el.addEventListener('change',()=>el.dispatchEvent(new Event('input'))); });
+  const addTl=()=>{ const p=pjCur(); if(!p) return; const d=$('pjTlDate').value, text=$('pjTlText').value.trim(); if(!text) return;
+    (p.timeline=p.timeline||[]).push({id:pjId(), d:d||'', text, done:false}); $('pjTlText').value=''; pjTouch(p); drawProjectsPage(); };
+  $('pjTlAdd').onclick=addTl; $('pjTlText').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); addTl(); } });
+  const addNote=()=>{ const p=pjCur(); if(!p) return; const text=$('pjNoteText').value.trim(); if(!text) return;
+    (p.notes=p.notes||[]).push({id:pjId(), t:Date.now(), text, by:(S.sb&&S.sb.email)? String(S.sb.email).split('@')[0] : null}); $('pjNoteText').value=''; pjTouch(p); drawProjectsPage(); };
+  $('pjNoteAdd').onclick=addNote; $('pjNoteText').addEventListener('keydown',e=>{ if(e.key==='Enter' && (e.metaKey||e.ctrlKey)){ e.preventDefault(); addNote(); } });
+  $('pjDelete').onclick=()=>{ const p=pjCur(); if(!p) return; if(!confirm('Delete "'+(p.title||'Untitled')+'" and all its notes? This cannot be undone.')) return;
+    pjState().items=pjState().items.filter(x=>x.id!==p.id); pjSel=null; pjSave(); drawProjectsPage(); };
+})();
 /* ---------- nav ---------- */
-const titles={ emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', affiliates:'Affiliates', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', goals:'Goals', settings:'Account'};
+const titles={ emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', affiliates:'Affiliates', projects:'Projects', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', goals:'Goals', settings:'Account'};
 function enhanceInteractive(root){
   (root||document).querySelectorAll('.clickable,.hero,.alertline').forEach(el=>{
     if(el.matches('button,a,input,select,textarea')||typeof el.onclick!=='function') return;
