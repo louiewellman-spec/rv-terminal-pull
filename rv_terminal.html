@@ -496,6 +496,10 @@ html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme=
   #gate{padding:16px} .gate-box{max-width:none}
 }
 @media (display-mode:standalone){ body{-webkit-user-select:none;user-select:none} input,textarea,select,.pnt,.tlt,td{-webkit-user-select:text;user-select:text} }
+/* new-build bar (v15.96): appears when a newer deploy is live and this tab hasn't reloaded */
+#updBar{position:fixed;right:16px;bottom:16px;z-index:90;display:flex;align-items:center;gap:12px;padding:10px 12px 10px 14px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.28);font-size:12.5px}
+#updBar b{color:var(--accent)}
+@media (max-width:620px){ #updBar{left:12px;right:12px;bottom:calc(72px + env(safe-area-inset-bottom));justify-content:space-between} }
 </style>
 </head>
 <body>
@@ -1794,7 +1798,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.95';
+const BUILD = 'v15.97';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -8592,10 +8596,29 @@ function abandonedView(){
    14 days past that renewal while a message is still worth sending, and leaves when Louie
    hits checked in. Old upgrades whose first renewal is long gone never enter — the queue
    is about the changeover itself, not the payment history. ---- */
+/* Discord handle for one member's subs — the same precedence the digest uses: newest
+   checkout-session username → the sub's own duser → the recovered/manual rv_handles map
+   (keyed by lower-cased Stripe name or customer id). Snowflake ids are not handles. */
+function discordHandleFor(list){
+  const ok=v=>(v && !/^\d{15,20}$/.test(String(v)))? String(v).trim() : null;
+  const ids=new Set(list.map(x=>x.id)), custs=new Set(list.map(x=>x.cust).filter(Boolean));
+  const sess=(S.sessions||[]).filter(x=>x.duser && ((x.sub&&ids.has(x.sub))||(x.cust&&custs.has(x.cust)))).sort((a,b)=>(b.created||0)-(a.created||0));
+  for(const x of sess){ const h=ok(x.duser); if(h) return h; }
+  for(const x of list){ const h=ok(x.duser); if(h) return h; }
+  const H=S.handles||{};
+  for(const x of list){
+    const byName=x.cname? ok(H[String(x.cname).trim().toLowerCase()]) : null; if(byName) return byName;
+    const byCust=x.cust? ok(H[x.cust]) : null; if(byCust) return byCust;
+  }
+  return null;
+}
 function eliteCheckins(){
   const now=Date.now(), D=24*3600*1000, done=S.checkins||{};
   const byC={}; (S.subs||[]).forEach(x=>{ const k=custKey(x); (byC[k]=byC[k]||[]).push(x); });
   const tOf3=x=>x.tier||tierOf(null,x.monthly);
+  /* Stripe name per member; the Discord handle comes from discordHandleFor() per row */
+  const cnBy={};
+  Object.keys(byC).forEach(k=>{ const cn=byC[k].map(x=>x.cname).find(v=>v&&String(v).trim()); if(cn) cnBy[k]=String(cn).trim(); });
   const seen=new Set(), rows=[];
   upgradeView().rows.forEach(r=>{               /* already newest-first: first row per member = latest episode */
     if(seen.has(r.key)) return; seen.add(r.key);
@@ -8611,7 +8634,7 @@ function eliteCheckins(){
     const days=Math.round((renewT-now)/D);      /* + = days till the renewal, − = days since it */
     if(days>7 || days<-14) return;              /* comes up 7 days before, gone 14 days after */
     const d=done[r.id];
-    rows.push({id:r.id, key:r.key, name:r.name, email:(el&&el.cemail)||null, t:r.t, renewT, days, pastDue:pd,
+    rows.push({id:r.id, key:r.key, name:cnBy[r.key]||r.name, discord:discordHandleFor(byC[r.key]||[]), email:(el&&el.cemail)||null, t:r.t, renewT, days, pastDue:pd,
       type:r.type==='free'?'free':r.type==='paid'?'paid':'unset',
       nextGBP:el? Math.round(el.monthly||0):null,
       done:(d&&d.done)||null});
@@ -8630,7 +8653,7 @@ function drawCheckins(){
       +' — soonest renewal at the top; a row leaves when you hit checked in, or 14 days after the renewal'
     : '<span class="sn">Queue is clear. Anyone who moves up to Elite comes up here 7 days before their first full Elite charge — or before a free month reverts.</span>';
   if(!q.active.length){ th.innerHTML=''; tb.innerHTML=''; return; }
-  th.innerHTML='<tr><th>Member</th><th>Email</th><th>Type</th><th>Moved to Elite</th><th title="the first full Elite charge after the switch, or the day a free month reverts">First Elite renewal</th><th>Charge</th><th></th></tr>';
+  th.innerHTML='<tr><th>Member</th><th>Discord</th><th>Email</th><th>Type</th><th>Moved to Elite</th><th title="the first full Elite charge after the switch, or the day a free month reverts">First Elite renewal</th><th>Charge</th><th></th></tr>';
   tb.innerHTML=q.active.slice(0,60).map(r=>{
     const when = r.pastDue ? '<b class="gtx gtx-red">PAST DUE · in dunning</b>'
       : r.days>0 ? '<b class="gtx gtx-gold">in '+r.days+' day'+(r.days===1?'':'s')+'</b> · '+dayKey(r.renewT)
@@ -8638,6 +8661,7 @@ function drawCheckins(){
       : '<b class="gtx gtx-red">'+(-r.days)+' day'+(r.days===-1?'':'s')+' ago</b> · '+dayKey(r.renewT);
     return '<tr>'
       +'<td style="color:var(--text);font-weight:600">'+esc(r.name||'member')+'</td>'
+      +'<td class="mono">'+(r.discord? esc(r.discord) : '<span class="sn">—</span>')+'</td>'
       +'<td>'+esc(r.email||'—')+'</td>'
       +'<td><span class="pill '+(r.type==='free'?'mid':r.type==='paid'?'good':'cold')+'">'+r.type.toUpperCase()+'</span></td>'
       +'<td>'+dayKey(r.t)+'</td>'
@@ -10417,6 +10441,50 @@ document.addEventListener('visibilitychange', ()=>{
   if(t && Date.now()-t > AR_MS) arTick();
 });
 arSchedule();
+
+/* ---------- new-build watch (v15.96): a long-lived tab or the phone app never reloads its
+   shell on its own, so a deploy stayed invisible until the next cold open. Every 5 min, and
+   whenever the tab comes back into view, fetch the tiny version.json that ships with each
+   deploy; when it names a newer build, reload — silently when the page has just come back
+   into view and nothing is being typed, otherwise via a small "Update now" bar so nothing
+   in progress is lost. One auto-reload per build (sessionStorage) so a CDN that serves
+   version.json ahead of index.html can never loop the page. ---------- */
+let _updBuild=null;
+async function updCheck(){
+  try{
+    if(typeof location==='undefined' || !/^https?:$/.test(location.protocol||'')) return null;
+    const r=await fetch('/version.json?t='+Date.now(), {cache:'no-store'});
+    if(!r.ok) return null;
+    const j=await r.json(); const b=j&&j.build;
+    if(!b || b===BUILD){ updBar(false); return null; }
+    _updBuild=b; updBar(true); return b;
+  }catch(e){ return null; }
+}
+function updBar(on){
+  let el=document.getElementById('updBar');
+  if(!on){ if(el) el.remove(); return; }
+  if(el) return;
+  el=document.createElement('div'); el.id='updBar';
+  el.innerHTML='<span>A newer build is live · <b>'+esc(_updBuild)+'</b> (this tab is on '+esc(BUILD)+')</span><button class="btn sm" id="updGo">Update now</button>';
+  document.body.appendChild(el);
+  const g=document.getElementById('updGo'); if(g) g.onclick=updReload;
+}
+function updReload(){ try{ sessionStorage.setItem('rv_upd_for', _updBuild||''); }catch(e){} location.reload(); }
+function updIdle(){
+  const a=document.activeElement;
+  if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName||'')) return false;
+  const mb=document.getElementById('modalBg');
+  if(mb && getComputedStyle(mb).display!=='none') return false;
+  return true;
+}
+document.addEventListener('visibilitychange', async()=>{
+  if(document.hidden) return;
+  const b=await updCheck(); if(!b || !updIdle()) return;
+  let done=null; try{ done=sessionStorage.getItem('rv_upd_for'); }catch(e){}
+  if(done!==b) updReload();                    /* first sight of this build: reload now; seen before: the bar stays */
+});
+setInterval(()=>{ if(!document.hidden) updCheck(); }, 5*60*1000);
+setTimeout(updCheck, 45*1000);
 
 /* ---------- init ---------- */
 /* ---------- cloud sync ---------- */
