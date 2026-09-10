@@ -1664,7 +1664,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.90';
+const BUILD = 'v15.91';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -1689,7 +1689,7 @@ function memberTokenMap(){
   if(_tokMemo && _tokSrc===S.subs) return _tokMemo;   /* invalidate on the ARRAY, not the clock */
   const tok={};
   (S.subs||[]).forEach(x=>{
-    const k=x.cust||x.id, bits=[];
+    const k=custKey(x), bits=[];
     if(x.cname) String(x.cname).split(/\s+/).forEach(w=>bits.push(w));
     if(x.cemail) bits.push(String(x.cemail).split('@')[0]);
     if(x.duser && !/^\d{15,20}$/.test(String(x.duser))) bits.push(x.duser);
@@ -1740,7 +1740,7 @@ function referralCandidates(){
   codes.forEach(c=>{
     if(codeTypeOf(c)!=='referral') return;
     const cands=codeCandidates(c); if(!cands.size) return;
-    const reds=(S.subs||[]).filter(x=>CODE_NORM(x.code)===c && !cands.has(x.cust||x.id))
+    const reds=(S.subs||[]).filter(x=>CODE_NORM(x.code)===c && !cands.has(custKey(x)))
       .map(stripeStartOf).filter(t=>isFinite(t)).sort((a,b)=>a-b);
     if(reds.length) out[c]={cands, reds};
   });
@@ -2391,7 +2391,7 @@ function compute(){
   /* voluntary vs payment-failed split for the subscribers who churned in the window */
   const goneSet = new Set(goneCust);
   const lastCanc = {};
-  subs.forEach(x=>{ const k=x.cust||x.id;
+  subs.forEach(x=>{ const k=custKey(x);
     if(x.canceled && goneSet.has(k) && (!lastCanc[k]||x.canceled>lastCanc[k].canceled)) lastCanc[k]=x; });
   const invol = goneCust.filter(k=>{ const s=lastCanc[k]; return s&&(s.reason==='payment_failed'||s.reason==='payment_disputed'); }).length;
   const pdCancelled = c30.filter(s=>s.reason==='payment_failed'||s.reason==='payment_disputed')
@@ -2405,7 +2405,7 @@ function compute(){
   const custChanMap = {};
   /* oldest sub first = first-touch attribution: the channel that ACQUIRED the member
      keeps them even if a later re-sign came via a different source */
-  subs.slice().sort((a,b)=>a.created-b.created).forEach(x=>{ const k=x.cust||x.id;
+  subs.slice().sort((a,b)=>a.created-b.created).forEach(x=>{ const k=custKey(x);
     if(codeKind(x.code)==='aff'){ custChanMap[k]='affiliate'; return; }
     if(custChanMap[k]==='affiliate') return;
     const s = srcBySub[x.id]||(x.cust&&srcByCust[x.cust])||null;
@@ -2449,7 +2449,7 @@ function compute(){
      member counted under the code that ACQUIRED them (their earliest aff-coded sub).
      rows sum to the Affiliate row of the channel-churn table. */
   const custAffMap={};
-  subs.slice().sort((a,b)=>a.created-b.created).forEach(x=>{ const k=x.cust||x.id;
+  subs.slice().sort((a,b)=>a.created-b.created).forEach(x=>{ const k=custKey(x);
     if(!custAffMap[k] && codeKind(x.code)==='aff') custAffMap[k]=String(x.code).toUpperCase(); });
   const affChAgg={};
   const affChGet=k=>affChAgg[k]||(affChAgg[k]={base:0,added:0,gone:0,cape:0,b90:0,a90:0,g90:0});
@@ -2488,7 +2488,7 @@ function compute(){
      MoK = % of cohort with Stripe-metric MRR at the end of (cohort month + K-1).
      reactivated customers belong to their original cohort and count if live at that month-end. */
   const cmap={};
-  subs.forEach(x=>{ const c=x.cust||x.id; (cmap[c]=cmap[c]||[]).push(x); });
+  subs.forEach(x=>{ const c=custKey(x); (cmap[c]=cmap[c]||[]).push(x); });
   const custIv = classicCov(subs).map(c=>c.ivs).filter(iv=>iv.length);
   const cohorts=[];
   for(let m=12;m>=0;m--){
@@ -2758,7 +2758,7 @@ function compute(){
   });
   /* trial→paid by channel: finished trials only (in-trial subs are not decided yet) */
   subs.forEach(x=>{ if(!x.trialEnd || x.trialEnd>now) return;
-    const o=ceGet(custChanMap[x.cust||x.id]||'untracked');
+    const o=ceGet(custChanMap[custKey(x)]||'untracked');
     o.tri++; if(!(x.canceled && x.canceled<=x.trialEnd)) o.triOk++; });
   const channelEcon = Object.keys(chanEcon).map(k=>{
     const o=chanEcon[k];
@@ -2834,10 +2834,10 @@ function compute(){
        date is the failure date; for an OLD sub with no invoice record, sub-creation is
        months off (the Systi1 "36 days open" bug) — first-seen (null → now) is honest */
     const r=PDINV[x.id], failedAt=(r&&r.f) || ((now-x.created<7*D)? x.created : null);
-    return {cust:x.cust||x.id, failedAt, duser:nameOf(x), bn:!isHandle(x), tier:tOf(x), monthly:x.monthly,
+    return {cust:custKey(x), failedAt, duser:nameOf(x), bn:!isHandle(x), tier:tOf(x), monthly:x.monthly,
       disc:Math.round(((x.fo||0)+(x.ro||0))*100)/100,
       email:x.cemail||null, handle:isHandle(x)? nameOf(x):null, invUrl:(r&&r.u)||null,
-      aff:custAffMap[x.cust||x.id]||null,
+      aff:custAffMap[custKey(x)]||null,
       stage:(r && !(r.n && r.n>now-12*3600*1000))?'stalled':'retrying', nextTry:(r&&r.n)? r.n:null};
   });
   /* the long view: EVERY payment-failed cancel in history (trial bails excluded) —
@@ -3041,7 +3041,7 @@ function compute(){
     /* only joins old enough to have lived a full 7-day window — younger joins can only
        look like survivors and would flatter the number */
     const js = coachActs(w0,w1).filter(x=>stripeStartOf(x)<=now-7*D);
-    const gone = js.filter(x=>{ const list=subs.filter(y=>(y.cust||y.id)===(x.cust||x.id));
+    const gone = js.filter(x=>{ const list=subs.filter(y=>(y.cust||y.id)===(custKey(x)));
       const first=((classicCov(list)[0]||{ivs:[]}).ivs)[0]; return first&&first[1]!==Infinity&&(first[1]-first[0])<=7*D; });
     return { n:js.length, gone:gone.length, pct: js.length? gone.length/js.length*100 : null,
       list: gone.map(x=>memRowOf(x,(x.reason==='payment_failed'||x.reason==='payment_disputed')?'payment failed':'voluntary')) };
@@ -3233,8 +3233,8 @@ function compute(){
     duser: nameOf(x), bn: !isHandle(x),
     email: x.cemail||null, handle: isHandle(x)? nameOf(x):null, name: x.cname||null,
     src: srcBySub[x.id] || (x.cust && srcByCust[x.cust]) || null,
-    inv: (function(){ try{ const r=lkByCust[x.cust||x.id]; return (r&&r.inv)||null; }catch(e){ return null; } })(),   /* v15.37: whose invite link brought them */
-    lagH: (function(){ try{ const r=lkByCust[x.cust||x.id]; return (r&&r.lagH!=null)? r.lagH : null; }catch(e){ return null; } })(),   /* v15.44: hours from discord join to paying */
+    inv: (function(){ try{ const r=lkByCust[custKey(x)]; return (r&&r.inv)||null; }catch(e){ return null; } })(),   /* v15.37: whose invite link brought them */
+    lagH: (function(){ try{ const r=lkByCust[custKey(x)]; return (r&&r.lagH!=null)? r.lagH : null; }catch(e){ return null; } })(),   /* v15.44: hours from discord join to paying */
     canceled: x.canceled||null, trial: x.trialEnd!=null,
     trialNP: !!(x.trialEnd && x.canceled && x.canceled<=x.trialEnd)
   });
@@ -3245,7 +3245,7 @@ function compute(){
   const newDetail = subs.filter(x=>hasFirstPayment(x) && !(x.trialEnd && x.canceled && x.canceled<=x.trialEnd))
     .map(x=>({t:stripeStartOf(x), resign: isResign(x), tier: tOf(x), monthly:x.monthly}));
   const firstCustSub={};
-  subs.filter(hasFirstPayment).slice().sort((a,b)=>stripeStartOf(a)-stripeStartOf(b)).forEach(x=>{ const k=x.cust||x.id; if(!firstCustSub[k]) firstCustSub[k]=x; });
+  subs.filter(hasFirstPayment).slice().sort((a,b)=>stripeStartOf(a)-stripeStartOf(b)).forEach(x=>{ const k=custKey(x); if(!firstCustSub[k]) firstCustSub[k]=x; });
   const first7=Object.values(firstCustSub).filter(x=>stripeStartOf(x)<=now&&inWin(stripeStartOf(x),7));
   const proJ7 = first7.filter(x=>tOf(x)==='pro').length;
   const eliteJ7 = first7.filter(x=>tOf(x)==='elite').length;
@@ -3280,6 +3280,34 @@ window.Chart=new Proxy(window.Chart,{ construct(target,args){
 let _memoVer='', _memo={};
 function seriesVersion(){ return String((S.lastFetch&&(S.lastFetch.t||S.lastFetch))||0)+'|'+(S.subs? S.subs.length:0)+'|'+(S.sessions? S.sessions.length:0)+'|'+(S.recovery&&S.recovery.cases? Object.keys(S.recovery.cases).length:0); }
 function memoSeries(key, fn){ const v=seriesVersion(); if(v!==_memoVer){ _memo={}; _memoVer=v; } if(!(key in _memo)) _memo[key]=fn(); return _memo[key]; }
+/* ---------- v15.91: one identity per PERSON, not per Stripe customer id ----------
+   A member who comes back through a new checkout usually gets a NEW Stripe customer id, so every
+   engine keyed on customer id (waterfall, MRR bridge, churn, activations) saw a brand-new member
+   where the joins page — which already matched on email and discord handle — saw a re-signup.
+   custKey(x) merges customer ids that share an email or a discord handle and returns the earliest
+   customer id of the group, so all engines agree. Emails/handles shared by many customers (test
+   accounts, placeholders) are never used to merge. */
+let _ckVer='', _ck=null;
+function custKeyMap(){
+  const v=seriesVersion(); if(_ck && v===_ckVer) return _ck;
+  const subs=S.subs||[], parent={};
+  const mk=k=>{ if(!(k in parent)) parent[k]=k; return k; };
+  const find=k=>{ while(parent[k]!==k){ parent[k]=parent[parent[k]]; k=parent[k]; } return k; };
+  const union=(a,b)=>{ a=find(a); b=find(b); if(a!==b) parent[b]=a; };
+  const cid=x=>(x.cust)||(x.id);
+  const emOf=x=>{ const e=x.cemail? String(x.cemail).trim().toLowerCase():''; return /^[^@\s]+@[^@\s]+$/.test(e)? e:''; };
+  const hOf=x=>{ const h=x.duser? String(x.duser).trim().toLowerCase():''; return (h && !/^\d{15,20}$/.test(h))? h:''; };
+  const emC={}, hC={};
+  subs.forEach(x=>{ const e=emOf(x), h=hOf(x); if(e) (emC[e]=emC[e]||new Set()).add(cid(x)); if(h) (hC[h]=hC[h]||new Set()).add(cid(x)); });
+  subs.forEach(x=>{ const c=mk('c:'+cid(x)); const e=emOf(x), h=hOf(x);
+    if(e && emC[e].size<=4) union(c, mk('e:'+e));
+    if(h && hC[h].size<=4) union(c, mk('h:'+h)); });
+  const best={};
+  subs.slice().sort((a,b)=>(a.created||0)-(b.created||0)).forEach(x=>{ const r=find('c:'+cid(x)); if(!(r in best)) best[r]=cid(x); });
+  const map={}; subs.forEach(x=>{ map[x.id]=best[find('c:'+cid(x))]; });
+  _ck=map; _ckVer=v; return map;
+}
+function custKey(x){ if(!x) return null; const m=custKeyMap(); return (x.id && m[x.id]) || (x.cust) || (x.id); }
 function chart(id,cfg){
   const cv=document.getElementById(id); if(!cv) return null;
   if(charts[id]) charts[id].destroy();
@@ -3706,7 +3734,7 @@ async function recoverHandles(){
   });
   // dedupe by customer to minimise calls
   const byCust = {};
-  need.forEach(x=>{ const k=x.cust||x.id; if(!byCust[k]) byCust[k]={cust:x.cust, sub:x.id, cname:x.cname}; });
+  need.forEach(x=>{ const k=custKey(x); if(!byCust[k]) byCust[k]={cust:x.cust, sub:x.id, cname:x.cname}; });
   const list = Object.values(byCust);
   let found=0, done=0;
   for(const it of list){
@@ -4402,7 +4430,7 @@ function drawMrrMove(m){
   row.innerHTML = it('New',mv.newM,'gtx-green')+it('Reactivation',mv.reactM,'gtx-cyan')+it('Expansion',mv.expM,'gtx-blue')+it('Contraction',-mv.conM,'gtx-orange')+it('Churned',-mv.churnM,'gtx-red')+it('Net',mv.net,mv.net>=0?'gtx-green':'gtx-red');
   /* weekly gained vs lost, net line, last 12 weeks */
   const subsArr=liveSubsList(), now=Date.now();
-  const cm={}; subsArr.forEach(x=>{ const c=x.cust||x.id; (cm[c]=cm[c]||[]).push(x); });
+  const cm={}; subsArr.forEach(x=>{ const c=custKey(x); (cm[c]=cm[c]||[]).push(x); });
   const lAt=(list,t)=>list.reduce((a,x)=>a+(stripePaidAt(x,t)?x.monthly:0),0);
   const g = mvTfDays<=30 ? 'd' : (mvTfDays<=180 ? 'w' : 'm');
   const labels=[], gained=[], lost=[], net=[];
@@ -4868,7 +4896,7 @@ function creditView(){
       const mid=(b[0]+Math.min(b[1],b[0]+90))/2*D;
       let n=0,s30=0,s60=0;
       (window._rvShadow||[]).forEach(()=>{});
-      const cm={}; (S.subs||[]).filter(hasFirstPayment).forEach(x=>{ const k=x.cust||x.id; (cm[k]=cm[k]||[]).push(x); });
+      const cm={}; (S.subs||[]).filter(hasFirstPayment).forEach(x=>{ const k=custKey(x); (cm[k]=cm[k]||[]).push(x); });
       Object.values(cm).forEach(list=>{
         const s0=Math.min.apply(null,list.map(stripeStartOf));
         const end=list.some(x=>!actualEndOf(x)&&(x.status==='active'||x.status==='past_due'))? now : Math.max.apply(null,list.map(x=>actualEndOf(x)||0));
@@ -4883,7 +4911,7 @@ function creditView(){
   /* ROI answers "does a SAVE work" — a referrer getting £20 says nothing about that, so
      referral-only members are out and the clock starts at their first SAVE credit. */
   const creditedSave=credited.filter(c=>c.saveN>0);
-  const cm2={}; (S.subs||[]).filter(hasFirstPayment).forEach(x=>{ const k=x.cust||x.id; (cm2[k]=cm2[k]||[]).push(x); });
+  const cm2={}; (S.subs||[]).filter(hasFirstPayment).forEach(x=>{ const k=custKey(x); (cm2[k]=cm2[k]||[]).push(x); });
   let r30=0,r60=0,obs30=0,obs60=0,base30W=0,base60W=0,baseN=0,base60N=0;
   creditedSave.forEach(c=>{
     const list=cm2[c.cust]; if(!list) return;
@@ -5157,7 +5185,7 @@ function drawCreditsPage(){
       footer:it=>{ const mo=it.length&&v.months[it[0].dataIndex]; return mo? 'save £'+mo.saveGBP.toLocaleString()+' ('+mo.membersCredited+' members) · referral £'+mo.referralGBP.toLocaleString()+' ('+mo.referralRecipients+')':''; }}}},
       scales:{x:{stacked:true,grid:{display:false},ticks:{color:tickCol}},y:{stacked:true,beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol,callback:x2=>'£'+x2}}}}});
   /* per-member table */
-  const nameBy={}; (S.subs||[]).forEach(x=>{ const k=x.cust||x.id; if(!nameBy[k]&&(x.duser||x.cname)) nameBy[k]=x.duser||x.cname; });
+  const nameBy={}; (S.subs||[]).forEach(x=>{ const k=custKey(x); if(!nameBy[k]&&(x.duser||x.cname)) nameBy[k]=x.duser||x.cname; });
   const th=document.querySelector('#crTable thead'), tb=document.querySelector('#crTable tbody');
   if(th&&tb){
     const WHYOPTS=w=>['','payment_issue','too_busy','money','not_using','other'].map(o=>'<option value="'+o+'"'+(o===w?' selected':'')+'>'+(o? {payment_issue:'payment issue',too_busy:'too busy',money:'money',not_using:'not using it',other:'other'}[o] : '—')+'</option>').join('');
@@ -6149,7 +6177,7 @@ function coachActs(a,b){
      tracked separately and must not inflate this driver. */
   const first={};
   coachSubsLive().slice().sort((x,y)=>stripeStartOf(x)-stripeStartOf(y)).forEach(x=>{
-    const k=x.cust||x.id; if(!(k in first)) first[k]=x;
+    const k=custKey(x); if(!(k in first)) first[k]=x;
   });
   return Object.values(first).filter(x=>{ const t=stripeStartOf(x); return t>=a&&t<b; });
 }
@@ -6173,7 +6201,7 @@ function mrrMoveWin(a,b){
   const r={newM:0,reactM:0,expM:0,conM:0,churnM:0,newC:0,reactC:0};
   const subById={}; subs.forEach(x=>{ if(x&&x.id) subById[x.id]=x; });
   const changes=planLedger().all.filter(e=>e.t>a&&e.t<=b).map(e=>{
-    const x=subById[e.id], cust=(e.cust||(x&&(x.cust||x.id))||e.id);
+    const x=subById[e.id], cust=(e.cust||(x&&(custKey(x)))||e.id);
     return {cust,d:x?netPlanAmount(x,e.to)-netPlanAmount(x,e.from):Number(e.to)-Number(e.from)};
   });
   const netByCust={}; changes.forEach(e=>{ netByCust[e.cust]=(netByCust[e.cust]||0)+e.d; });
@@ -7584,7 +7612,7 @@ function weeklyForecast(asOfIn, calib){
   let upgrades=0, rejoins=0;
   try{ upgrades=upgradeEvents().filter(u=>u.t>=ws&&u.t<we).length; }catch(e){}
   try{ const seen={}; subs.slice().sort((a,b)=>stripeStartOf(a)-stripeStartOf(b)).forEach(x=>{
-      const c=x.cust||x.id, s=stripeStartOf(x); if(!s) return;
+      const c=custKey(x), s=stripeStartOf(x); if(!s) return;
       if(seen[c] && s>=ws && s<we) rejoins++; seen[c]=true; }); }catch(e){}
 
   /* ---- Elite free months landing this week: measured rate, or held out as undecided ---- */
@@ -7677,7 +7705,7 @@ function weeklyActual(ws, we){
   const canc=subs.filter(x=>{ const e=stripeMetricEndOf(x); return e!=null&&e>=ws&&e<we; });
   const failed=canc.filter(x=>x.reason==='payment_failed'||x.reason==='payment_disputed').length;
   let rejoins=0; try{ const seen={}; subs.slice().sort((a,b)=>stripeStartOf(a)-stripeStartOf(b)).forEach(x=>{
-      const c=x.cust||x.id, st=stripeStartOf(x); if(!st) return; if(seen[c]&&st>=ws&&st<we) rejoins++; seen[c]=true; }); }catch(e){}
+      const c=custKey(x), st=stripeStartOf(x); if(!st) return; if(seen[c]&&st>=ws&&st<we) rejoins++; seen[c]=true; }); }catch(e){}
   let cash=null; try{ const bd=S.cash&&S.cash.byDay; if(bd){ cash=0; for(let i=0;i<7;i++){ const k=dayKey(ws+i*D); if(bd[k]) cash+=(bd[k].paid||0)-(bd[k].refunded||0); } cash=Math.round(cash); } }catch(e){}
   return {joins, cancelsVol:canc.length-failed, cancelsFailed:failed, rejoins, net:joins+rejoins-canc.length,
     mrrEnd:Math.round(mrrAt(subs, we-1)), mrrStart:Math.round(mrrAt(subs, ws)), cash};
@@ -7876,7 +7904,7 @@ function prMetrics(){
   const pS=x=>(x.trialEnd && x.trialEnd>x.created)? x.trialEnd : x.created;
   /* first-ever paid start per customer — powers time-to-upgrade */
   const first={};
-  subs.forEach(x=>{ const k=x.cust||x.id, s=pS(x); if(!(k in first)||s<first[k]) first[k]=s; });
+  subs.forEach(x=>{ const k=custKey(x), s=pS(x); if(!(k in first)||s<first[k]) first[k]=s; });
   const med=a=>{ if(!a.length) return null; const s=a.slice().sort((x,y)=>x-y); return s[Math.floor(s.length/2)]; };
   const allUpg=upgradeEvents();
   const win=(a,b)=>{
@@ -8159,13 +8187,13 @@ function twRows(opts){
     const minTen=Number((document.getElementById('twChTen')||{}).value)||0;
     const minSince=Number((document.getElementById('twChSince')||{}).value)||0;
     const reason=(document.getElementById('twChReason')||{}).value||'all';
-    const liveCust=new Set(liveSubsList().filter(x=>(x.status==='active'||x.status==='past_due') && (!x.canceled||x.canceled>now)).map(x=>x.cust||x.id));
+    const liveCust=new Set(liveSubsList().filter(x=>(x.status==='active'||x.status==='past_due') && (!x.canceled||x.canceled>now)).map(x=>custKey(x)));
     const best={};
     liveSubsList().filter(x=>x.status==='canceled' && x.canceled && !(x.trialEnd && x.canceled<=x.trialEnd)).forEach(x=>{
-      const k=x.cust||x.id; if(liveCust.has(k)) return;
+      const k=custKey(x); if(liveCust.has(k)) return;
       if(!best[k]||x.canceled>best[k].canceled) best[k]=x; });
     base=Object.values(best)
-      .map(x=>({x, key:x.cust||x.id, t2:x.tier||tierOf(null,x.monthly),
+      .map(x=>({x, key:custKey(x), t2:x.tier||tierOf(null,x.monthly),
         ten:Math.max(0,Math.floor((x.canceled-stripeStartOf(x))/D)), since:Math.floor((now-x.canceled)/D),
         why:(x.reason==='payment_failed'||x.reason==='payment_disputed')? 'payment failed':'voluntary'}))
       .filter(r=>tierOk(r.t2) && r.ten>=minTen && r.since>=minSince && (reason==='all'||r.why===reason))
@@ -8174,7 +8202,7 @@ function twRows(opts){
     const lo=Number((document.getElementById('twExpMin')||{}).value)||0;
     const hi=Number((document.getElementById('twExpMax')||{}).value)||100000;
     base=liveSubsList().filter(x=>x.status==='active')
-      .map(x=>({x, key:x.cust||x.id, t2:x.tier||tierOf(null,x.monthly), ten:Math.floor((now-stripeStartOf(x))/D)}))
+      .map(x=>({x, key:custKey(x), t2:x.tier||tierOf(null,x.monthly), ten:Math.floor((now-stripeStartOf(x))/D)}))
       .filter(r=>tierOk(r.t2) && r.ten>=lo && r.ten<=hi)
       .sort((a,b)=>a.ten-b.ten);
   }
@@ -8268,7 +8296,7 @@ if(_twPaste) _twPaste.onclick=()=>{
     const now=Date.now(); let stamped=0; const misses=[];
     emails.forEach(e=>{ const hit=byEmail[e];
       if(!hit){ misses.push(e); return; }
-      const x=hit.x, key=x.cust||x.id;
+      const x=hit.x, key=custKey(x);
       S.expCamp.stamps[key]={tag, t, email:e, name:x.duser||x.cname||null,
         tier:x.tier||tierOf(null,x.monthly), ten:Math.max(0,Math.floor((t-stripeStartOf(x))/D))};
       stamped++; });
@@ -8284,7 +8312,7 @@ if(_twPaste) _twPaste.onclick=()=>{
 /* 4. outcome per stamped member, straight from the stripe data */
 function expCampView(){
   const st=(S.expCamp&&S.expCamp.stamps)||{}, now=Date.now();
-  const byKey={}; (S.subs||[]).forEach(x=>{ const k=x.cust||x.id; (byKey[k]=byKey[k]||[]).push(x); });
+  const byKey={}; (S.subs||[]).forEach(x=>{ const k=custKey(x); (byKey[k]=byKey[k]||[]).push(x); });
   const tOf2=x=>x.tier||tierOf(null,x.monthly);
   const members=Object.entries(st).map(([key,s])=>{
     const list=byKey[key]||[];
@@ -8312,7 +8340,7 @@ function expCampView(){
 function rosterRows(){
   const now=Date.now(), st=(S.expCamp&&S.expCamp.stamps)||{};
   const lkC=(lastM&&lastM.lurk&&lastM.lurk.byCust)||{};
-  const byC={}; liveSubsList().forEach(x=>{ const k=x.cust||x.id; (byC[k]=byC[k]||[]).push(x); });
+  const byC={}; liveSubsList().forEach(x=>{ const k=custKey(x); (byC[k]=byC[k]||[]).push(x); });
   const tOf2=x=>x.tier||tierOf(null,x.monthly);
   const out=[];
   Object.entries(byC).forEach(([key,list])=>{
@@ -8357,7 +8385,7 @@ function rosterRows(){
 function upgradeView(){
   const now=Date.now(), st=(S.expCamp&&S.expCamp.stamps)||{}, ov=(S.expCamp&&S.expCamp.upTypes)||{};
   const byC={}, nameBy={};
-  (S.subs||[]).forEach(x=>{ const k=x.cust||x.id; (byC[k]=byC[k]||[]).push(x); if(!nameBy[k]&&(x.duser||x.cname)) nameBy[k]=x.duser||x.cname; });
+  (S.subs||[]).forEach(x=>{ const k=custKey(x); (byC[k]=byC[k]||[]).push(x); if(!nameBy[k]&&(x.duser||x.cname)) nameBy[k]=x.duser||x.cname; });
   const tOf2=x=>x.tier||tierOf(null,x.monthly);
   const rows=upgradeEvents().map(e=>{
     const key=e.cust, id=key+'|'+dayKey(e.t);
@@ -8433,7 +8461,7 @@ function abandonedView(){
 function eliteCheckins(){
   const now=Date.now();
   const done=S.checkins||{};
-  const byC={}; (S.subs||[]).forEach(x=>{ const k=x.cust||x.id; (byC[k]=byC[k]||[]).push(x); });
+  const byC={}; (S.subs||[]).forEach(x=>{ const k=custKey(x); (byC[k]=byC[k]||[]).push(x); });
   const tOf3=x=>x.tier||tierOf(null,x.monthly);
   const seen=new Set(), rows=[];
   upgradeView().rows.forEach(r=>{               /* already newest-first: first row per member = latest episode */
@@ -9094,7 +9122,7 @@ function drawAttribution(){
     const rl = attrRange.label;
     const CT_OPTS=(cur,auto)=>['referral','affiliate','promo','campaign'].map(o=>'<option value="'+o+'"'+(o===cur?' selected':'')+'>'+o+(auto&&o===cur?' (auto)':'')+'</option>').join('');
     const ownMap=codeOwnerMap(), nameByCust={};
-    (S.subs||[]).forEach(x=>{ const k=x.cust||x.id; if(!nameByCust[k]) nameByCust[k]=x.duser||x.cname||x.cemail||null; });
+    (S.subs||[]).forEach(x=>{ const k=custKey(x); if(!nameByCust[k]) nameByCust[k]=x.duser||x.cname||x.cemail||null; });
     ah.innerHTML='<tr><th>Code</th><th>Type <span class="sn">(set once — drives referral credit)</span></th><th>Owner</th><th>Joins · '+rl+'</th>'+(attrRange.t0? '<th>All time</th>':'<th></th>')+'<th>Still active</th><th>MRR now</th></tr>';
     ab.innerHTML=affKeys.map(k=>{const a=affAgg[k]; const t=codeTypeOf(k), auto=!codeTypeIsSet(k);
       const ownK=ownMap[CODE_NORM(k)], own=ownK? (nameByCust[ownK]||'member') : null;
@@ -9693,7 +9721,7 @@ function backfillSnapshotTiers(){
 }
 function byCust(subsArr){
   if(subsArr._bc) return subsArr._bc;
-  const m={}; subsArr.forEach(x=>{ const c=x.cust||x.id; (m[c]=m[c]||[]).push(x); });
+  const m={}; subsArr.forEach(x=>{ const c=custKey(x); (m[c]=m[c]||[]).push(x); });
   return subsArr._bc = Object.values(m);
 }
 function mergeIvs(list){
@@ -9734,7 +9762,7 @@ function classicCov(subsArr){
      Operational access still uses actualEndOf/paidAt and is never shortened here. */
   if(subsArr._pcc) return subsArr._pcc;
   const byC={};
-  subsArr.filter(hasFirstPayment).forEach(x=>{ const k=x.cust||x.id, e=stripeMetricEndOf(x);
+  subsArr.filter(hasFirstPayment).forEach(x=>{ const k=custKey(x), e=stripeMetricEndOf(x);
     (byC[k]=byC[k]||[]).push({created:stripeStartOf(x), canceled:e, status:e?'canceled':x.status});
   });
   return subsArr._pcc = Object.keys(byC).map(k=>({k, ivs:mergeIvs(byC[k])}));
@@ -9770,7 +9798,7 @@ function upgradeEvents(){
   const subs=liveSubsList().filter(hasFirstPayment), now=Date.now(), D7=7*24*3600*1000;
   const tOf=x=>x.tier||tierOf(null,x.monthly);
   const pS=stripeStartOf;
-  const byC={}; subs.forEach(x=>{ const k=x.cust||x.id; (byC[k]=byC[k]||[]).push(x); });
+  const byC={}; subs.forEach(x=>{ const k=custKey(x); (byC[k]=byC[k]||[]).push(x); });
   const ev=[];
   Object.keys(byC).forEach(k=>{
     const list=byC[k], pros=list.filter(x=>tOf(x)==='pro');
@@ -9789,7 +9817,7 @@ function upgradeEvents(){
   });
   const subById={}; subs.forEach(x=>{ if(x&&x.id) subById[x.id]=x; });
   planLedger().all.filter(e=>tierOf(null,e.from||0)==='pro'&&tierOf(null,e.to||0)==='elite')
-    .forEach(e=>{ const x=subById[e.id], cust=e.cust||(x&&(x.cust||x.id)); if(!cust) return;
+    .forEach(e=>{ const x=subById[e.id], cust=e.cust||(x&&(custKey(x))); if(!cust) return;
       ev.push({t:e.t,cust,from:x?netPlanAmount(x,e.from):(e.from||0),to:x?netPlanAmount(x,e.to):(e.to||0)}); });
   ev.sort((a,b)=>a.t-b.t);
   const out=[], last={};
@@ -9804,7 +9832,7 @@ function tierChurnAt(subsArr, t, win){
      churns as Elite, not Pro. buckets always sum to the headline stats at the same t. */
   const s=stripeChurnStats(subsArr, t, win);
   const tmap={};
-  subsArr.filter(hasFirstPayment).slice().sort((a,b)=>stripeStartOf(a)-stripeStartOf(b)).forEach(x=>{ const k=x.cust||x.id;
+  subsArr.filter(hasFirstPayment).slice().sort((a,b)=>stripeStartOf(a)-stripeStartOf(b)).forEach(x=>{ const k=custKey(x);
     if(stripeStartOf(x)<=t) tmap[k]=subTierAt(x,t); });
   const agg={pro:{base:0,added:0,gone:0},elite:{base:0,added:0,gone:0}};
   const g=k=>agg[tmap[k]==='elite'?'elite':'pro'];
@@ -10024,7 +10052,7 @@ function drawAffiliatesPage(){
     +'<td class="num">'+a.active+(a.pastDue? ' <span class="pill mid" title="past due">'+a.pastDue+'</span>':'')+'</td><td class="num">£'+Math.round(a.mrr).toLocaleString()+'</td><td class="num">'+a.joins30+'</td><td class="num">'+a.all+'</td></tr>').join('');
   lb.querySelectorAll('tr').forEach(tr=>{ tr.onclick=()=>{ affSel=tr.dataset.code; drawAffiliatesPage(); }; });
   const a=book.find(x=>x.code===affSel);
-  let owner='—'; try{ const ownK=codeOwnerMap()[CODE_NORM(a.code)]; if(ownK){ const o=(S.subs||[]).find(x=>(x.cust||x.id)===ownK); owner=o? (o.duser||o.cname||o.cemail||'member') : 'member'; } }catch(e){}
+  let owner='—'; try{ const ownK=codeOwnerMap()[CODE_NORM(a.code)]; if(ownK){ const o=(S.subs||[]).find(x=>(custKey(x))===ownK); owner=o? (o.duser||o.cname||o.cemail||'member') : 'member'; } }catch(e){}
   let ctype=''; try{ ctype=codeTypeOf(a.code)||''; }catch(e){}
   set('afSelName', a.code);
   setH('afSelMeta', (ctype? '<span class="pill cold">'+esc(ctype)+'</span> ':'')+'owner '+esc(String(owner).slice(0,30))+' · '+a.all+' paid join'+(a.all===1?'':'s')+' all time · '+a.churned+' gone');
@@ -10035,7 +10063,7 @@ function drawAffiliatesPage(){
   const th=document.querySelector('#afSubs thead'), tb=document.querySelector('#afSubs tbody');
   if(th&&tb){
     th.innerHTML='<tr><th>Member</th><th>Tier</th><th>£/mo</th><th>Joined</th><th>Months</th><th>Status</th></tr>';
-    tb.innerHTML=live.map(x=>{ const who=x.duser||x.cname||x.cemail||x.cust||x.id; const mo=x.created? Math.max(0,Math.floor((Date.now()-x.created)/(30.4*D))):null;
+    tb.innerHTML=live.map(x=>{ const who=x.duser||x.cname||x.cemail||custKey(x); const mo=x.created? Math.max(0,Math.floor((Date.now()-x.created)/(30.4*D))):null;
       return '<tr><td style="color:var(--text)">'+esc(String(who).slice(0,34))+(x.cemail&&who!==x.cemail? '<div class="sn" style="margin-top:0">'+esc(String(x.cemail).slice(0,40))+'</div>':'')+'</td>'
         +'<td><span class="pill '+(x.tier==='elite'?'mid':'good')+'">'+esc(x.tier||'pro')+'</span></td><td class="num">£'+(Math.round((x.monthly||0)*100)/100).toLocaleString()+'</td>'
         +'<td class="num">'+(x.created? new Date(x.created).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit'}):'—')+'</td><td class="num">'+(mo==null?'—':mo)+'</td>'
@@ -10270,7 +10298,7 @@ async function syncBundle(){
         campaignTag:m.tag, campaignDate:dayKey(m.t), outcome:m.outcome}; });
     const nowE=Date.now();
     liveSubsList().filter(x=>x.status==='active').forEach(x=>{
-      const key=x.cust||x.id; if(seen.has(key)) return;
+      const key=custKey(x); if(seen.has(key)) return;
       const ten=Math.floor((nowE-stripeStartOf(x))/D); if(ten<90) return;
       const t2=x.tier||tierOf(null,x.monthly); if(t2!=='pro'&&t2!=='elite') return;
       seen.add(key);
@@ -10376,7 +10404,7 @@ function winbackBuild(){
   const liveNow=x=>x.status==='active'||x.status==='past_due'||x.status==='trialing';
   const all=(S.subs||[]).filter(x=>tOf(x)!=='other');
   const emailOf=x=>String(x.cemail||'').trim().toLowerCase();
-  const byP={}; all.forEach(x=>{ const k=emailOf(x)||('cust:'+(x.cust||x.id)); (byP[k]=byP[k]||[]).push(x); });
+  const byP={}; all.forEach(x=>{ const k=emailOf(x)||('cust:'+(custKey(x))); (byP[k]=byP[k]||[]).push(x); });
   /* discord ids from the bot-links bin (rows carry the id as a long digit string), credits from the Credits page */
   const linkByHandle={};
   try{ ((S.botLinks&&S.botLinks.links)||[]).forEach(a=>{ if(!Array.isArray(a)) return; let h=null,id=null;
