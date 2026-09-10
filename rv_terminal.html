@@ -1239,7 +1239,7 @@ html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme=
 
   <!-- EXPANSION -->
   <section class="view" id="v-expansion">
-    <div class="sec">Day-23 Elite check-ins <span class="tag">personal check-in before the first full Elite charge — or before a free month reverts</span></div>
+    <div class="sec">Elite renewal check-ins <span class="tag">message every new Elite member 7 days before their first full Elite charge — or before a free month reverts</span></div>
     <div class="card">
       <div id="ciCount" class="sn" style="margin-bottom:8px"></div>
       <div style="overflow-x:auto"><table id="ciTable"><thead></thead><tbody></tbody></table></div>
@@ -1595,7 +1595,7 @@ let S = {
   invHist: (function(){ try{ if(localStorage.getItem('rv_ihv')!=='3'){ localStorage.setItem('rv_ihv','3'); localStorage.removeItem('rv_invhist'); return {}; } }catch(e){} return jget('rv_invhist', {}); })(),
   creditWhy: jget('rv_creditwhy', {}),   /* cust -> {reason, t} · the reason-given dropdown, stage-2 fuel */
   sdLog: jget('rv_sdlog', []),           /* save-decision log: every verdict vs what Louie actually did */
-  checkins: jget('rv_checkins', {}),     /* day-23 Elite check-in queue: id -> {done:ts} */
+  checkins: jget('rv_checkins', {}),     /* Elite renewal check-in queue: upgrade-episode id -> {done:ts} */
   abandonedC: jget('rv_abandoned', {}),  /* abandoned-checkout outreach: emailLower -> {t} */
   codeTypes: jget('rv_codetypes', {}),   /* CODE -> referral|affiliate|promo|campaign (manual overrides) */
   handles: jget('rv_handles', {}),
@@ -1794,7 +1794,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.93';
+const BUILD = 'v15.95';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -8558,8 +8558,6 @@ function upgradeView(){
   const d0=new Date(now), m0=Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), 1);
   return {rows, month:roll(m0), all:roll(null)};
 }
-/* ---- day-23 Elite check-in queue: same pattern as recovery.cases — rows enter at
-   day 23 post-upgrade, stay until Louie confirms, oldest first so nothing ages out ---- */
 /* ---- abandoned checkouts: unpaid Stripe checkout sessions with an email — the warmest
    uncontacted list there is. Same clear-on-action pattern as recovery/check-ins. ---- */
 function abandonedView(){
@@ -8589,49 +8587,63 @@ function abandonedView(){
   return {rows, active, excludedActive, l7, l30:l30rows.length, mrrIntent,
     selfRecoveryPct:denom? Math.round(excludedActive/denom*100):null};
 }
+/* ---- Elite renewal check-ins (v15.95): a member who moved Pro→Elite comes up 7 days
+   before their FIRST full Elite charge (or before a free month reverts), stays for up to
+   14 days past that renewal while a message is still worth sending, and leaves when Louie
+   hits checked in. Old upgrades whose first renewal is long gone never enter — the queue
+   is about the changeover itself, not the payment history. ---- */
 function eliteCheckins(){
-  const now=Date.now();
-  const done=S.checkins||{};
+  const now=Date.now(), D=24*3600*1000, done=S.checkins||{};
   const byC={}; (S.subs||[]).forEach(x=>{ const k=custKey(x); (byC[k]=byC[k]||[]).push(x); });
   const tOf3=x=>x.tier||tierOf(null,x.monthly);
   const seen=new Set(), rows=[];
   upgradeView().rows.forEach(r=>{               /* already newest-first: first row per member = latest episode */
     if(seen.has(r.key)) return; seen.add(r.key);
-    if(r.status!=='elite') return;              /* reverted or churned before day 23 — nothing to check in on */
-    const days=Math.floor((now-r.t)/D);
-    if(days<23) return;                         /* enters the queue at day 23 */
+    if(r.status!=='elite') return;              /* reverted or churned already — nothing to check in on */
     const el=(byC[r.key]||[]).filter(x=>(x.status==='active'||x.status==='past_due')&&tOf3(x)==='elite')
       .sort((a,b)=>(b.monthly||0)-(a.monthly||0))[0];
-    const d=done[r.id];
     const pd=!!(el&&el.status==='past_due');
-    rows.push({id:r.id, key:r.key, name:r.name, email:(el&&el.cemail)||null, t:r.t, days, pastDue:pd,
+    /* the renewal that matters = the first full Elite charge after the switch: the Elite
+       sub's next charge, or the day a free month reverts. If Stripe has already rolled
+       past it, pin to the nominal first renewal so the row lingers briefly, then leaves. */
+    let renewT = r.type==='free' ? (r.decideT||(r.t+30*D)) : ((el&&el.cpe)||(r.t+30*D));
+    if(renewT-r.t>45*D) renewT=r.t+30*D;
+    const days=Math.round((renewT-now)/D);      /* + = days till the renewal, − = days since it */
+    if(days>7 || days<-14) return;              /* comes up 7 days before, gone 14 days after */
+    const d=done[r.id];
+    rows.push({id:r.id, key:r.key, name:r.name, email:(el&&el.cemail)||null, t:r.t, renewT, days, pastDue:pd,
       type:r.type==='free'?'free':r.type==='paid'?'paid':'unset',
-      nextT:(!pd&&el&&el.cpe)||null, nextGBP:el? Math.round(el.monthly||0):null,
+      nextGBP:el? Math.round(el.monthly||0):null,
       done:(d&&d.done)||null});
   });
-  const active=rows.filter(r=>!r.done).sort((a,b)=>a.t-b.t);
-  return {active, all:rows, dueToday:active.filter(r=>r.days===23).length, overdue:active.filter(r=>r.days>23).length};
+  const active=rows.filter(r=>!r.done).sort((a,b)=>(a.days-b.days)||(a.t-b.t));
+  return {active, all:rows, dueToday:active.filter(r=>r.days===0).length, overdue:active.filter(r=>r.days<0).length};
 }
 function drawCheckins(){
   const cnt=document.getElementById('ciCount'), th=document.querySelector('#ciTable thead'), tb=document.querySelector('#ciTable tbody');
   if(!cnt||!th||!tb) return;
   const q=eliteCheckins();
   cnt.innerHTML=q.active.length
-    ? '<b style="color:var(--text)">'+q.active.length+'</b> waiting · '
-      +(q.dueToday? '<b class="gtx gtx-gold">'+q.dueToday+' due today</b>':'0 due today')+' · '
-      +(q.overdue? '<b class="gtx gtx-red">'+q.overdue+' overdue</b>':'0 overdue')
-      +' — oldest at the top, a row only leaves when you hit checked in'
-    : '<span class="sn">Queue is clear. Every Elite upgrade (paid or free) lands here at day 23 — before their first full Elite charge, or before a free month reverts.</span>';
+    ? '<b style="color:var(--text)">'+q.active.length+'</b> to message · '
+      +(q.dueToday? '<b class="gtx gtx-gold">'+q.dueToday+' renew today</b>':'0 renew today')+' · '
+      +(q.overdue? '<b class="gtx gtx-red">'+q.overdue+' already renewed</b>':'0 already renewed')
+      +' — soonest renewal at the top; a row leaves when you hit checked in, or 14 days after the renewal'
+    : '<span class="sn">Queue is clear. Anyone who moves up to Elite comes up here 7 days before their first full Elite charge — or before a free month reverts.</span>';
   if(!q.active.length){ th.innerHTML=''; tb.innerHTML=''; return; }
-  th.innerHTML='<tr><th>Member</th><th>Email</th><th>Type</th><th>Upgraded</th><th>Days since</th><th>Next charge</th><th></th></tr>';
-  tb.innerHTML=q.active.slice(0,60).map(r=>'<tr>'
-    +'<td style="color:var(--text);font-weight:600">'+esc(r.name||'member')+'</td>'
-    +'<td>'+esc(r.email||'—')+'</td>'
-    +'<td><span class="pill '+(r.type==='free'?'mid':r.type==='paid'?'good':'cold')+'">'+r.type.toUpperCase()+'</span></td>'
-    +'<td>'+dayKey(r.t)+'</td>'
-    +'<td class="num">'+(r.days>23? '<b class="gtx gtx-red">'+r.days+'</b>' : '<b class="gtx gtx-gold">'+r.days+'</b>')+'</td>'
-    +'<td>'+(r.pastDue? '<b class="gtx gtx-red">PAST DUE · in dunning</b>'+(r.nextGBP!=null? ' · £'+r.nextGBP:'') : r.nextT? dayKey(r.nextT)+(r.nextGBP!=null? ' · £'+r.nextGBP:'') : (r.nextGBP!=null? '£'+r.nextGBP:'—'))+'</td>'
-    +'<td><button class="btn ghost sm" data-cidone="'+esc(r.id).replace(/"/g,'&quot;')+'">checked in</button></td></tr>').join('');
+  th.innerHTML='<tr><th>Member</th><th>Email</th><th>Type</th><th>Moved to Elite</th><th title="the first full Elite charge after the switch, or the day a free month reverts">First Elite renewal</th><th>Charge</th><th></th></tr>';
+  tb.innerHTML=q.active.slice(0,60).map(r=>{
+    const when = r.pastDue ? '<b class="gtx gtx-red">PAST DUE · in dunning</b>'
+      : r.days>0 ? '<b class="gtx gtx-gold">in '+r.days+' day'+(r.days===1?'':'s')+'</b> · '+dayKey(r.renewT)
+      : r.days===0 ? '<b class="gtx gtx-gold">today</b> · '+dayKey(r.renewT)
+      : '<b class="gtx gtx-red">'+(-r.days)+' day'+(r.days===-1?'':'s')+' ago</b> · '+dayKey(r.renewT);
+    return '<tr>'
+      +'<td style="color:var(--text);font-weight:600">'+esc(r.name||'member')+'</td>'
+      +'<td>'+esc(r.email||'—')+'</td>'
+      +'<td><span class="pill '+(r.type==='free'?'mid':r.type==='paid'?'good':'cold')+'">'+r.type.toUpperCase()+'</span></td>'
+      +'<td>'+dayKey(r.t)+'</td>'
+      +'<td>'+when+'</td>'
+      +'<td class="num">'+(r.nextGBP!=null? '£'+r.nextGBP:'—')+'</td>'
+      +'<td><button class="btn ghost sm" data-cidone="'+esc(r.id).replace(/"/g,'&quot;')+'">checked in</button></td></tr>'; }).join('');
   tb.querySelectorAll('[data-cidone]').forEach(b=>{ b.onclick=()=>{
     if(!S.checkins) S.checkins={};
     S.checkins[b.getAttribute('data-cidone')]={done:Date.now()};
@@ -10540,10 +10552,10 @@ async function syncBundle(){
         status:r.status, decisionDate:r.decideT? dayKey(r.decideT):null, outcome:r.outcome})),
       rollup:{month:uv.month, allTime:uv.all},
       checkins:(function(){ const q=eliteCheckins();
-        return q.all.slice(0,100).map(r=>({upgradedDate:dayKey(r.t), daysSince:r.days,
-          type:r.type, nextInvoiceDate:r.nextT? dayKey(r.nextT):null, chargeAmount:r.nextGBP,
+        return q.all.slice(0,100).map(r=>({upgradedDate:dayKey(r.t), firstRenewalDate:dayKey(r.renewT), daysToRenewal:r.days,
+          type:r.type, chargeAmount:r.nextGBP,
           pastDue:r.pastDue||false,
-          status:r.done? 'done' : r.days>23? 'overdue':'due',
+          status:r.done? 'done' : r.days<0? 'past_renewal':'due',
           doneDate:r.done? dayKey(r.done):null})); })() };
   }catch(e){ expn=null; }
   return { snapshots:(S.snapshots||[]).slice(-45), djoins:mergeDjoinLedgers(S.djoins||{},botDjoins), botDjoins, posts:S.posts||[], ads:S.ads||[], campaigns:S.campaigns||[],
