@@ -395,6 +395,8 @@ html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme=
 }
 
 /* ---------- narrow ---------- */
+#afList tbody tr{cursor:pointer} #afList tbody tr.on td{background:var(--accent-soft);color:var(--text)} #afList tbody tr:hover td{background:color-mix(in srgb,var(--text) 5%,transparent)}
+@media(max-width:1180px){ #afGrid{grid-template-columns:1fr!important} }
 @media(max-width:980px){
   .app{display:flex;flex-direction:column;min-height:100dvh;height:100dvh}
   aside{width:auto;height:auto;flex:none;flex-direction:row;align-items:center;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:1px solid var(--line);padding:8px 10px;gap:8px}
@@ -917,6 +919,37 @@ html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme=
       <div class="sn" id="affChurnNote" style="margin-top:8px"></div>
     </div>
     <div class="note"><b>Cleaning up "friend":</b> if staff or affiliates are eating referrals by telling people to pick friend, rename that dropdown option on your payment link to <b>irl friend</b>. Old picks stay as friend, new honest ones land as irl friend, and the two split automatically here, no code change needed.</div>
+  </section>
+
+  <!-- AFFILIATES · v15.90: one affiliate at a time, their live subscribers -->
+  <section class="view" id="v-affiliates">
+    <div class="grid c4">
+      <div class="card"><h3>Affiliate codes</h3><div class="big num" id="afCodes">—</div><div class="sn" id="afCodesD">codes with at least one paid join</div></div>
+      <div class="card"><h3>Active subs via affiliates</h3><div class="big num gtx gtx-green" id="afActive">—</div><div class="sn" id="afActiveD"></div></div>
+      <div class="card"><h3>MRR via affiliates</h3><div class="big num gtx gtx-blue" id="afMRR">—</div><div class="sn" id="afMRRD"></div></div>
+      <div class="card"><h3>Affiliate joins · 30d</h3><div class="big num gtx gtx-gold" id="afJoins30">—</div><div class="sn" id="afJoins30D"></div></div>
+    </div>
+    <div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(0,3fr);margin-top:14px" id="afGrid">
+      <div class="card">
+        <h3>Affiliates <span class="tag">click one</span></h3>
+        <div style="overflow-x:auto"><table id="afList"><thead></thead><tbody></tbody></table></div>
+        <div class="empty" id="afEmpty" style="display:none">No affiliate-coded subscribers yet. Codes you mark as your own on Account are excluded.</div>
+      </div>
+      <div class="card" id="afDetail">
+        <h3 id="afSelName">Pick an affiliate</h3>
+        <div class="sn" id="afSelMeta" style="margin-top:0"></div>
+        <div class="grid c4" style="margin-top:12px">
+          <div><div class="sn" style="margin-top:0">Active now</div><div class="big num gtx gtx-green" id="afSelActive">—</div></div>
+          <div><div class="sn" style="margin-top:0">MRR now</div><div class="big num gtx gtx-blue" id="afSelMRR">—</div></div>
+          <div><div class="sn" style="margin-top:0">Joins · 30d</div><div class="big num gtx gtx-gold" id="afSelJoins">—</div></div>
+          <div><div class="sn" style="margin-top:0">Still paying</div><div class="big num" id="afSelKeep">—</div><div class="sn" id="afSelKeepD"></div></div>
+        </div>
+        <div class="sec" style="margin-top:16px">Active subscribers <span class="tag" id="afSelTag"></span></div>
+        <div class="scrollwrap" style="max-height:440px"><table id="afSubs"><thead></thead><tbody></tbody></table></div>
+        <div class="sn" id="afSelPast" style="margin-top:10px"></div>
+      </div>
+    </div>
+    <div class="note" style="margin-top:14px"><b>Who counts as an affiliate.</b> Any promo code that is not one of your own campaign codes (set those on Account). Active = paying or past due right now; past due is flagged so you can chase it. Joined and months are from the first payment.</div>
   </section>
 
   <!-- NEW JOINS -->
@@ -1631,7 +1664,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.89';
+const BUILD = 'v15.90';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3314,7 +3347,7 @@ function setDelta(id, d, suffix){
   el.className = 'sub '+(d>0?'up':d<0?'down':'flat');
 }
 let lastM = null;
-const DATA_VIEWS=['command','reports','revenue','growth','joins','lurk','trials','retention','cancels','recovery','resigns','changes','expansion','attribution'];
+const DATA_VIEWS=['command','reports','revenue','growth','joins','lurk','trials','retention','cancels','recovery','resigns','changes','expansion','attribution','affiliates'];
 function setDataEmptyState(empty){
   DATA_VIEWS.forEach(v=>{
     const view=document.getElementById('v-'+v); if(!view) return;
@@ -3527,6 +3560,7 @@ const PAGE_DRAWS={
   revenue:[()=>drawMRRChart(), ()=>drawRevenuePage()],
   growth:[()=>drawJoinsBig(), ()=>drawJoinsNeeded(), ()=>drawNetFlow('chCancBig'), m=>drawGrowthFlow(m), m=>drawGrowthCharts(m), ()=>drawGrowthExtras()],
   attribution:[()=>drawAttribution()],
+  affiliates:[()=>drawAffiliatesPage()],
   credits:[()=>drawCreditsPage()],
   cancels:[()=>drawCancelsPage()],
   trials:[()=>drawTrialsPage()],
@@ -3540,7 +3574,7 @@ const PAGE_DRAWS={
   profit:[()=>{ void drawProfitPage(); }],
   emails:[()=>drawEmailsPage()]
 };
-const PAGE_LABEL={command:'Command',revenue:'Revenue',growth:'Growth',attribution:'Attribution',credits:'Credits',cancels:'Cancels',trials:'Trials',retention:'Retention',expansion:'Expansion',reports:'Reports',recovery:'Recovery',resigns:'Resign-ups',changes:'Pro revamp',lurk:'Lurk gap',profit:'Profit',emails:'Emails'};
+const PAGE_LABEL={command:'Command',revenue:'Revenue',growth:'Growth',attribution:'Attribution',affiliates:'Affiliates',credits:'Credits',cancels:'Cancels',trials:'Trials',retention:'Retention',expansion:'Expansion',reports:'Reports',recovery:'Recovery',resigns:'Resign-ups',changes:'Pro revamp',lurk:'Lurk gap',profit:'Profit',emails:'Emails'};
 const pageDirty={};
 function currentView(){ const el=document.querySelector('.view.on'); return el&&el.id? el.id.slice(2) : 'command'; }
 function paintPage(v, m){
@@ -9957,8 +9991,62 @@ function memberListModal(title, rows, note, series){
     navigator.clipboard.writeText(txt).then(()=>{ cb.textContent='Copied'; setTimeout(()=>cb.textContent='Copy list',1500); }).catch(()=>{ cb.textContent='Copy failed'; }); };
 }
 
+/* ---------- affiliates page (v15.90) ---------- */
+let affSel=null;
+function affiliateBook(){
+  /* every affiliate-coded subscriber, grouped by code. Active = paying or past due now. */
+  const now=Date.now(), byCode={};
+  liveSubsList().forEach(x=>{
+    if(codeKind(x.code)!=='aff') return;
+    const k=String(x.code).toUpperCase();
+    const a=byCode[k]||(byCode[k]={code:k, subs:[], active:0, pastDue:0, mrr:0, joins30:0, all:0, churned:0});
+    const live=(x.status==='active'||x.status==='past_due');
+    a.subs.push(x); a.all++;
+    if(live){ a.active++; a.mrr+=Number(x.monthly)||0; if(x.status==='past_due') a.pastDue++; } else a.churned++;
+    if(x.created && now-x.created<=30*D) a.joins30++;
+  });
+  return Object.values(byCode).sort((a,b)=>b.active-a.active || b.mrr-a.mrr || b.all-a.all);
+}
+function drawAffiliatesPage(){
+  const book=affiliateBook(), set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; }, setH=(id,v)=>{ const el=document.getElementById(id); if(el) el.innerHTML=v; };
+  const withJoins=book.filter(a=>a.all>0), totActive=book.reduce((n,a)=>n+a.active,0), totMRR=book.reduce((n,a)=>n+a.mrr,0), totJ30=book.reduce((n,a)=>n+a.joins30,0);
+  set('afCodes', withJoins.length); set('afActive', totActive);
+  set('afActiveD', (lastM&&lastM.active? Math.round(totActive/lastM.active*100):0)+'% of all active subscribers');
+  set('afMRR', fmtGBP(totMRR)); set('afMRRD', (lastM&&lastM.mrr? Math.round(totMRR/lastM.mrr*100):0)+'% of MRR');
+  set('afJoins30', totJ30); set('afJoins30D', book.filter(a=>a.joins30>0).length+' code'+(book.filter(a=>a.joins30>0).length===1?'':'s')+' brought someone in this month');
+  const lh=document.querySelector('#afList thead'), lb=document.querySelector('#afList tbody'), empty=document.getElementById('afEmpty');
+  if(!lh||!lb) return;
+  if(!book.length){ lh.innerHTML=''; lb.innerHTML=''; if(empty) empty.style.display='block'; return; }
+  if(empty) empty.style.display='none';
+  if(!affSel || !book.some(a=>a.code===affSel)) affSel=book[0].code;
+  lh.innerHTML='<tr><th>Code</th><th>Active</th><th>MRR</th><th>30d</th><th>All time</th></tr>';
+  lb.innerHTML=book.map(a=>'<tr data-code="'+esc(a.code).replace(/"/g,'&quot;')+'"'+(a.code===affSel?' class="on"':'')+'><td style="font-weight:600">'+esc(a.code)+'</td>'
+    +'<td class="num">'+a.active+(a.pastDue? ' <span class="pill mid" title="past due">'+a.pastDue+'</span>':'')+'</td><td class="num">£'+Math.round(a.mrr).toLocaleString()+'</td><td class="num">'+a.joins30+'</td><td class="num">'+a.all+'</td></tr>').join('');
+  lb.querySelectorAll('tr').forEach(tr=>{ tr.onclick=()=>{ affSel=tr.dataset.code; drawAffiliatesPage(); }; });
+  const a=book.find(x=>x.code===affSel);
+  let owner='—'; try{ const ownK=codeOwnerMap()[CODE_NORM(a.code)]; if(ownK){ const o=(S.subs||[]).find(x=>(x.cust||x.id)===ownK); owner=o? (o.duser||o.cname||o.cemail||'member') : 'member'; } }catch(e){}
+  let ctype=''; try{ ctype=codeTypeOf(a.code)||''; }catch(e){}
+  set('afSelName', a.code);
+  setH('afSelMeta', (ctype? '<span class="pill cold">'+esc(ctype)+'</span> ':'')+'owner '+esc(String(owner).slice(0,30))+' · '+a.all+' paid join'+(a.all===1?'':'s')+' all time · '+a.churned+' gone');
+  set('afSelActive', a.active); set('afSelMRR', fmtGBP(a.mrr)); set('afSelJoins', a.joins30);
+  set('afSelKeep', a.all? Math.round(a.active/a.all*100)+'%' : '—'); set('afSelKeepD', a.active+' of '+a.all+' ever');
+  set('afSelTag', a.active+' member'+(a.active===1?'':'s')+(a.pastDue? ' · '+a.pastDue+' past due':''));
+  const live=a.subs.filter(x=>x.status==='active'||x.status==='past_due').sort((x,y)=>(y.monthly||0)-(x.monthly||0) || (x.created||0)-(y.created||0));
+  const th=document.querySelector('#afSubs thead'), tb=document.querySelector('#afSubs tbody');
+  if(th&&tb){
+    th.innerHTML='<tr><th>Member</th><th>Tier</th><th>£/mo</th><th>Joined</th><th>Months</th><th>Status</th></tr>';
+    tb.innerHTML=live.map(x=>{ const who=x.duser||x.cname||x.cemail||x.cust||x.id; const mo=x.created? Math.max(0,Math.floor((Date.now()-x.created)/(30.4*D))):null;
+      return '<tr><td style="color:var(--text)">'+esc(String(who).slice(0,34))+(x.cemail&&who!==x.cemail? '<div class="sn" style="margin-top:0">'+esc(String(x.cemail).slice(0,40))+'</div>':'')+'</td>'
+        +'<td><span class="pill '+(x.tier==='elite'?'mid':'good')+'">'+esc(x.tier||'pro')+'</span></td><td class="num">£'+(Math.round((x.monthly||0)*100)/100).toLocaleString()+'</td>'
+        +'<td class="num">'+(x.created? new Date(x.created).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit'}):'—')+'</td><td class="num">'+(mo==null?'—':mo)+'</td>'
+        +'<td>'+(x.status==='past_due'? '<span class="pill bad">past due</span>' : x.cape? '<span class="pill mid">cancelling</span>' : '<span class="pill good">active</span>')+'</td></tr>'; }).join('')
+      || '<tr><td colspan="6" class="sn">nobody from this code is paying right now</td></tr>';
+  }
+  const gone=a.subs.filter(x=>!(x.status==='active'||x.status==='past_due'));
+  setH('afSelPast', gone.length? '<b style="color:var(--text)">'+gone.length+' former subscriber'+(gone.length===1?'':'s')+'</b> from this code have left'+(gone.length? ' — most recent: '+esc(String(gone.sort((x,y)=>(y.canceled||0)-(x.canceled||0))[0].duser||gone[0].cname||gone[0].cemail||'member').slice(0,30)):'')+'.' : 'Nobody from this code has left yet.');
+}
 /* ---------- nav ---------- */
-const titles={ emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', goals:'Goals', settings:'Account'};
+const titles={ emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', affiliates:'Affiliates', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', goals:'Goals', settings:'Account'};
 function enhanceInteractive(root){
   (root||document).querySelectorAll('.clickable,.hero,.alertline').forEach(el=>{
     if(el.matches('button,a,input,select,textarea')||typeof el.onclick!=='function') return;
@@ -9975,11 +10063,11 @@ document.addEventListener('keydown',e=>{
    sidebar entry per hub. Goals folded into Account. */
 const HUBS={ dotoday:{label:'Do today', views:['recovery','expansion','emails']},
   revenue:{label:'Revenue', views:['revenue','profit','credits']},
-  growth:{label:'Growth', views:['growth','attribution','joins','lurk']},
+  growth:{label:'Growth', views:['growth','attribution','affiliates','joins','lurk']},
   retention:{label:'Retention', views:['retention','cancels','resigns']} };
 const HUB_OF={}; Object.keys(HUBS).forEach(h=>HUBS[h].views.forEach(v=>{ HUB_OF[v]=h; }));
 const TAB_LABEL={recovery:'Recovery',expansion:'Expansion',emails:'Emails',revenue:'Overview',profit:'Profit',credits:'Credits',
-  growth:'Growth',attribution:'Attribution',joins:'New joins',lurk:'Lurk gap',retention:'Retention',cancels:'Cancels',resigns:'Resign-ups'};
+  growth:'Growth',attribution:'Attribution',affiliates:'Affiliates',joins:'New joins',lurk:'Lurk gap',retention:'Retention',cancels:'Cancels',resigns:'Resign-ups'};
 function renderHubTabs(v){
   const view=document.getElementById('v-'+v); if(!view) return;
   const hub=HUB_OF[v]; let bar=view.querySelector(':scope > .hubtabs');
