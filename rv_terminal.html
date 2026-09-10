@@ -1291,7 +1291,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
     </div>
     <div class="row" id="swSeg" style="gap:6px;margin:14px 0 8px;flex-wrap:wrap">
       <button class="btn ghost sm" data-seg="done">Complete</button><button class="btn ghost sm" data-seg="watch">Watch</button><button class="btn sm" data-seg="none">Nothing</button>
-      <span class="sn" style="margin-left:6px">Watch and Nothing look at members who paid in the last 45 days · click a name or id to copy it</span>
+      <span class="sn" style="margin-left:6px" id="swWindow">Watch and Nothing look at members who paid since the first success credit, up to 45 days back · click a name or id to copy it</span>
     </div>
     <div class="card"><div id="swNote" class="sn" style="margin-bottom:8px"></div><div style="overflow-x:auto"><table id="swTable"><thead></thead><tbody></tbody></table></div></div>
   </section>
@@ -1821,7 +1821,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.05';
+const BUILD = 'v16.06';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -9942,7 +9942,12 @@ document.getElementById('cardPD').onclick = ()=>{ if(!lastM) return;
 let swSeg='none';
 function rewardsView(){
   const bl=S.botLinks||{}, links=bl.links||[], succ=bl.success||[];
-  const now=Date.now(), W=45*D, checks=S.rewardChecks||{};
+  const now=Date.now(), checks=S.rewardChecks||{};
+  /* the reward only exists since the bot's FIRST success credit — members who paid before it never
+     had the chance, so Watch / Nothing / the denominators only look at payers from that day on,
+     inside the 45-day window */
+  const startT=succ.length? succ.reduce((a,e)=>Math.min(a,e.t), Infinity) : now;
+  const since=Math.max(now-45*D, startT), W=now-since;
   const byId={};                                   /* discord id → latest paid link */
   links.forEach(a=>{ if(!Array.isArray(a)) return; const id=String(a[1]||''); if(!/^\d{15,}$/.test(id)) return;
     const t=Date.parse(String(a[0])+'Z')||0; if(!byId[id] || t>byId[id].t) byId[id]={t, u:a[2]||'', tier:a[3]||'', tag:(a[6]==null? -1 : a[6])}; });
@@ -9957,14 +9962,14 @@ function rewardsView(){
     if(e.rewarded){ m.rewarded=true; m.rewardT=e.t; m.via=e.via; m.ack=e.ack; } else { m.held=true; m.heldT=e.t; }
     if(e.applied){ m.applied=true; m.by=e.by; m.amt=e.amt; }
   });
-  const ids=new Set(Object.keys(byM)); Object.keys(byId).forEach(id=>{ if(byId[id].t>=now-W) ids.add(id); });
+  const ids=new Set(Object.keys(byM)); Object.keys(byId).forEach(id=>{ if(byId[id].t>=since) ids.add(id); });
   const rows=[];
   ids.forEach(id=>{
     const lk=byId[id]||null, m=byM[id]||null;
     const subs=subById[id]||(lk&&lk.u? subByName[String(lk.u).toLowerCase()] : null)||[];
     const cur=subs.filter(live).sort((a,b)=>(b.cpe||0)-(a.cpe||0))[0]||subs[0]||null;
     const paidT=lk? lk.t : (cur? stripeStartOf(cur) : null);
-    const recent=!!(paidT && paidT>=now-W);
+    const recent=!!(paidT && paidT>=since);
     const tag=(m&&m.rewarded)? 1 : (lk? lk.tag : -1);          /* a rewarded post proves the tag; else the sync's flag */
     const post=m? (m.rewarded? 'rewarded' : 'held') : null;
     let seg=null;
@@ -9985,10 +9990,11 @@ function rewardsView(){
   const watch=rows.filter(r=>r.seg==='watch').sort((a,b)=>(b.paidT||0)-(a.paidT||0));
   const none=rows.filter(r=>r.seg==='none').sort((a,b)=>(a.paidT||0)-(b.paidT||0));   /* oldest first: the longest without a word */
   const noneOpen=none.filter(r=>!r.checked);
-  const recentN=Object.keys(byId).filter(id=>byId[id].t>=now-W).length;
-  const doneRecent=done.filter(r=>r.paidT&&r.paidT>=now-W).length;
+  const recentN=Object.keys(byId).filter(id=>byId[id].t>=since).length;
+  const doneRecent=done.filter(r=>r.paidT&&r.paidT>=since).length;
   const tagKnown=Object.keys(byId).some(id=>byId[id].tag!==-1);
   return {done, watch, none, noneOpen, recentN, doneRecent, applied:done.filter(r=>r.applied).length,
+    since, sinceLabel:(startT>now-45*D)? 'since the first credit on '+new Date(startT).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : 'in the last 45 days',
     updated:bl.updated||null, has:!!succ.length, tagKnown};
 }
 function drawRewardsPage(){
@@ -10008,7 +10014,7 @@ function drawRewardsPage(){
     $('swNote').innerHTML='<span class="sn">No success-reward data in this browser yet — it arrives with the next Discord sync (hourly) and the runner\'s next pull (15 min). Press Pull latest after that.</span>';
     th.innerHTML=''; tb.innerHTML=''; return;
   }
-  $('swDoneN').textContent=v.done.length; $('swDoneD').textContent=v.doneRecent+' of the '+v.recentN+' who paid in the last 45 days ('+pct(v.doneRecent,v.recentN)+') · '+v.done.length+' all time';
+  $('swDoneN').textContent=v.done.length; $('swDoneD').textContent=v.doneRecent+' of the '+v.recentN+' who paid '+v.sinceLabel+' ('+pct(v.doneRecent,v.recentN)+') · '+v.done.length+' all time';
   $('swWatchN').textContent=v.watch.length; $('swWatchD').textContent=v.watch.filter(r=>r.post==='held').length+' posted without the tag · '+v.watch.filter(r=>!r.post).length+' wear the tag but never posted';
   $('swNoneN').textContent=v.noneOpen.length; $('swNoneD').textContent=(v.none.length-v.noneOpen.length)+' checked in · '+pct(v.noneOpen.length,v.recentN)+' of recent payers have done neither';
   $('swApplied').textContent=pct(v.applied,v.done.length); $('swAppliedD').textContent=v.applied+' of '+v.done.length+' credits on Stripe'+(v.updated? ' · Discord synced '+new Date(v.updated).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'');
@@ -10025,7 +10031,7 @@ function drawRewardsPage(){
       +'<td>'+(r.post==='held'? '<span class="pill mid">POSTED A WIN</span> <span class="sn">'+dt(r.postT)+'</span>' : '<span class="pill mid">RV TAG ON</span>')+'</td>'
       +'<td>'+(r.post==='held'? 'the RV tag — the credit grants itself once it goes on' : 'a win in #success')+'</td><td>'+tagTd(r)+'</td><td>'+nextTd(r)+'</td><td'+copy(r.email)+'>'+esc(r.email||'—')+'</td></tr>').join('');
   } else {
-    $('swNote').innerHTML= v.noneOpen.length? '<b style="color:var(--text)">'+v.noneOpen.length+'</b> paid in the last 45 days and have done neither · longest silent first · a row leaves when you hit checked in' : '<span class="sn">Everyone who paid in the last 45 days has posted a win or put the tag on, or has been checked in.</span>';
+    $('swNote').innerHTML= v.noneOpen.length? '<b style="color:var(--text)">'+v.noneOpen.length+'</b> paid '+v.sinceLabel+' and have done neither · longest silent first · a row leaves when you hit checked in' : '<span class="sn">Everyone who paid '+v.sinceLabel+' has posted a win or put the tag on, or has been checked in.</span>';
     th.innerHTML='<tr><th>Member</th><th>Discord ID</th><th>Paid on</th><th>Days ago</th><th>Tier</th><th>RV tag</th><th>Next charge</th><th>Email</th><th></th></tr>';
     tb.innerHTML=v.noneOpen.slice(0,150).map(r=>'<tr>'+nameTd(r)+'<td>'+dt(r.paidT)+'</td><td class="num">'+(r.days!=null? r.days:'—')+'</td><td><span class="pill '+(r.tier==='elite'?'good':'cold')+'">'+esc((r.tier||'?').toUpperCase())+'</span></td><td>'+tagTd(r)+'</td><td>'+nextTd(r)+'</td><td'+copy(r.email)+'>'+esc(r.email||'—')+'</td>'
       +'<td><button class="btn ghost sm" data-swdone="'+esc(r.id)+'">checked in</button></td></tr>').join('');
