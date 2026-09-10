@@ -36,7 +36,7 @@
   --good:#2ECC8A; --bad:#FF5C5C; --gold:#F2B84B; --violet:#9F8CFF; --cyan:#4CC9E0; --orange:#FF9F5A;
   --good-soft:rgba(46,204,138,.14); --bad-soft:rgba(255,92,92,.14); --gold-soft:rgba(242,184,75,.15); --cold-soft:rgba(154,168,194,.14);
   --heat-ink:#04101F;
-  --chart-grid:rgba(148,163,196,.10); --chart-tick:#8C99B4;
+  --chart-grid:rgba(148,163,196,.10); --chart-tick:#8C99B4; --tooltip:#182036;
   --shadow:0 18px 60px rgba(0,0,0,.55);
   --r:10px; --r-sm:7px; --pad:14px 16px;
   --fs-lab:10px; --fs-sn:11px; --fs-body:12.5px; --fs-big:26px; --fs-hero:32px;
@@ -52,7 +52,7 @@ html[data-theme="graphite"]{
   --good:#3FCB7B; --bad:#F0565A; --gold:#E9C46A; --violet:#B49CFF; --cyan:#56C8D8; --orange:#F58A4B;
   --good-soft:rgba(63,203,123,.14); --bad-soft:rgba(240,86,90,.14); --gold-soft:rgba(233,196,106,.15); --cold-soft:rgba(163,165,174,.14);
   --heat-ink:#15100A;
-  --chart-grid:rgba(255,255,255,.08); --chart-tick:#8F9199;
+  --chart-grid:rgba(255,255,255,.08); --chart-tick:#8F9199; --tooltip:#25262C;
 }
 html[data-theme="paper"]{
   --bg:#F3F4F7; --bg2:#FFFFFF; --panel:#FFFFFF; --panel2:#EEF1F6; --panel3:#E3E8F0;
@@ -62,7 +62,7 @@ html[data-theme="paper"]{
   --good:#0F9D58; --bad:#D93025; --gold:#B7791F; --violet:#6D4FD6; --cyan:#0E8FA6; --orange:#D9711A;
   --good-soft:rgba(15,157,88,.12); --bad-soft:rgba(217,48,37,.10); --gold-soft:rgba(183,121,31,.13); --cold-soft:rgba(75,85,102,.10);
   --heat-ink:#FFFFFF;
-  --chart-grid:rgba(16,24,40,.08); --chart-tick:#6B7689;
+  --chart-grid:rgba(16,24,40,.08); --chart-tick:#6B7689; --tooltip:#FFFFFF;
   --shadow:0 18px 50px rgba(16,24,40,.18);
   --scheme:light;
 }
@@ -75,7 +75,7 @@ html[data-theme="glass"]{
   --good:#4AE3A0; --bad:#FF6B7A; --gold:#FFC96B; --violet:#B9A7FF; --cyan:#6FD8EA; --orange:#FFAE70;
   --good-soft:rgba(74,227,160,.16); --bad-soft:rgba(255,107,122,.16); --gold-soft:rgba(255,201,107,.18); --cold-soft:rgba(185,195,214,.14);
   --heat-ink:#06101F;
-  --chart-grid:rgba(255,255,255,.09); --chart-tick:#A3AFC6;
+  --chart-grid:rgba(255,255,255,.09); --chart-tick:#A3AFC6; --tooltip:rgba(16,22,40,.96);
   --shadow:0 30px 80px rgba(2,6,20,.6);
   --r:16px; --r-sm:10px;
 }
@@ -88,7 +88,7 @@ html[data-theme="frost"]{
   --good:#0E9F6E; --bad:#D6455D; --gold:#B8801C; --violet:#6A55D6; --cyan:#0E8FA6; --orange:#D9711A;
   --good-soft:rgba(14,159,110,.12); --bad-soft:rgba(214,69,93,.10); --gold-soft:rgba(184,128,28,.14); --cold-soft:rgba(74,86,112,.10);
   --heat-ink:#FFFFFF;
-  --chart-grid:rgba(30,41,70,.08); --chart-tick:#66738C;
+  --chart-grid:rgba(30,41,70,.08); --chart-tick:#66738C; --tooltip:rgba(255,255,255,.97);
   --shadow:0 30px 70px rgba(30,41,70,.18);
   --r:16px; --r-sm:10px;
   --scheme:light;
@@ -1631,7 +1631,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.88';
+const BUILD = 'v15.89';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3256,12 +3256,12 @@ function chart(id,cfg){
    Every colour the JS paints with comes from PAL, which mirrors the CSS tokens of the active
    theme. Charts are rebuilt on theme change, so they follow the theme like the DOM does. */
 const PAL={accent:'#00A8FF',good:'#2ECC8A',bad:'#FF5C5C',gold:'#F2B84B',violet:'#9F8CFF',cyan:'#4CC9E0',orange:'#FF9F5A',
-  text:'#E8EEF8',muted:'#9AA8C2',dim:'#66748F',panel:'#121826',panel2:'#182036',line:'rgba(148,163,196,.13)',grid:'rgba(148,163,196,.10)',tick:'#8C99B4'};
+  text:'#E8EEF8',muted:'#9AA8C2',dim:'#66748F',panel:'#121826',panel2:'#182036',line:'rgba(148,163,196,.13)',grid:'rgba(148,163,196,.10)',tick:'#8C99B4',tooltip:'#182036'};
 const THEMES=['vault','glass','frost','graphite','paper'];
 function cssVar(n){ try{ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }catch(e){ return ''; } }
 function readPalette(){
   const map={accent:'--accent',good:'--good',bad:'--bad',gold:'--gold',violet:'--violet',cyan:'--cyan',orange:'--orange',text:'--text',muted:'--muted',dim:'--dim',
-    panel:'--panel',panel2:'--panel2',line:'--line',grid:'--chart-grid',tick:'--chart-tick'};
+    panel:'--panel',panel2:'--panel2',line:'--line',grid:'--chart-grid',tick:'--chart-tick',tooltip:'--tooltip'};
   Object.keys(map).forEach(k=>{ const v=cssVar(map[k]); if(v) PAL[k]=v; });
 }
 /* rgba from a palette entry: hex or rgb()/rgba() in, rgba(r,g,b,a) out */
@@ -3274,7 +3274,7 @@ function rgbaOf(c,a){
   return c;
 }
 const sc = {x:{grid:{color:PAL.grid},ticks:{color:PAL.tick,maxTicksLimit:12}}, y:{grid:{color:PAL.grid},ticks:{color:PAL.tick},beginAtZero:true}};
-const TT = {backgroundColor:PAL.panel2, borderColor:PAL.line, borderWidth:1, titleColor:PAL.text, bodyColor:PAL.muted,
+const TT = {backgroundColor:PAL.tooltip, borderColor:PAL.line, borderWidth:1, titleColor:PAL.text, bodyColor:PAL.muted,
   titleFont:{family:"'IBM Plex Sans',system-ui,sans-serif",weight:'600',size:12}, bodyFont:{size:12}, padding:10, cornerRadius:8, displayColors:true, boxWidth:8, boxHeight:8,
   callbacks:{ title:(items)=>{ const it=items&&items[0]; if(!it) return ''; const full=it.chart.data.fullDates; return (full&&full[it.dataIndex])||it.label; } }};
 const op = {responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
@@ -3284,7 +3284,7 @@ function syncChartTheme(){
   readPalette();
   gridCol=PAL.grid; tickCol=PAL.tick;
   sc.x.grid.color=sc.y.grid.color=PAL.grid; sc.x.ticks.color=sc.y.ticks.color=PAL.tick;
-  TT.backgroundColor=PAL.panel2; TT.borderColor=PAL.line; TT.titleColor=PAL.text; TT.bodyColor=PAL.muted;
+  TT.backgroundColor=PAL.tooltip||PAL.panel2; TT.borderColor=PAL.line2||PAL.line; TT.titleColor=PAL.text; TT.bodyColor=PAL.muted;
   op.plugins.legend.labels.color=PAL.text;
   try{ if(typeof Chart!=='undefined' && Chart.defaults){
     Chart.defaults.font.family="'IBM Plex Sans',system-ui,sans-serif"; Chart.defaults.font.size=11; Chart.defaults.color=PAL.tick;
@@ -5597,7 +5597,9 @@ function drawRevenuePage(){
       ]},
       options:{...op,interaction:{mode:'index',intersect:false},
         onClick:(e,els,c)=>{ const pts=c.getElementsAtEventForMode(e,'index',{intersect:false},true); if(pts.length) wfMonthModal(rows[pts[0].index]); },
-        plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,footer:items=>'Net: '+(items.find(i=>i.dataset.label==='Net')?.raw>=0?'+':'')+'£'+Math.round(items.find(i=>i.dataset.label==='Net')?.raw||0).toLocaleString()+' · click for members'}}},
+        plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,
+          label:c=>{ const v=Math.round(c.raw||0); return c.dataset.label+': '+(v<0?'−£':'+£')+Math.abs(v).toLocaleString(); },
+          footer:()=>'click for the members'}}},
         scales:{x:{stacked:true,grid:{color:gridCol},ticks:{color:tickCol}},y:{stacked:true,grid:{color:gridCol},ticks:{color:tickCol,callback:v=>'£'+Number(v).toLocaleString()}}}}});
   }
   /* quick ratio + NRR monthly */
