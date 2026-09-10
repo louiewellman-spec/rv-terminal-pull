@@ -1569,7 +1569,7 @@ async function idbBoot(){
     }catch(e){ idbOk=false; idbErr=(e&&e.message)||String(e); }
   }
   if(moved){ try{ store.persistent=true; store.lastError=''; }catch(e){} }
-  if(moved||loaded){ try{ lastM=compute(); }catch(e){} try{ renderAll(); }catch(e){} }
+  if(moved||loaded){ try{ renderAll(); }catch(e){} }           /* renderAll() recomputes on its own */
   return {moved, loaded, skipped};
 }
 function jget(k,d){ const v=store.get(k); if(v==null) return d; try{ return JSON.parse(v) }catch(e){ return d } }
@@ -1799,7 +1799,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.98';
+const BUILD = 'v15.99';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3422,9 +3422,13 @@ function memoSeries(key, fn){ const v=seriesVersion(); if(v!==_memoVer){ _memo={
    custKey(x) merges customer ids that share an email or a discord handle and returns the earliest
    customer id of the group, so all engines agree. Emails/handles shared by many customers (test
    accounts, placeholders) are never used to merge. */
-let _ckVer='', _ck=null;
+let _ckRef=null, _ckLen=-1, _ck=null;
 function custKeyMap(){
-  const v=seriesVersion(); if(_ck && v===_ckVer) return _ck;
+  /* v15.99: the map depends only on the subs array (ids, emails, handles), which is replaced
+     wholesale by every pull/refresh/import — so identity + length is the whole version check.
+     custKey() is called ~300k times per recompute; the old seriesVersion() string build per call
+     was a quarter of the recompute on its own. */
+  const subs0=S.subs||[]; if(_ck && _ckRef===subs0 && _ckLen===subs0.length) return _ck;
   const subs=S.subs||[], parent={};
   const mk=k=>{ if(!(k in parent)) parent[k]=k; return k; };
   const find=k=>{ while(parent[k]!==k){ parent[k]=parent[parent[k]]; k=parent[k]; } return k; };
@@ -3440,7 +3444,7 @@ function custKeyMap(){
   const best={};
   subs.slice().sort((a,b)=>(a.created||0)-(b.created||0)).forEach(x=>{ const r=find('c:'+cid(x)); if(!(r in best)) best[r]=cid(x); });
   const map={}; subs.forEach(x=>{ map[x.id]=best[find('c:'+cid(x))]; });
-  _ck=map; _ckVer=v; return map;
+  _ck=map; _ckRef=subs0; _ckLen=subs0.length; return map;
 }
 function custKey(x){ if(!x) return null; const m=custKeyMap(); return (x.id && m[x.id]) || (x.cust) || (x.id); }
 function chart(id,cfg){
@@ -9752,6 +9756,18 @@ document.getElementById('cardRef').onclick = ()=>{
   if(!S.cash||!S.cash.byMonth){ openModal('<h2>Refunds</h2><div class="empty">Run Pull all-time data in Settings first.</div>'); return; }
   const ks=Object.keys(S.cash.byMonth).sort().slice(-12);
   barModal('Refunds by month £', ks, ks.map(k=>Math.round(S.cash.byMonth[k].refunded)), v=>'£'+Number(v).toLocaleString(), 'Bucketed by the original charge month.'); };
+/* ---------- VAT log (v15.99): every HMRC payment and every input-VAT change is a dated entry with who
+   logged it. The running total the estimate uses (S.settings.vat.paid) is now the SUM of the payment
+   entries, so the two can never drift. A total typed before the log existed becomes one opening entry. */
+function vatWho(){ return (S.sb&&S.sb.email)? String(S.sb.email).split('@')[0] : null; }
+function vatLog(){
+  const v=S.settings.vat=S.settings.vat||{};
+  if(!Array.isArray(v.log)) v.log=[];
+  if(!v.log.some(e=>e.kind==='paid') && Number(v.paid)>0)
+    v.log.push({id:'opening', t:0, kind:'paid', d:null, amount:Math.round(Number(v.paid)*100)/100, note:'total entered before the log existed', by:null});
+  return v.log;
+}
+function vatPaidTotal(){ return Math.round(vatLog().filter(e=>e.kind==='paid').reduce((a,e)=>a+(Number(e.amount)||0),0)*100)/100; }
 function openVatModal(){
   const v=vatEstimate();
   if(!v.complete){
@@ -9765,18 +9781,52 @@ function openVatModal(){
     +'<div class="card"><h3>Output VAT reserve</h3><div class="big num gtx gtx-gold">'+fmtGBP2(v.outputVat)+'</div><div class="sn">20/120 of VAT-inclusive sales (one sixth)</div></div>'
     +'<div class="card"><h3>'+(v.outstanding<0?'Estimated credit':'Estimated outstanding')+'</h3><div class="big num '+(v.outstanding<0?'gtx gtx-green':'gtx gtx-gold')+'">'+fmtGBP2(Math.abs(v.outstanding))+'</div><div class="sn">output VAT − input VAT − VAT already paid</div></div></div>'
     +'<div style="overflow-x:auto;margin-top:14px"><table><thead><tr><th>Month</th><th>Cash incl. VAT</th><th>Refunds</th><th>Net incl. VAT</th><th>Output VAT</th></tr></thead><tbody>'+monthRows+'</tbody></table></div>'
-    +'<div class="formrow" style="grid-template-columns:1fr 1fr auto;margin-top:14px"><div><label for="vatInput">Eligible input VAT since 1 June 2026</label><input id="vatInput" type="number" min="0" step="0.01" inputmode="decimal" value="'+v.inputVat.toFixed(2)+'"></div>'
-    +'<div><label for="vatPaid">VAT already paid to HMRC since 1 June 2026</label><input id="vatPaid" type="number" min="0" step="0.01" inputmode="decimal" value="'+v.paid.toFixed(2)+'"></div><button class="btn" id="vatSave" style="margin-bottom:1px">Save</button></div>'
+    +(function(){
+        const log=vatLog().slice().sort((a,b)=>(b.t||0)-(a.t||0));
+        const when=e=>e.kind==='paid'? (e.d? new Date(e.d+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}) : '—') : (e.t? new Date(e.t).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—');
+        const rows=log.map(e=>'<tr><td>'+when(e)+'</td>'
+          +'<td>'+(e.kind==='paid'? '<span class="pill good">PAID TO HMRC</span>' : '<span class="pill mid">INPUT VAT</span>')+'</td>'
+          +'<td class="num" style="color:var(--text)">'+(e.kind==='paid'? fmtGBP2(Number(e.amount)||0) : fmtGBP2(Number(e.to)||0)+' <span class="sn">was '+fmtGBP2(Number(e.from)||0)+'</span>')+'</td>'
+          +'<td>'+esc(e.note||'')+'</td>'
+          +'<td class="sn">'+esc(e.by||'—')+(e.t? ' · '+new Date(e.t).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '')+'</td>'
+          +'<td>'+(e.kind==='paid'&&e.id!=='opening'? '<button class="btn ghost sm" data-vatdel="'+esc(e.id)+'" title="remove this entry">×</button>' : '')+'</td></tr>').join('');
+        const today=new Date().toISOString().slice(0,10);
+        return '<div class="sec" style="margin-top:16px">VAT payments to HMRC <span class="tag">every payment logged here · the total feeds the estimate above</span></div>'
+          +'<div class="card"><div class="sn" style="margin-bottom:8px"><b style="color:var(--text)">'+fmtGBP2(vatPaidTotal())+'</b> paid to HMRC since 1 June 2026 across '+log.filter(e=>e.kind==='paid').length+' payment'+(log.filter(e=>e.kind==='paid').length===1?'':'s')+' · newest first</div>'
+          +(rows? '<div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Entry</th><th>£</th><th>Note</th><th>Logged by</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>' : '<div class="empty">No VAT payments logged yet.</div>')
+          +'<div class="formrow" style="grid-template-columns:150px 150px 1fr auto;margin-top:12px;align-items:end"><div><label for="vatPayD">Paid on</label><input id="vatPayD" type="date" value="'+today+'"></div>'
+          +'<div><label for="vatPayA">Amount £</label><input id="vatPayA" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>'
+          +'<div><label for="vatPayN">Note</label><input id="vatPayN" placeholder="e.g. Q2 return, HMRC ref"></div><button class="btn" id="vatPayAdd" style="margin-bottom:1px">Log payment</button></div></div>'
+          +'<div class="formrow" style="grid-template-columns:1fr auto;margin-top:14px;align-items:end"><div><label for="vatInput">Eligible input VAT since 1 June 2026</label><input id="vatInput" type="number" min="0" step="0.01" inputmode="decimal" value="'+v.inputVat.toFixed(2)+'"></div><button class="btn" id="vatSave" style="margin-bottom:1px">Save input VAT</button></div>';
+      })()
     +'<div class="note" style="margin-top:14px"><b>Every piece of Stripe revenue counts.</b> The cash ledger is built from the raw charge list with no filtering — memberships, the £5/£20 AI-credit top-ups, reshipping, mentorship, every one-off — so nothing is missed. Lost disputes (chargebacks) are netted off like refunds; the dispute fee itself is a cost, not a sale reversal, so it has no VAT effect.'
     +(v.lostUndated? ' <b style="color:var(--gold)">'+v.lostUndated+' lost dispute'+(v.lostUndated===1?'':'s')+' predate'+(v.lostUndated===1?'s':'')+' dispute dating — run Pull all-time data once to include '+(v.lostUndated===1?'it':'them')+'.</b>':'')
     +'</div>'
     +'<div class="note" style="margin-top:8px"><b>Estimate, not a filed return.</b> This assumes every Stripe sale from 1 June is standard-rated and its displayed customer price already includes VAT. Refunds reduce the reserve. Enter only reclaimable business input VAT backed by valid VAT records. Stripe does not know your purchases, exempt/zero-rated sales, VAT scheme, or HMRC payments, so those remain manual. Refunds are grouped with their original charge month; the cumulative total is still adjusted. Euro charges use the terminal\'s ECB conversion estimate at today\'s rate, not the rate on the transaction date — confirm the GBP tax value used on the filed return.</div>');
   const save=document.getElementById('vatSave');
   save.onclick=()=>{
-    S.settings.vat.inputVat=Math.max(0,Number(document.getElementById('vatInput').value)||0);
-    S.settings.vat.paid=Math.max(0,Number(document.getElementById('vatPaid').value)||0);
-    jset('rv_settings',S.settings); status('VAT adjustments saved.','ok'); renderAll(); openVatModal();
+    const from=Math.round((Number(S.settings.vat.inputVat)||0)*100)/100;
+    const to=Math.round(Math.max(0,Number(document.getElementById('vatInput').value)||0)*100)/100;
+    if(to!==from) vatLog().push({id:'i'+Date.now().toString(36), t:Date.now(), kind:'input', from, to, by:vatWho()});
+    S.settings.vat.inputVat=to;
+    jset('rv_settings',S.settings); status(to!==from? 'Input VAT set to '+fmtGBP2(to)+' · logged.' : 'Input VAT unchanged.','ok'); renderAll(); openVatModal();
   };
+  const add=document.getElementById('vatPayAdd');
+  if(add) add.onclick=()=>{
+    const d=(document.getElementById('vatPayD').value||'').trim(), a=Math.round(Math.max(0,Number(document.getElementById('vatPayA').value)||0)*100)/100;
+    const note=(document.getElementById('vatPayN').value||'').trim();
+    if(!a){ status('Enter the amount paid.','err'); return; }
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){ status('Pick the date it was paid.','err'); return; }
+    vatLog().push({id:'p'+Date.now().toString(36), t:Date.now(), kind:'paid', d, amount:a, note, by:vatWho()});
+    S.settings.vat.paid=vatPaidTotal();
+    jset('rv_settings',S.settings); status(fmtGBP2(a)+' logged as paid to HMRC on '+d+'.','ok'); renderAll(); openVatModal();
+  };
+  document.querySelectorAll('[data-vatdel]').forEach(b=>{ b.onclick=()=>{
+    const id=b.getAttribute('data-vatdel'); const e=vatLog().find(x=>x.id===id); if(!e) return;
+    if(!confirm('Remove the '+fmtGBP2(Number(e.amount)||0)+' payment logged for '+(e.d||'—')+'?')) return;
+    S.settings.vat.log=vatLog().filter(x=>x.id!==id); S.settings.vat.paid=vatPaidTotal();
+    jset('rv_settings',S.settings); status('Payment entry removed.','ok'); renderAll(); openVatModal();
+  }; });
 }
 document.getElementById('cardVAT').onclick = openVatModal;
 document.getElementById('cardDisp').onclick = ()=>{
@@ -10390,7 +10440,7 @@ async function pullLatest(){
   const btn=document.getElementById('refreshBtn'); if(btn) btn.disabled=true;
   try{ status('Pulling the latest…');
     const r=await sbAutoSync({force:true});
-    if(r&&r.pulled){ renderAll(); status('Pulled '+((r.pulled.subs||0)).toLocaleString()+' subs · up to date','ok'); }
+    if(r&&r.pulled){ status('Pulled '+((r.pulled.subs||0)).toLocaleString()+' subs · up to date','ok'); }   /* rendered inside sbPull() */
     else if(r&&r.skipped){ status('Already up to date','ok'); }
     else if(r&&r.error){ status('Pull failed: '+r.error,'err'); }
     else status('Sign in first','err');
@@ -10410,7 +10460,7 @@ function gatePaint(){ const on=sbReady(); gateShow(!on);
     try{ await sbAuth({grant:'password', payload:{email, password:pass}});
       b.email=email; b.pw=pass; b.remember=true; sbSave(); gatePaint();
       if(st) st.textContent='Pulling your data…';
-      const r=await sbAutoSync({force:true}); renderAll();
+      const r=await sbAutoSync({force:true}); if(!(r&&r.pulled)) renderAll();   /* a pull already rendered */
       status(r&&r.pulled? 'Signed in · pulled '+((r.pulled.subs||0)).toLocaleString()+' subs' : 'Signed in','ok');
       document.getElementById('gatePass').value='';
     }catch(e){ if(st) st.textContent='Sign-in failed: '+(e&&e.message||e); }
@@ -10425,7 +10475,7 @@ async function arTick(){
   if(S.settings.autoRefresh===false || _arBusy) return;
   _arBusy=true;
   try{ if(S.settings.key){ await refresh(); if(S.settings.binId && S.settings.binKey){ await pullSync(false); renderAll(); } }
-       else if(sbReady()){ const r=await sbAutoSync({force:true}); if(r&&r.pulled) renderAll(); } }catch(e){}
+       else if(sbReady()){ await sbAutoSync({force:true}); } }catch(e){}   /* a pull renders inside sbPull() */
   _arBusy=false;
   _arNext = Date.now() + (S.settings.key? AR_MS : AP_MS);
 }
@@ -11591,8 +11641,7 @@ async function sbPull(opts){
   mergeSync({emailLog:log.map(r=>({e:r.email, d:r.sent_on, c:r.campaign, t:r.kind})), emailSup:supObj});
   S._sbNightly=syncLast||null; window._wbCache=null; window._emSentMap=null;
   sbBaseReset();                                   /* v15.81: everything we hold now matches the cloud */
-  try{ lastM=compute(); }catch(e){}
-  renderAll();
+  renderAll();                                     /* renderAll() recomputes; a separate compute() here doubled the freeze */
   st('pulled '+n.subs.toLocaleString()+' subs · '+n.sessions.toLocaleString()+' sessions');
   return n;
 }
@@ -11962,7 +12011,7 @@ try{ if(typeof navigator!=='undefined' && 'serviceWorker' in navigator && locati
 try{ if(S.settings.anthropicKey){ delete S.settings.anthropicKey; jset('rv_settings', S.settings); } }catch(e){}
 try{ if(typeof gatePaint==='function') gatePaint(); }catch(e){}
 try{ idbOpen().catch(()=>{}); setTimeout(()=>{ try{ sbAutoSync().then(r=>{
-  if(r&&r.pulled){ renderAll(); status('Pulled '+r.pulled.subs.toLocaleString()+' subs from Supabase · '+r.why,'ok'); }
+  if(r&&r.pulled){ status('Pulled '+r.pulled.subs.toLocaleString()+' subs from Supabase · '+r.why,'ok'); }   /* rendered inside sbPull() */
   else if(r&&r.error) syncStatus('supabase auto-sync: '+r.error,'err');
   try{ gatePaint(); }catch(e){}
 }); }catch(e){} }, 1500); }catch(e){}
