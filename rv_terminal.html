@@ -912,6 +912,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
         <div style="flex:1"></div>
         <button class="btn ghost" id="caExpEmail">Export emails</button>
         <button class="btn ghost" id="caExpDiscord">Export discord</button>
+        <button class="btn ghost" id="caExpDiscordid" title="Discord user IDs from the bot links, one per line">Export discord IDs</button>
         <button class="btn ghost" id="caExpCsv">Export CSV</button>
       </div>
       <div class="sn" id="caExpHint" style="margin-bottom:10px"></div>
@@ -1104,6 +1105,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
         <div style="flex:1"></div>
         <button class="btn ghost" id="njExpEmail">Export emails</button>
         <button class="btn ghost" id="njExpDiscord">Export discord</button>
+        <button class="btn ghost" id="njExpDiscordid" title="Discord user IDs from the bot links, one per line">Export discord IDs</button>
         <button class="btn ghost" id="njExpCsv">Export CSV</button>
       </div>
       <div class="sn" id="njExpHint" style="margin-bottom:10px"></div>
@@ -1165,6 +1167,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
       <div class="row" style="gap:8px;margin-bottom:10px">
         <button class="btn ghost" id="rcExpEmail">Export emails</button>
         <button class="btn ghost" id="rcExpDiscord">Export discord</button>
+        <button class="btn ghost" id="rcExpDiscordid" title="Discord user IDs from the bot links, one per line">Export discord IDs</button>
         <button class="btn ghost" id="rcExpCsv">Export CSV</button>
         <span class="sn" style="align-self:center" id="rcMarkNote">the whole open-case list — hand it to Tom for follow-ups</span>
       </div>
@@ -1267,6 +1270,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
       <div class="row" style="gap:8px;margin-bottom:10px">
         <button class="btn ghost" id="exExpEmail">Export emails</button>
         <button class="btn ghost" id="exExpDiscord">Export discord</button>
+        <button class="btn ghost" id="exExpDiscordid" title="Discord user IDs from the bot links, one per line">Export discord IDs</button>
         <button class="btn ghost" id="exExpCsv">Export CSV</button>
         <span class="sn" style="align-self:center">everyone in the window, not just the 50 shown — hand it to Tom</span>
       </div>
@@ -1390,6 +1394,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
         <button class="btn sm" id="twCopyBcc" title="plain comma-separated addresses — paste straight into Gmail BCC">Copy emails (BCC)</button>
         <button class="btn ghost sm" id="twExpEmail">email list</button>
         <button class="btn ghost sm" id="twExpDiscord">discord list</button>
+        <button class="btn ghost sm" id="twExpDiscordid" title="Discord user IDs from the bot links, one per line">discord IDs</button>
         <button class="btn ghost sm" id="twExpCsv">CSV</button>
       </div>
       <div class="sn" id="twExpN" style="margin-top:8px"></div>
@@ -1799,7 +1804,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.01';
+const BUILD = 'v16.03';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -5529,6 +5534,7 @@ function caExport(kind){
 }
 document.getElementById('caExpEmail').onclick=()=>caExport('email');
 document.getElementById('caExpDiscord').onclick=()=>caExport('discord');
+document.getElementById('caExpDiscordid').onclick=()=>caExport('discordid');
 document.getElementById('caExpCsv').onclick=()=>caExport('csv');
 document.getElementById('caHideResub').onclick=function(){ caHideResub=!caHideResub; this.classList.toggle('on',caHideResub); drawCancelsPage(); };
 function njExport(kind){
@@ -5545,6 +5551,7 @@ function njExport(kind){
 }
 document.getElementById('njExpEmail').onclick=()=>njExport('email');
 document.getElementById('njExpDiscord').onclick=()=>njExport('discord');
+document.getElementById('njExpDiscordid').onclick=()=>njExport('discordid');
 document.getElementById('njExpCsv').onclick=()=>njExport('csv');
 document.querySelectorAll('#caFilter button').forEach(b=> b.onclick=()=>{ caF=b.dataset.f; document.querySelectorAll('#caFilter button').forEach(x=>x.classList.toggle('on',x===b)); drawCancelsPage(); });
 rangeCtl('caRangeBar',(t0,t1,l)=>{ caRange={t0,t1,label:l}; drawCancelsPage(); },'30d');
@@ -8333,12 +8340,35 @@ if(_lkGo) _lkGo.onclick=()=>{
   out.innerHTML='No record of <b>'+esc(q)+'</b> in the bot links (they may not have paid, or paid before the 90-day link window).';
 };
 /* ---------- expansion ---------- */
+/* v16.02: Discord user IDs. The bot-links bin rows carry each paying member's username and their
+   Discord snowflake id (a long digit string); this maps lower-cased username → id once per bin. */
+let _didRef=null, _did=null;
+function discordIdMap(){
+  const src=S.botLinks||null; if(_did && _didRef===src) return _did;
+  /* normalised rows are [tISO, id, username, tier, joinTMin, invName] (blNormalize); older rows
+     may lack the id, and a row's id is always the long digit string, never the username */
+  const m={}, isId=v=>typeof v==='string' && /^\d{15,}$/.test(v);
+  try{ ((src&&src.links)||[]).forEach(a=>{ if(!Array.isArray(a)) return;
+    const h=(typeof a[2]==='string' && a[2].length>1 && !isId(a[2]))? a[2] : null;
+    let id=isId(a[1])? a[1] : null; if(!id) a.forEach(v=>{ if(!id && isId(v)) id=v; });
+    if(h&&id) m[h.toLowerCase()]=id; }); }catch(e){}
+  _didRef=src; _did=m; return m;
+}
+function discordIdOf(handle){ if(!handle) return null; const m=discordIdMap(); return m[String(handle).trim().toLowerCase()]||null; }
 function listExport(rows, kind, fname, csvHead, csvRow){
-  /* shared bulk-export: emails / discord handles as plain lists, or the full CSV —
-     built for handing a follow-up list to Tom without touching Stripe */
+  /* shared bulk-export: emails / discord handles / discord user ids as plain lists, or the full
+     CSV — built for handing a follow-up list to Tom without touching Stripe */
   let lines, note;
   if(kind==='email'){ const e=[...new Set(rows.map(r=>r.email).filter(Boolean))]; lines=e.join('\n'); note=e.length+' emails'; }
   else if(kind==='discord'){ const h=[...new Set(rows.filter(r=>!r.bn).map(r=>r.duser||r.name).filter(Boolean))]; lines=h.join('\n'); note=h.length+' discord usernames ('+(rows.length-h.length)+' rows only had a billing name)'; }
+  else if(kind==='discordid'){
+    /* a member's id comes from the bot links by username; some checkouts captured the id itself
+       in the Discord field, so a long digit string in that field is already the id */
+    const h=[...new Set(rows.filter(r=>!r.bn).map(r=>r.duser||r.name).filter(Boolean))];
+    const idOf=v=>{ const t=String(v).trim(); return /^\d{15,}$/.test(t)? t : discordIdOf(t); };
+    const ids=[...new Set(h.map(idOf).filter(Boolean))], missing=h.filter(v=>!idOf(v)).length;
+    if(!ids.length){ status(Object.keys(discordIdMap()).length? 'None of these members has a Discord ID in the bot data.' : 'No Discord IDs yet — the bot links have not synced to this browser. Pull latest and try again.','err'); return; }
+    lines=ids.join('\n'); note=ids.length+' discord user IDs'+(missing? ' ('+missing+' username'+(missing===1?'':'s')+' had no ID in the bot data)':''); }
   else { lines=csvHead+'\n'+rows.map(csvRow).map(a=>a.map(v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"').join(',')).join('\n'); note=rows.length+' rows'; }
   if(!lines || (kind!=='csv' && !lines.length)){ status('Nothing to export.','err'); return; }
   const blob=new Blob([lines],{type:kind==='csv'? 'text/csv':'text/plain'});
@@ -8354,7 +8384,7 @@ function rcExport(kind){
     'failed,discord_or_name,tier,monthly_gbp,stage,dms_sent,marked,email',
     r=>[dayKey(r.opened), r.duser||'', r.tier||'', r.mrr||0, r.stage||'', r.dms, r.res, r.email||'']);
 }
-['Email','Discord','Csv'].forEach(k=>{ const b=document.getElementById('rcExp'+k); if(b) b.onclick=()=>rcExport(k.toLowerCase()); });
+['Email','Discord','Discordid','Csv'].forEach(k=>{ const b=document.getElementById('rcExp'+k); if(b) b.onclick=()=>rcExport(k.toLowerCase()); });
 /* ---------- expansion emails: tenure windows + campaign stamps + auto outcomes ---------- */
 let twPopMode='active';
 function twRows(opts){
@@ -8429,7 +8459,7 @@ function twExport(kind){
       'discord_or_name,email,tier,tenure_days,sub_start,mrr',
       r=>[r.duser||'', r.email||'', r.tier, r.ten, dayKey(r.start), r.mrr||0]);
 }
-['Email','Discord','Csv'].forEach(k=>{ const b=document.getElementById('twExp'+k); if(b) b.onclick=()=>twExport(k.toLowerCase()); });
+['Email','Discord','Discordid','Csv'].forEach(k=>{ const b=document.getElementById('twExp'+k); if(b) b.onclick=()=>twExport(k.toLowerCase()); });
 /* 1. clean BCC copy: plain comma-separated addresses, nothing else */
 const _twBcc=document.getElementById('twCopyBcc');
 if(_twBcc) _twBcc.onclick=()=>{ const e=[...new Set(twRows().map(r=>r.email).filter(Boolean))];
@@ -8784,7 +8814,7 @@ function exExport(kind){
     'discord_or_name,monthly_gbp,member_for_days,days_left_in_window,email',
     r=>[r.duser||'', r.monthly||0, r.days, peak? Math.max(0, peak.hi-r.days):'', r.email||'']);
 }
-['Email','Discord','Csv'].forEach(k=>{ const b=document.getElementById('exExp'+k); if(b) b.onclick=()=>exExport(k.toLowerCase()); });
+['Email','Discord','Discordid','Csv'].forEach(k=>{ const b=document.getElementById('exExp'+k); if(b) b.onclick=()=>exExport(k.toLowerCase()); });
 function drawExpansionPage(){
   if(!lastM || !lastM.expansion) return;
   const E=lastM.expansion;
@@ -10860,10 +10890,7 @@ function winbackBuild(){
   const emailOf=x=>String(x.cemail||'').trim().toLowerCase();
   const byP={}; all.forEach(x=>{ const k=emailOf(x)||('cust:'+(custKey(x))); (byP[k]=byP[k]||[]).push(x); });
   /* discord ids from the bot-links bin (rows carry the id as a long digit string), credits from the Credits page */
-  const linkByHandle={};
-  try{ ((S.botLinks&&S.botLinks.links)||[]).forEach(a=>{ if(!Array.isArray(a)) return; let h=null,id=null;
-    a.forEach(v=>{ if(typeof v==='string'){ if(/^\d{15,}$/.test(v)) id=id||v; else if(v.length>1&&!h) h=v; } });
-    if(h&&id) linkByHandle[h.toLowerCase()]=id; }); }catch(e){}
+  const linkByHandle=discordIdMap();   /* v16.03: shared resolver (the old inline scan took the date column as the username) */
   const credited={}; try{ const cv=creditView(); (cv.byCust||[]).forEach(c=>{ credited[c.cust]=c.n; }); }catch(e){}
   const handleEmails={}; all.forEach(x=>{ const h=x.duser? String(x.duser).toLowerCase():null, e=emailOf(x); if(h&&e) (handleEmails[h]=handleEmails[h]||new Set()).add(e); });
   const era=t=> t<Date.UTC(2026,5,25)? 25 : 28;
