@@ -1799,7 +1799,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.99';
+const BUILD = 'v16.00';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -6303,7 +6303,15 @@ document.getElementById('cardRejoin').onclick = ()=>{ const lab=pulseTfDays===1?
   memberListModal('Returning members · '+lab, rows, 'Chart shows re-signups per day over the last 90 days. People who subscribed before and signed back up and are paying right now — matched on discord handle and email as well as Stripe customer.', {...pulseBigSeries('rejoin'), label:'Re-signups'}); };
 document.getElementById('cardEliteShare').onclick = ()=>{ seriesModal('Elite share of MRR % · uses the plan and price active on each date, including Pro→Elite expansions', (arr,t)=>{ const v=eliteShareAt(t); return v==null?null:Math.round(v*10)/10; }, v=>Number(v).toFixed(1)+'%', {ma:true}); };
 /* Shared customer-level event helpers used by reports, retention and expansion. */
-function coachSubsLive(){ return liveSubsList().filter(x=>hasFirstPayment(x) && !(x.trialEnd && x.canceled && x.canceled<=x.trialEnd)); }
+let _cslSrc=null, _csl=null;
+function coachSubsLive(){
+  /* v15.99 perf: one array per data version, keyed on the liveSubsList() array reference (which is
+     itself rebuilt only when seriesVersion() changes). The old fresh filter on every call handed
+     byCust() a brand-new array each time, so its subsArr._bc cache never hit and every one of the
+     26 coachCancels() calls per recompute re-grouped all 3.5k subs by customer. */
+  const src=liveSubsList(); if(_csl && _cslSrc===src) return _csl;
+  _cslSrc=src; return _csl=src.filter(x=>hasFirstPayment(x) && !(x.trialEnd && x.canceled && x.canceled<=x.trialEnd));
+}
 /* v15.83: new-customer ARPU — mean £/mo (net of discounts) of customers whose FIRST payment landed
    in the window, vs the prior window. Baremetrics calls this ASP. */
 function newCustomerArpu(asOf){
@@ -6312,28 +6320,49 @@ function newCustomerArpu(asOf){
   const cur=coachActs(now-W, now), prev=coachActs(now-2*W, now-W);
   return {now:mean(cur), prev:mean(prev), n:cur.length, nPrev:prev.length};
 }
+let _caSrc=null, _caAll=null;
+function coachActsAll(){
+  /* The per-customer first-ever paying subscription set and each one's start date do not depend on
+     the window, so build them once per data version; coachActs(a,b) is then only the window filter.
+     Same list, same order (Object.values insertion order over the same sorted sweep). */
+  const src=coachSubsLive(); if(_caAll && _caSrc===src) return _caAll;
+  const first={};
+  src.slice().sort((x,y)=>stripeStartOf(x)-stripeStartOf(y)).forEach(x=>{
+    const k=custKey(x); if(!(k in first)) first[k]=x;
+  });
+  _caSrc=src; return _caAll=Object.values(first).map(x=>({x, t:stripeStartOf(x)}));
+}
 function coachActs(a,b){
   /* Stripe "new subscribers": first-ever positive MRR per customer. Re-signups are
      tracked separately and must not inflate this driver. */
-  const first={};
-  coachSubsLive().slice().sort((x,y)=>stripeStartOf(x)-stripeStartOf(y)).forEach(x=>{
-    const k=custKey(x); if(!(k in first)) first[k]=x;
+  const all=coachActsAll(), out=[];
+  for(let i=0;i<all.length;i++){ const p=all[i]; if(p.t>=a&&p.t<b) out.push(p.x); }
+  return out;
+}
+let _ccSrc=null, _ccAll=null;
+function coachCancelsAll(){
+  /* Every customer-level churn event with its date. The customer grouping and the interval merge do
+     not depend on the window, so they run once per data version instead of on all 26 coachCancels()
+     calls per recompute; the rows are emitted in the same order and each call still filters them. */
+  const src=coachSubsLive(); if(_ccAll && _ccSrc===src) return _ccAll;
+  const all=[];
+  byCust(src).forEach(list=>{
+    const metricList=list.map(x=>({created:stripeStartOf(x),canceled:stripeMetricEndOf(x),status:stripeMetricEndOf(x)?'canceled':x.status,monthly:x.monthly}));
+    mergeIvs(metricList).forEach(iv=>{
+      if(iv[1]===Infinity) return;
+      const ended=list.filter(x=>stripeMetricEndOf(x)).sort((x,y)=>Math.abs(stripeMetricEndOf(x)-iv[1])-Math.abs(stripeMetricEndOf(y)-iv[1]));
+      if(ended[0]) all.push({t:iv[1], r:{...ended[0],canceled:iv[1],metricCanceledAt:iv[1]}});
+    });
   });
-  return Object.values(first).filter(x=>{ const t=stripeStartOf(x); return t>=a&&t<b; });
+  _ccSrc=src; return _ccAll=all;
 }
 function coachCancels(a,b){
   /* One Stripe churn event when a customer's merged metric-MRR reaches zero. A pending
      cancellation is dated at its request, a pause at first observation; concurrent
      subscriptions and same-day plan switches still collapse to one customer event. */
-  const out=[];
-  byCust(coachSubsLive()).forEach(list=>{
-    const metricList=list.map(x=>({created:stripeStartOf(x),canceled:stripeMetricEndOf(x),status:stripeMetricEndOf(x)?'canceled':x.status,monthly:x.monthly}));
-    mergeIvs(metricList).forEach(iv=>{
-      if(iv[1]===Infinity||iv[1]<a||iv[1]>=b) return;
-      const ended=list.filter(x=>stripeMetricEndOf(x)).sort((x,y)=>Math.abs(stripeMetricEndOf(x)-iv[1])-Math.abs(stripeMetricEndOf(y)-iv[1]));
-      if(ended[0]) out.push({...ended[0],canceled:iv[1],metricCanceledAt:iv[1]});
-    });
-  });
+  const all=coachCancelsAll(), out=[];
+  /* fresh row objects per call, exactly as before, so no caller can write through to the cache */
+  for(let i=0;i<all.length;i++){ const e=all[i]; if(e.t>=a&&e.t<b) out.push({...e.r}); }
   return out;
 }
 function mrrMoveWin(a,b){
@@ -7850,8 +7879,19 @@ function weeklyActual(ws, we){
   return {joins, cancelsVol:canc.length-failed, cancelsFailed:failed, rejoins, net:joins+rejoins-canc.length,
     mrrEnd:Math.round(mrrAt(subs, we-1)), mrrStart:Math.round(mrrAt(subs, ws)), cash};
 }
+/* v16.00: weeklyState is called six times per recompute/paint (renderAll, analystDigest,
+   joinsNeeded, drawWeekly, drawJoinsNeeded) and costs 150-350ms a call. Given the same series,
+   the same S.weekly locks/scores and the same minute it rebuilds the identical object and writes
+   nothing, so memoise the SETTLED result: only a call that ended with changed===false is cached,
+   and the key carries the lock/score counts it started from — so a hit is a call that would have
+   recomputed the same numbers and written nothing. A changed run is never cached. */
+var _wsMemo=null, _wsMemoKey='', _wsMemoW=null;
 function weeklyState(asOfIn){
   const asOf=asOfIn||Date.now();
+  const _wsKey=(S.weekly&&S.weekly.locks? Object.keys(S.weekly.locks).length : -1)+'/'
+    +(S.weekly&&Array.isArray(S.weekly.scores)? S.weekly.scores.length : -1)+'|'
+    +seriesVersion()+'|'+Math.floor(asOf/60000);
+  if(_wsMemo && _wsMemoW===S.weekly && _wsMemoKey===_wsKey) return _wsMemo;
   if(!S.weekly||typeof S.weekly!=='object') S.weekly={locks:{},scores:[]};
   if(!S.weekly.locks) S.weekly.locks={}; if(!Array.isArray(S.weekly.scores)) S.weekly.scores=[];
   /* Calibration, exactly as the Joins-needed model does it: the raw model's last four graded
@@ -7903,8 +7943,10 @@ function weeklyState(asOfIn){
   const sc=S.weekly.scores;
   const biasOf=k2=>{ const v=sc.map(s=>s.errorPct&&s.errorPct[k2]).filter(x=>x!=null);
     return v.length? Math.round(v.reduce((a,b)=>a+b,0)/v.length*10)/10 : null; };
-  return {...F, locked:S.weekly.locks[k]||null, scorecard:sc.slice(),
+  const _wsOut={...F, locked:S.weekly.locks[k]||null, scorecard:sc.slice(),
     bias:{joins:biasOf('joins'), cancels:biasOf('cancels')}};
+  if(!changed){ _wsMemo=_wsOut; _wsMemoKey=_wsKey; _wsMemoW=S.weekly; }
+  return _wsOut;
 }
 
 function drawWeekly(){
@@ -9907,17 +9949,21 @@ function dayKeyBack(now, i){
   return dayKey(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())-i*D);
 }
 function mrrAt(subsArr, t){
+  /* v16.00 perf: memo per (array, t). One recompute asks for the same (array, t) pairs many times
+     (366 calls, 187 distinct); the array is replaced wholesale on every pull, so the Map dies with it. */
+  const m=subsArr._mrrAt||(subsArr._mrrAt=new Map()); const hit=m.get(t); if(hit!==undefined) return hit;
   let v=0; subsArr.forEach(x=>{ if(stripePaidAt(x,t)) v+=subMrrAt(x,t); });
-  return v;
+  m.set(t,v); return v;
 }
 function tierCountAt(subsArr, t){
   /* {pro, elite} on the SAME basis as snapshot.active (paying subs), using subTierAt so
      history is reconstructed at the tier that applied THEN, not today's tier. */
+  const arr=subsArr||[], m=arr._tierAt||(arr._tierAt=new Map()); const hit=m.get(t); if(hit) return {pro:hit.pro, elite:hit.elite};
   let pro=0, elite=0;
-  (subsArr||[]).forEach(x=>{ if(!stripePaidAt(x,t)) return;
+  arr.forEach(x=>{ if(!stripePaidAt(x,t)) return;
     const tr=subTierAt(x,t);
     if(tr==='elite') elite++; else if(tr==='pro') pro++; });
-  return {pro, elite};
+  m.set(t,{pro,elite}); return {pro, elite};
 }
 function backfillSnapshotTiers(){
   /* Daily snapshots never carried a tier split, so "how many Elite on date X" was
@@ -10049,9 +10095,12 @@ function tierChurnAt(subsArr, t, win){
      recent subscription created on or before t, so a pro→elite upgrader who leaves
      churns as Elite, not Pro. buckets always sum to the headline stats at the same t. */
   const s=stripeChurnStats(subsArr, t, win);
+  /* v16.00 perf: the paid-and-sorted sweep (with each row's start and customer key) depends only on the
+     array, not on t — build it once per array instead of on every one of the 26 calls per recompute.
+     Same stable sort order, same last-wins map fill, so tmap is identical. */
+  const sorted=subsArr._tcSorted||(subsArr._tcSorted=subsArr.filter(hasFirstPayment).map(x=>({x, s0:stripeStartOf(x), k:custKey(x)})).sort((a,b)=>a.s0-b.s0));
   const tmap={};
-  subsArr.filter(hasFirstPayment).slice().sort((a,b)=>stripeStartOf(a)-stripeStartOf(b)).forEach(x=>{ const k=custKey(x);
-    if(stripeStartOf(x)<=t) tmap[k]=subTierAt(x,t); });
+  sorted.forEach(o=>{ if(o.s0<=t) tmap[o.k]=subTierAt(o.x,t); });
   const agg={pro:{base:0,added:0,gone:0},elite:{base:0,added:0,gone:0}};
   const g=k=>agg[tmap[k]==='elite'?'elite':'pro'];
   s.base.forEach(k=>{ g(k).base++; });
