@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https://zkgxbvarksdxqburzrce.supabase.co https://api.stripe.com https://discord.com https://api.frankfurter.dev https://api.jsonbin.io https://wikimedia.org; object-src 'none'; base-uri 'none'; form-action 'self'">
 <title>RV Terminal</title>
@@ -439,6 +439,63 @@ html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme=
   .tag{display:block;width:max-content;max-width:100%;margin:5px 0 0;white-space:normal}
   .chartmeta{align-items:flex-start;flex-direction:column;gap:1px}.chartmeta .cm-vars{white-space:normal}.chartmeta .cm-time{text-align:left}
 }
+
+/* =====================================================================================
+   v15.93 · PHONE LAYER. Everything below is inside @media (max-width:620px) or
+   (display-mode:standalone) and cannot touch the laptop layout. The sidebar becomes a
+   bottom sheet behind a "More" tab, a five-tab bar sits on the home-indicator line,
+   cards go two-up, tables scroll sideways, inputs stay 16px so iOS never zooms.
+   ===================================================================================== */
+#mtabs{display:none}
+#mtabsBg{display:none}
+@media (max-width:620px){
+  html,body{overflow:hidden;height:100%}
+  .app{display:block;height:100dvh;min-height:100dvh;overflow:hidden}
+  .main{height:100dvh;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain}
+  .topbar{position:sticky;top:0;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;gap:8px;min-height:0;flex-wrap:nowrap}
+  .topbar h1{font-size:14px}
+  #topKpi,.topbar .upd,#arCountdown,#pubAge{display:none!important}
+  .topbar .statusline{font-size:10.5px;max-width:34vw}
+  .topbar .btn{padding:6px 10px;font-size:11.5px}
+  .view{padding:12px 12px calc(84px + env(safe-area-inset-bottom));max-width:none}
+  .view.on{display:block}
+  .grid{gap:10px}
+  .grid.c2,.grid.c3,.grid.c4,.grid.c5,.grid.pulse,.grid.auto{grid-template-columns:1fr 1fr}
+  .cmdtop{grid-template-columns:1fr!important;gap:10px} .hero-grid{grid-template-columns:1fr 1fr!important;gap:10px}
+  .hero{min-height:0;padding:12px 12px 10px} .hero h3{font-size:9px;letter-spacing:.08em} .hero .hnum{font-size:22px} .hero .hval{margin-top:6px} .hero .hsub{-webkit-line-clamp:2;font-size:10.5px} .hero .hgoal{font-size:9px}
+  .big{font-size:22px} .huge{font-size:26px} .card{padding:12px 12px}
+  .sec{margin:16px 0 8px;font-size:10px}
+  .tag{display:block;width:max-content;max-width:100%;margin:4px 0 0;white-space:normal}
+  .hubtabs{width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin-bottom:10px} .hubtabs::-webkit-scrollbar{display:none}
+  .hubtabs button{flex:none;padding:8px 14px;font-size:13px}
+  .tfbtns{overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;padding-bottom:2px} .tfbtns::-webkit-scrollbar{display:none}
+  .tfbtns button,button.tfbtn{flex:none;padding:7px 12px;font-size:12px}
+  input,select,textarea{font-size:16px} label{font-size:11px}
+  table{font-size:12px} th,td{padding:8px 8px}
+  .chartbox{height:200px} .chartbox.tall{height:230px}
+  .funnel{flex-direction:column;gap:8px} .fjoin{flex-direction:row;min-width:0;padding:2px 0;gap:8px}
+  .formrow,.f6,.f5,.f4{grid-template-columns:1fr}
+  #afGrid,#pjGrid{grid-template-columns:1fr!important}
+  .modal-bg{padding:0;align-items:flex-end} .modal{max-width:none;border-radius:18px 18px 0 0;max-height:88dvh;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
+  /* the sidebar is a bottom sheet behind the More tab */
+  aside{position:fixed;left:0;right:0;bottom:0;top:auto;height:auto;max-height:72dvh;width:auto;flex:none;flex-direction:column;align-items:stretch;overflow-y:auto;
+    background:var(--bg2);border:1px solid var(--line);border-bottom:0;border-radius:18px 18px 0 0;padding:10px 12px calc(88px + env(safe-area-inset-bottom));
+    transform:translateY(105%);transition:transform .28s cubic-bezier(.2,.8,.2,1);z-index:82;box-shadow:var(--shadow);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%)}
+  aside::before{content:'';display:block;width:36px;height:4px;border-radius:2px;background:var(--line2);margin:0 auto 10px}
+  body.sheet-open aside{transform:none}
+  aside .brand{flex:none;margin:0 0 6px;padding:2px 6px 10px;border:0;border-bottom:1px solid var(--line);border-right:0} aside .brand span{display:block} aside .side-foot,aside .navlab{display:block}
+  aside nav{display:block;overflow:visible} aside nav details{display:block} aside nav details summary{display:flex}
+  aside nav button{white-space:normal;padding:10px 10px;font-size:14px}
+  #mtabsBg{position:fixed;inset:0;background:rgba(3,6,14,.45);z-index:81} body.sheet-open #mtabsBg{display:block}
+  #mtabs{position:fixed;left:0;right:0;bottom:0;z-index:83;display:flex;gap:2px;padding:6px 6px calc(6px + env(safe-area-inset-bottom));
+    background:color-mix(in srgb,var(--bg2) 88%,transparent);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border-top:1px solid var(--line)}
+  #mtabs button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:0;color:var(--dim);padding:6px 2px;border-radius:10px;font-family:var(--sans);font-size:10px;font-weight:500;-webkit-tap-highlight-color:transparent}
+  #mtabs button i{font-style:normal;font-family:var(--mono);font-size:17px;line-height:1}
+  #mtabs button.on{color:var(--accent)}
+  #mtabs button.on i{transform:translateY(-1px)}
+  #gate{padding:16px} .gate-box{max-width:none}
+}
+@media (display-mode:standalone){ body{-webkit-user-select:none;user-select:none} input,textarea,select,.pnt,.tlt,td{-webkit-user-select:text;user-select:text} }
 </style>
 </head>
 <body>
@@ -988,7 +1045,7 @@ html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme=
         <div class="empty" id="pjEmpty" style="display:none">No projects yet. Click New project and write the first one down.</div>
       </div>
       <div class="card" id="pjDetail">
-        <div class="empty" id="pjNone">Pick a project on the left, or start a new one.</div>
+        <div class="empty" id="pjNone">Pick a project from the list, or start a new one.</div>
         <div id="pjForm" style="display:none">
           <input id="pjTitle" placeholder="Project title" style="font-size:16px;font-weight:600;padding:9px 12px">
           <div class="grid c4" style="margin-top:10px;gap:10px">
@@ -1737,7 +1794,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.92';
+const BUILD = 'v15.93';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10217,6 +10274,25 @@ function drawProjectsPage(){
   $('pjDelete').onclick=()=>{ const p=pjCur(); if(!p) return; if(!confirm('Delete "'+(p.title||'Untitled')+'" and all its notes? This cannot be undone.')) return;
     pjState().items=pjState().items.filter(x=>x.id!==p.id); pjSel=null; pjSave(); drawProjectsPage(); };
 })();
+/* ---------- phone tab bar + sidebar sheet (v15.93) — only visible under 620px ---------- */
+const MTABS=[{v:'command',label:'Command',icon:'◉'},{v:'recovery',label:'Do today',icon:'✓'},{v:'revenue',label:'Money',icon:'£'},{v:'growth',label:'Growth',icon:'↗'},{more:true,label:'More',icon:'⋯'}];
+function mtabsBuild(){
+  if(document.getElementById('mtabs')) return;
+  const bg=document.createElement('div'); bg.id='mtabsBg'; bg.onclick=()=>sheetOpen(false); document.body.appendChild(bg);
+  const bar=document.createElement('nav'); bar.id='mtabs'; bar.setAttribute('aria-label','Sections');
+  bar.innerHTML=MTABS.map(t=>'<button type="button" data-v="'+(t.v||'')+'"'+(t.more?' data-more="1"':'')+'><i>'+t.icon+'</i>'+t.label+'</button>').join('');
+  bar.querySelectorAll('button').forEach(b=>{ b.onclick=()=>{ if(b.dataset.more){ sheetOpen(!document.body.classList.contains('sheet-open')); return; } sheetOpen(false); switchView(b.dataset.v); }; });
+  document.body.appendChild(bar);
+}
+function sheetOpen(on){ document.body.classList.toggle('sheet-open', !!on); }
+function mtabsPaint(v){
+  const bar=document.getElementById('mtabs'); if(!bar) return;
+  const hub=HUB_OF[v];
+  let hit=false;
+  bar.querySelectorAll('button[data-v]').forEach(b=>{ if(b.dataset.more) return; const bv=b.dataset.v; const on=bv===v || (!!hub && HUB_OF[bv]===hub); b.classList.toggle('on',on); if(on) hit=true; });
+  const more=bar.querySelector('button[data-more]'); if(more) more.classList.toggle('on', !hit);
+}
+try{ mtabsBuild(); }catch(e){}
 /* ---------- nav ---------- */
 const titles={ emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', affiliates:'Affiliates', projects:'Projects', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', goals:'Goals', settings:'Account'};
 function enhanceInteractive(root){
@@ -10255,6 +10331,7 @@ function switchView(v){
   document.querySelectorAll('aside nav button').forEach(b=>{ const on=b.dataset.v===v || (!!hub && b.dataset.hub===hub); b.classList.toggle('on',on); if(on)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current'); });
   document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on',s===view));
   renderHubTabs(v);
+  try{ sheetOpen(false); mtabsPaint(v); }catch(e){}
   document.getElementById('viewTitle').textContent= hub? (HUBS[hub].label+' · '+(TAB_LABEL[v]||titles[v]||v)) : (titles[v]||v);
   history.replaceState(null,'','#'+v);
   document.querySelector('.main').scrollTop=0;
