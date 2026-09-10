@@ -497,8 +497,9 @@ html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme=
 }
 @media (display-mode:standalone){ body{-webkit-user-select:none;user-select:none} input,textarea,select,.pnt,.tlt,td{-webkit-user-select:text;user-select:text} }
 /* new-build bar (v15.96): appears when a newer deploy is live and this tab hasn't reloaded */
-#updBar{position:fixed;right:16px;bottom:16px;z-index:90;display:flex;align-items:center;gap:12px;padding:10px 12px 10px 14px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.28);font-size:12.5px}
+#updBar{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:55;display:flex;align-items:center;gap:12px;padding:10px 12px 10px 14px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.28);font-size:12.5px}
 #updBar b{color:var(--accent)}
+html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);background:linear-gradient(160deg,rgba(255,255,255,.10),rgba(255,255,255,.03) 55%),var(--panel)}
 @media (max-width:620px){ #updBar{left:12px;right:12px;bottom:calc(72px + env(safe-area-inset-bottom));justify-content:space-between} }
 </style>
 </head>
@@ -1798,7 +1799,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v15.97';
+const BUILD = 'v15.98';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -8600,7 +8601,7 @@ function abandonedView(){
    checkout-session username → the sub's own duser → the recovered/manual rv_handles map
    (keyed by lower-cased Stripe name or customer id). Snowflake ids are not handles. */
 function discordHandleFor(list){
-  const ok=v=>(v && !/^\d{15,20}$/.test(String(v)))? String(v).trim() : null;
+  const ok=v=>{ const t=v? String(v).trim() : ''; return (t && !/^\d{15,20}$/.test(t))? t : null; };
   const ids=new Set(list.map(x=>x.id)), custs=new Set(list.map(x=>x.cust).filter(Boolean));
   const sess=(S.sessions||[]).filter(x=>x.duser && ((x.sub&&ids.has(x.sub))||(x.cust&&custs.has(x.cust)))).sort((a,b)=>(b.created||0)-(a.created||0));
   for(const x of sess){ const h=ok(x.duser); if(h) return h; }
@@ -10449,14 +10450,25 @@ arSchedule();
    into view and nothing is being typed, otherwise via a small "Update now" bar so nothing
    in progress is lost. One auto-reload per build (sessionStorage) so a CDN that serves
    version.json ahead of index.html can never loop the page. ---------- */
-let _updBuild=null;
+let _updBuild=null, _updSnooze={b:null, until:0};
+function updNewer(b){                          /* strictly newer than this tab: a rollback deploy is never "an update" */
+  const p=v=>String(v||'').replace(/^v/,'').split('.').map(n=>parseInt(n,10)||0);
+  const a=p(b), c=p(BUILD);
+  for(let i=0;i<Math.max(a.length,c.length);i++){ const x=a[i]||0, y=c[i]||0; if(x!==y) return x>y; }
+  return false;
+}
+/* one automatic reload per build: localStorage first (survives the reload, always on in this app),
+   sessionStorage as the fallback — with neither, the bar still shows but nothing reloads on its own */
+function updGuardGet(){ let v=null; try{ v=localStorage.getItem('rv_upd_for'); }catch(e){} if(v==null){ try{ v=sessionStorage.getItem('rv_upd_for'); }catch(e){} } return v; }
+function updGuardSet(b){ try{ localStorage.setItem('rv_upd_for', b); }catch(e){} try{ sessionStorage.setItem('rv_upd_for', b); }catch(e){} }
+function updGuardOk(){ try{ localStorage.setItem('rv_upd_probe','1'); localStorage.removeItem('rv_upd_probe'); return true; }catch(e){} try{ sessionStorage.setItem('rv_upd_probe','1'); sessionStorage.removeItem('rv_upd_probe'); return true; }catch(e){} return false; }
 async function updCheck(){
   try{
     if(typeof location==='undefined' || !/^https?:$/.test(location.protocol||'')) return null;
     const r=await fetch('/version.json?t='+Date.now(), {cache:'no-store'});
-    if(!r.ok) return null;
+    if(!r.ok){ updBar(false); return null; }          /* version.json gone (an index-only deploy): nothing to say */
     const j=await r.json(); const b=j&&j.build;
-    if(!b || b===BUILD){ updBar(false); return null; }
+    if(!b || !updNewer(b)){ updBar(false); return null; }
     _updBuild=b; updBar(true); return b;
   }catch(e){ return null; }
 }
@@ -10464,25 +10476,39 @@ function updBar(on){
   let el=document.getElementById('updBar');
   if(!on){ if(el) el.remove(); return; }
   if(el) return;
+  const g=document.getElementById('gate'); if(g && !g.hidden) return;                       /* login screen: signing in reloads anyway */
+  const mb=document.getElementById('modalBg'); if(mb && getComputedStyle(mb).display!=='none') return;   /* never over a modal */
+  if(document.body.classList.contains('sheet-open')) return;                                  /* or the phone sidebar sheet */
+  if(_updSnooze.b===_updBuild && Date.now()<_updSnooze.until) return;
   el=document.createElement('div'); el.id='updBar';
-  el.innerHTML='<span>A newer build is live · <b>'+esc(_updBuild)+'</b> (this tab is on '+esc(BUILD)+')</span><button class="btn sm" id="updGo">Update now</button>';
+  el.innerHTML='<span>A newer build is live · <b>'+esc(_updBuild)+'</b> (this tab is on '+esc(BUILD)+')</span>'
+    +'<button class="btn sm" id="updGo">Update now</button><button class="btn ghost sm" id="updLater" title="hide this for half an hour">Later</button>';
   document.body.appendChild(el);
-  const g=document.getElementById('updGo'); if(g) g.onclick=updReload;
+  const go=document.getElementById('updGo'); if(go) go.onclick=updReload;
+  const lt=document.getElementById('updLater'); if(lt) lt.onclick=()=>{ _updSnooze={b:_updBuild, until:Date.now()+30*60*1000}; updBar(false); };
 }
-function updReload(){ try{ sessionStorage.setItem('rv_upd_for', _updBuild||''); }catch(e){} location.reload(); }
+async function updReload(){
+  updGuardSet(_updBuild||'');
+  /* a queued cloud save goes first, so an edit made seconds ago is never lost to the reload */
+  try{ if(typeof sbReady==='function' && sbReady() && Date.now()<_syncDueAt+8000){ clearTimeout(_sbEditTimer); await Promise.race([sbPush(), new Promise(r=>setTimeout(r,5000))]); } }catch(e){}
+  location.reload();
+}
 function updIdle(){
   const a=document.activeElement;
   if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName||'')) return false;
   const mb=document.getElementById('modalBg');
   if(mb && getComputedStyle(mb).display!=='none') return false;
+  if(Date.now()<_syncDueAt+1500) return false;                             /* a save is still queued */
+  for(const id of ['pjNoteText','pjTlText']){ const e=document.getElementById(id); if(e && e.value && e.value.trim()) return false; }   /* a typed-but-unadded note */
   return true;
 }
-document.addEventListener('visibilitychange', async()=>{
+async function updResume(){                    /* the tab has just come back into view */
   if(document.hidden) return;
-  const b=await updCheck(); if(!b || !updIdle()) return;
-  let done=null; try{ done=sessionStorage.getItem('rv_upd_for'); }catch(e){}
-  if(done!==b) updReload();                    /* first sight of this build: reload now; seen before: the bar stays */
-});
+  const b=await updCheck(); if(!b || document.hidden || !updIdle()) return;
+  if(updGuardOk() && updGuardGet()!==b) updReload();   /* first sight of this build: reload now. Seen before (a reload that didn't land it): the bar stays, no loop */
+}
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) updResume(); });
+if(typeof window!=='undefined' && window.addEventListener) window.addEventListener('pageshow', e=>{ if(e && e.persisted) updResume(); });
 setInterval(()=>{ if(!document.hidden) updCheck(); }, 5*60*1000);
 setTimeout(updCheck, 45*1000);
 
@@ -11689,13 +11715,14 @@ function sbWire(){
       +(L.error? ' · <span class="gtx gtx-red">failed: '+esc(L.error)+'</span>' : L.skipped? ' · skipped ('+esc(L.skipped)+')' : ' · '+(L.subs||0).toLocaleString()+' subs · MRR £'+(L.mrr||0).toLocaleString()+' · '+(L.active||0)+' paying'+(L.members? ' · '+L.members.toLocaleString()+' in Discord':'')); } });
 }
 let _sbEditTimer=null;
+let _syncDueAt=0;                                /* when the queued cloud save is due — the new-build watch waits for it */
 function scheduleSync(){
   if(S.settings.binId && S.settings.binKey){       /* the runner: publish the bridge (and write through) */
-    clearTimeout(syncTimer); syncTimer=setTimeout(()=>void pushSync(), 4000); return; }
+    clearTimeout(syncTimer); _syncDueAt=Date.now()+4000; syncTimer=setTimeout(()=>void pushSync(), 4000); return; }
   /* v15.78: a signed-in BROWSER pushes its edits straight to Supabase, so every login sees them
      and the runner carries them into the next bridge publish. Debounced; failures are non-fatal. */
   if(!sbReady()) return;
-  clearTimeout(_sbEditTimer);
+  clearTimeout(_sbEditTimer); _syncDueAt=Date.now()+6000;
   _sbEditTimer=setTimeout(()=>{ sbPush().then(n=>{ try{ sbStatusMsg(n.toLocaleString()+' rows saved to the cloud','ok'); }catch(e){} })
     .catch(e=>{ try{ console.warn('supabase push', e.message); status('Cloud save failed: '+e.message,'err'); }catch(e2){} }); }, 6000);
 }
