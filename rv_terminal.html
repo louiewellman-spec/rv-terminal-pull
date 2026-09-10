@@ -1799,7 +1799,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.00';
+const BUILD = 'v16.01';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -9948,11 +9948,39 @@ function dayKeyBack(now, i){
   const d=new Date(now);
   return dayKey(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())-i*D);
 }
+/* v16.01 perf: a sub's paid window and its price schedule do not depend on t, so build them once
+   per array (mrrProfile) and make every point-in-time sum a tight loop. mrrProfileAt reproduces
+   subMrrAt exactly: with ledger events the price before time t is the `from` of the earliest event
+   still after t (what subGrossAt's backwards walk lands on); with none, the June-2026 legacy price
+   applies while t < min(their first renewal on/after 7 Jun, 9 Jul) — legacyGrossAt's two cut-offs. */
+function mrrProfile(x){
+  if(!hasFirstPayment(x)) return null;
+  const s=stripeStartOf(x); if(s==null) return null;
+  const e=stripeMetricEndOf(x);
+  const mon=Math.max(0,Number(x&&x.monthly)||0);
+  const ev=planEventsFor(x);
+  if(ev.length) return {s, e, mon, steps:ev.map(ev1=>({t:ev1.t, v:netPlanAmount(x, Math.max(0,Number(ev1.from)||0))}))};
+  const g=Math.round(Number(x&&x.gross!=null? x.gross : x&&x.monthly)||0);
+  const old = g===28? 25 : g===60? 50 : null;
+  if(old==null) return {s, e, mon};
+  const base=paidStartOf(x);
+  if(base==null || base>=PRICE_MIG_T) return {s, e, mon};
+  const dNum=new Date(base).getUTCDate();
+  let mig=Date.UTC(2026,5,Math.min(dNum,30));
+  if(mig<PRICE_MIG_T) mig=Date.UTC(2026,6,Math.min(dNum,31));
+  return {s, e, mon, lu:Math.min(mig, PRICE_MIG_T+32*D), lv:netPlanAmount(x,old)};
+}
+function mrrProfileAt(p,t){
+  if(p.steps){ for(let i=0;i<p.steps.length;i++){ if(p.steps[i].t>t) return p.steps[i].v; } return p.mon; }
+  if(p.lu!=null && t<p.lu) return p.lv;
+  return p.mon;
+}
 function mrrAt(subsArr, t){
   /* v16.00 perf: memo per (array, t). One recompute asks for the same (array, t) pairs many times
      (366 calls, 187 distinct); the array is replaced wholesale on every pull, so the Map dies with it. */
   const m=subsArr._mrrAt||(subsArr._mrrAt=new Map()); const hit=m.get(t); if(hit!==undefined) return hit;
-  let v=0; subsArr.forEach(x=>{ if(stripePaidAt(x,t)) v+=subMrrAt(x,t); });
+  const P=subsArr._mrrP||(subsArr._mrrP=subsArr.map(mrrProfile));
+  let v=0; for(let i=0;i<P.length;i++){ const p=P[i]; if(p && p.s<=t && (!p.e || p.e>t)) v+=mrrProfileAt(p,t); }
   m.set(t,v); return v;
 }
 function tierCountAt(subsArr, t){
