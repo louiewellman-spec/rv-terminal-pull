@@ -1841,7 +1841,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.18';
+const BUILD = 'v16.19';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -6952,7 +6952,7 @@ function forecastQuarterAhead(asOf, targetQ){
     const netMRR=Math.round(acts*avgNew - cxl*avgCxl + otherMRR);
     const mrrStart=Math.round(mrrAt(subs,now));
     return { qk:nq, label:qLabel(nq), months, activations:acts, cancels:cxl, cash, netMRR,
-      mrrEnd:mrrStart+netMRR,
+      mrrStart, mrrEnd:mrrStart+netMRR,
       range:{ activations:[Math.round(acts*.65),Math.round(acts*1.35)], cancels:[Math.round(cxl*.8),Math.round(cxl*1.2)],
         cash: cash!=null? [Math.round(cash*.88),Math.round(cash*1.12)]:null,
         mrrEnd:[Math.round((mrrStart+netMRR)*.92),Math.round((mrrStart+netMRR)*1.08)] } };
@@ -7020,19 +7020,51 @@ function ensureForecasts(){
     if(i===0 && !S.signalsCache && (Date.now()-mkStart(k)) < 20*D) continue;
     const nf=forecastFor(k); if(nf){ nf.lockedAt=Date.now(); S.forecasts[k]=nf; changed=true; }
   }
-  /* quarter lock: frozen once at quarter start (computed from pre-quarter data only) */
+  /* v16.19 quarter lock: the bar a quarter is judged against belongs to the START of that quarter.
+     The maths was always pre-quarter-only (asOf = the last instant before the quarter), but the lock
+     was only created the first time the terminal ran INSIDE the quarter and it stamped THAT moment,
+     so Q3's bar read "computed 25 Aug" - eight weeks late - and the beat it produced looked like it
+     said more about the late bar than about the quarter. Fixed by describing it honestly rather than
+     by recomputing: `lockedAt` is now the quarter start (what the forecast is as-of), `computedAt`
+     keeps the moment it was actually worked out and `lateBy` how far into the quarter that was.
+     The NUMBER of an existing lock is never recomputed - replaying today's subscription list back to
+     a past quarter drifts (the same reconstruction problem fcAnchorStarts fixes for months; doing it
+     to Q3 moved the bar £1,343 further out). The one number that does improve is the starting MRR:
+     where a daily snapshot exists for day one that is a real measurement, so the start is anchored to
+     it and the same predicted movement carried forward. A lock set live at the start is left alone. */
   try{
-    const qk=qOf(mkOf(Date.now())), qkey='Q:'+qk;
-    if(!S.forecasts[qkey]){
-      const qStart=mkStart(qMonths(qk)[0]);
-      if(isFinite(first) && qStart-first>=92*D){
-        /* asOf = the last instant BEFORE the quarter: the window builder needs a
-           non-empty "current month" and this keeps the lock pre-quarter-data-only */
-        const qf=forecastQuarterAhead(qStart-1, qk);
-        if(qf){ qf.lockedAt=Date.now(); S.forecasts[qkey]=qf; changed=true; }
+    const QLATE=3*D;                                 /* set within 3 days of the start = a live lock */
+    const snapAt={}; (S.snapshots||[]).forEach(x=>{ if(x&&x.d&&x.mrr!=null) snapAt[x.d]=x.mrr; });
+    const targets=new Set([qOf(mkOf(Date.now()))]);
+    Object.keys(S.forecasts).forEach(k=>{ if(k.slice(0,2)==='Q:') targets.add(k.slice(2)); });
+    targets.forEach(qk=>{
+      const qkey='Q:'+qk, qStart=mkStart(qMonths(qk)[0]);
+      if(qStart>Date.now()) return;                                    /* hasn't started */
+      const ex=S.forecasts[qkey];
+      if(ex && ex.lockedAt===qStart) return;                           /* already set to the start */
+      let qf, live;
+      if(ex){
+        qf=ex; qf.computedAt=ex.computedAt||ex.lockedAt||qStart;
+        live=(qf.computedAt-qStart)<=QLATE;
+      }else{
+        if(!isFinite(first) || qStart-first < 92*D) return;             /* not enough history before it */
+        qf=forecastQuarterAhead(qStart-1, qk); if(!qf) return;
+        qf.computedAt=Date.now(); live=(qf.computedAt-qStart)<=QLATE;
       }
-    }
-  }catch(e){}
+      qf.lockedAt=qStart; qf.lateBy=Math.max(0, Math.round((qf.computedAt-qStart)/D));
+      /* a live lock measured MRR on the day, so leave its start alone */
+      if(!live && !qf.startAnchored && qf.netMRR!=null){
+        const anchor=snapAt[dayKey(qStart)];
+        if(anchor!=null){
+          const before=qf.mrrEnd, after=Math.round(anchor+qf.netMRR), delta=(before!=null)? after-before : 0;
+          if(qf.mrrStart!=null) qf.mrrStartWas=qf.mrrStart;
+          qf.mrrStart=anchor; qf.mrrEnd=after; qf.startAnchored=dayKey(qStart);
+          if(delta && qf.range && qf.range.mrrEnd) qf.range.mrrEnd=[qf.range.mrrEnd[0]+delta, qf.range.mrrEnd[1]+delta];
+        }
+      }
+      S.forecasts[qkey]=qf; changed=true;
+    });
+  }catch(e){ reportNonFatal('Quarter lock', e); }
   if(changed) jset('rv_forecasts',S.forecasts);
 }
 function monthActuals(mk){
@@ -7330,8 +7362,10 @@ function rpQuarters(st){
         +'<h3 style="margin:0">'+esc(lab)+'</h3>'+pill
         +'<span class="sn">month '+Math.min(monthsIn||1,3)+' of 3 · '+done.length+' complete</span></div>'
         +'<div class="sn" style="margin-top:6px">'+(liveMrr!=null? 'MRR now '+fmtGBP(liveMrr) : 'MRR not available yet')
-        +(ql&&ql.mrrEnd!=null? ' · locked at quarter start expecting '+fmtGBP(ql.mrrEnd)+' by the end'
-            +(ql.lockedAt? ' (frozen '+new Date(ql.lockedAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+', from pre-quarter data only)':'') : '')
+        +(ql&&ql.mrrEnd!=null? ' · bar set '+(ql.lockedAt? new Date(ql.lockedAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : 'at the quarter start')
+            +' from pre-quarter data: '+fmtGBP(ql.mrrEnd)+' by the end'
+            +(ql.lateBy>3? ' (worked out '+ql.lateBy+' days in, on '+new Date(ql.computedAt).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+', so nobody committed to it at the time)':'')
+            +(ql.startAnchored? ' · started from the MRR actually recorded that day':'') : '')
         +'</div>';
     }
     /* the four drivers, quarter to date vs the sum of the frozen monthly forecasts */
@@ -7373,7 +7407,7 @@ function rpQuarters(st){
       else { const p2=forecastFor(m2); if(p2){ qa+=p2.activations; qc+=p2.cancels; qnet+=p2.netMRR; if(p2.cash!=null) qcash+=p2.cash; else cashOk=false; parts.push(monLabel(m2)+' preview'); endMrr=p2.mrrEnd; } else cashOk=false; } });
     const ql=F['Q:'+q]; let lockTxt='';
     if(ql){ const rg=ql.range&&ql.range.mrrEnd; const big=rg&&endMrr!=null&&endMrr>rg[1]+(rg[1]-rg[0]);
-      lockTxt='<div class="sn">quarter lock '+(ql.mrrEnd!=null? fmtGBP(ql.mrrEnd):'—')+' · computed '+new Date(ql.lockedAt||0).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+' from pre-quarter data'+(big? ' · a beat this size says more about the lock than the quarter':'')+'</div>'; }
+      lockTxt='<div class="sn">bar set '+new Date(ql.lockedAt||0).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+': '+(ql.mrrEnd!=null? fmtGBP(ql.mrrEnd):'—')+' from pre-quarter data'+(ql.lateBy>3? ' (worked out '+ql.lateBy+' days in)':'')+(big? ' · a beat this size says more about the lock than the quarter':'')+'</div>'; }
     rows.push('<tr><td style="color:var(--text);font-weight:600">'+qLabel(q)+'</td><td><span class="pill cold">in progress</span></td><td class="num">'+(endMrr!=null?fmtGBP(endMrr):'—')+lockTxt+'</td><td class="num">'+fmtNet(qnet)+'</td><td class="num">'+rpN(qa)+'</td><td class="num">'+rpN(qc)+'</td><td class="num">'+(cashOk?fmtGBP(qcash):'—')+'</td><td class="sn">'+parts.join(' + ')+'</td></tr>'); }catch(e){}
   try{ const doneQ={}; Object.keys(F).forEach(k=>{ if(/^\d{4}-\d{2}$/.test(k)&&mkEnd(k)<=now){ const q=qOf(k); (doneQ[q]=doneQ[q]||[]).push(k); } });
     Object.keys(doneQ).filter(q=>qMonths(q).every(m2=>mkEnd(m2)<=now)).sort().reverse().forEach(q=>{ const ms=doneQ[q].sort();
