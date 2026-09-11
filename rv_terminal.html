@@ -1044,6 +1044,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
     <div class="row" style="margin-top:14px;gap:8px;align-items:center;flex-wrap:wrap">
       <button class="btn" id="pjNew">New project</button>
       <input id="pjSearch" placeholder="search projects…" style="width:220px">
+      <div class="tfbtns" id="pjOwner" style="margin:0" title="whose projects to show"><button data-o="all" class="on">everyone</button><button data-o="Louie">Louie</button><button data-o="Tom">Tom</button></div>
       <div class="tfbtns" id="pjFilter" style="margin:0"><button data-s="open" class="on">open</button><button data-s="active">in progress</button><button data-s="planned">planned</button><button data-s="idea">ideas</button><button data-s="done">done</button><button data-s="parked">parked</button><button data-s="all">all</button></div>
     </div>
     <div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(0,3fr);margin-top:12px" id="pjGrid">
@@ -1833,7 +1834,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.15';
+const BUILD = 'v16.16';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10581,7 +10582,7 @@ function drawAffiliatesPage(){
   setH('afSelPast', gone.length? '<b style="color:var(--text)">'+gone.length+' former subscriber'+(gone.length===1?'':'s')+'</b> from this code have left'+(gone.length? ' — most recent: '+esc(String(gone.sort((x,y)=>(y.canceled||0)-(x.canceled||0))[0].duser||gone[0].cname||gone[0].cemail||'member').slice(0,30)):'')+'.' : 'Nobody from this code has left yet.');
 }
 /* ---------- projects page (v15.92) ---------- */
-let pjSel=null, pjFilterS='open', pjSaveT=null;
+let pjSel=null, pjFilterS='open', pjFilterO='all', pjSaveT=null;
 function pjState(){ if(!S.projects||typeof S.projects!=='object'||!Array.isArray(S.projects.items)) S.projects={items:[]}; return S.projects; }
 function pjSave(){ jset('rv_projects', pjState()); }
 /* v16.13: projects are merged, never replaced. A project is a thing a person made by hand, so a
@@ -10730,7 +10731,10 @@ function drawProjectsPage(){
   const shown=items.filter(p=>{
     const okS = pjFilterS==='all' ? true : pjFilterS==='open' ? (p.status!=='done'&&p.status!=='parked') : p.status===pjFilterS;
     const okQ = !ql || [p.title,p.area,p.summary,(p.notes||[]).map(n=>n.text).join(' ')].join(' ').toLowerCase().includes(ql);
-    return okS && okQ; }).sort((a,b)=>(a.priority||2)-(b.priority||2) || (a.due||'9999').localeCompare(b.due||'9999') || (b.updated||0)-(a.updated||0));
+    const okO = pjFilterO==='all' ? true : String(p.owner||'').trim().toLowerCase()===pjFilterO.toLowerCase();
+    return okS && okQ && okO; })
+    .sort((a,b)=> (pjFilterO==='all'? String(a.owner||'~').localeCompare(String(b.owner||'~')) : 0)   /* v16.16: grouped by owner, then the usual order */
+      || (a.priority||2)-(b.priority||2) || (a.due||'9999').localeCompare(b.due||'9999') || (b.updated||0)-(a.updated||0));
   const list=document.getElementById('pjList'), empty=document.getElementById('pjEmpty'); if(!list) return;
   list.innerHTML=shown.map(p=>{ const next=(p.timeline||[]).filter(t=>!t.done&&t.d).sort((a,b)=>a.d.localeCompare(b.d))[0];
     return '<div class="pjrow'+(p.id===pjSel?' on':'')+'" data-id="'+p.id+'"><span class="pjp p'+(p.priority||2)+'"></span><span class="pjt">'+esc(p.title||'Untitled')+'</span>'
@@ -10739,6 +10743,9 @@ function drawProjectsPage(){
   if(empty) empty.style.display=items.length?'none':'block';
   list.querySelectorAll('.pjrow').forEach(r=>{ r.onclick=()=>{ pjSel=r.dataset.id; drawProjectsPage(); }; });
   document.querySelectorAll('#pjFilter button').forEach(b=>b.classList.toggle('on', b.dataset.s===pjFilterS));
+  document.querySelectorAll('#pjOwner button').forEach(b=>{ b.classList.toggle('on', b.dataset.o===pjFilterO);
+    const o=b.dataset.o, live=items.filter(x=>x.status!=='done'&&x.status!=='parked'&&(o==='all'||String(x.owner||'').trim().toLowerCase()===o.toLowerCase())).length;
+    const base=o==='all'?'everyone':o; b.textContent=live? base+' '+live : base; });
   const p=pjCur(), form=document.getElementById('pjForm'), none=document.getElementById('pjNone');
   if(!p){ if(form) form.style.display='none'; if(none) none.style.display='block'; return; }
   if(form) form.style.display='block'; if(none) none.style.display='none';
@@ -10769,6 +10776,7 @@ function drawProjectsPage(){
     pjState().items.unshift(p); pjSel=p.id; pjFilterS='all'; pjSave(); drawProjectsPage(); setTimeout(()=>{ const t=$('pjTitle'); if(t){ t.focus(); } },30); };
   $('pjSearch').oninput=()=>drawProjectsPage();
   document.querySelectorAll('#pjFilter button').forEach(b=>{ b.onclick=()=>{ pjFilterS=b.dataset.s; drawProjectsPage(); }; });
+  document.querySelectorAll('#pjOwner button').forEach(b=>{ b.onclick=()=>{ pjFilterO=b.dataset.o; drawProjectsPage(); }; });
   const field=(id,key,fn)=>{ const el=$(id); if(!el) return; el.addEventListener('input',()=>{ const p=pjCur(); if(!p) return; p[key]=fn? fn(el.value):el.value; if(key==='status'){ if(el.value==='done'&&!p.doneAt) p.doneAt=Date.now(); if(el.value!=='done') p.doneAt=null; }
     p.updated=Date.now(); clearTimeout(pjSaveT); pjSaveT=setTimeout(()=>{ pjSave(); drawProjectsPage(); }, 500); }); };
   field('pjTitle','title'); field('pjStatus','status'); field('pjOwner','owner'); field('pjPriority','priority',v=>Number(v)||2); field('pjDue','due'); field('pjArea','area'); field('pjSummary','summary');
