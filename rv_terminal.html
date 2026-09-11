@@ -1833,7 +1833,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.12';
+const BUILD = 'v16.13';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10584,6 +10584,23 @@ function drawAffiliatesPage(){
 let pjSel=null, pjFilterS='open', pjSaveT=null;
 function pjState(){ if(!S.projects||typeof S.projects!=='object'||!Array.isArray(S.projects.items)) S.projects={items:[]}; return S.projects; }
 function pjSave(){ jset('rv_projects', pjState()); }
+/* v16.13: projects are merged, never replaced. A project is a thing a person made by hand, so a
+   pull may only ADD to the list or update an item that is genuinely newer — it may never delete.
+   (v16.07-v16.12 shipped a boot-time seed that wrote a one-item list on any device whose local
+   copy had not loaded yet, and that list then synced over the real one. The seed is gone and this
+   merge makes the whole class of loss impossible.) */
+function pjMerge(local, remote){
+  const norm=v=>(v && typeof v==='object' && Array.isArray(v.items))? v : {items:[]};
+  const a=norm(local), b=norm(remote), by={}, order=[];
+  const take=(list)=>list.forEach(it=>{ if(!it||!it.id) return;
+    const prev=by[it.id];
+    if(!prev){ by[it.id]=it; order.push(it.id); return; }
+    by[it.id]=((it.updated||0) >= (prev.updated||0))? it : prev; });
+  take(a.items); take(b.items);                       /* local first, so ties keep what is on screen */
+  const out={items:order.map(id=>by[id]).sort((x,y)=>(y.updated||y.created||0)-(x.updated||x.created||0))};
+  const seeds=Object.assign({}, b.seeds||{}, a.seeds||{}); if(Object.keys(seeds).length) out.seeds=seeds;
+  return out;
+}
 function pjId(){ return 'p'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 function pjCur(){ return pjState().items.find(x=>x.id===pjSel)||null; }
 const PJ_STATUS={idea:'Idea',planned:'Planned',active:'In progress',done:'Done',parked:'Parked'};
@@ -10630,30 +10647,6 @@ async function pjRemoveFile(p, fid){
   try{ await pjStorage('object/'+PJ_BUCKET, {method:'DELETE', body:JSON.stringify({prefixes:[f.path]}), headers:{'Content-Type':'application/json'}}); }
   catch(e){ status('Delete failed: '+e.message,'err'); return; }
   p.files=(p.files||[]).filter(x=>x.id!==fid); pjTouch(p); drawProjectsPage();
-}
-/* v16.07: projects the terminal itself hands over. Seeded once per key; deleting one never re-seeds it. */
-function pjSeed(){
-  try{
-    const st=pjState(); st.seeds=st.seeds||{};
-    const key='exit-survey-2026-09-v2';
-    if(st.seeds[key]) return;
-    const day=n=>{ const d=new Date(Date.now()+n*D); return d.toISOString().slice(0,10); };
-    const title='Exit survey form on resellvault.co.uk';
-    /* v16.08: the simple version (Louie: a basic form we can see results from, CSV into the terminal).
-       Replaces the v16.07 card if it is still untouched, otherwise adds alongside it. */
-    const old=st.items.find(x=>x.title==='Exit survey page on resellvault.co.uk' && !(x.notes||[]).some(n=>n.by!=='terminal') && !(x.timeline||[]).some(t=>t.done));
-    const card={id:old? old.id : pjId(), title, status:'planned', owner:'Tom', priority:1, due:day(7), area:'Retention',
-      summary:'A basic form at resellvault.co.uk/feedback (the site\'s own form block, Tally, Typeform or Jotform) with the six fixed questions and an optional "email you signed up with" field. Responses export as CSV and get dropped into the terminal on Retention › Exit survey, which matches them to members by email and shows reasons by month and tier plus the free text. Research only: nothing on the page may get in the way of cancelling or read as a save attempt. Brief with the exact questions: resell-vault/rv-exit-survey/TOM-BRIEF.md.',
-      timeline:[
-        {id:pjId(), d:day(2), text:'Build the form at resellvault.co.uk/feedback with the six questions exactly as written in TOM-BRIEF.md, plus the optional email field last.', done:false},
-        {id:pjId(), d:day(2), text:'Thank you text: "Read by Louie and Tom. If something is broken and you want it fixed, reply to the email you got." Privacy line under the form.', done:false},
-        {id:pjId(), d:day(3), text:'Check responses export as CSV, do one test submit on a phone, send Louie the live link.', done:false},
-        {id:pjId(), d:day(7), text:'Weekly: export the CSV and drop it into the terminal (Retention › Exit survey).', done:false}],
-      notes:[{id:pjId(), t:Date.now(), text:'Email link: https://resellvault.co.uk/feedback (add ?group=pc for pending cancel or ?group=pd for failed payment if the form tool supports a hidden field). The terminal side (CSV upload + results view) gets built once the form is live.', by:'terminal'}],
-      created:old? old.created : Date.now(), updated:Date.now()};
-    if(old){ Object.assign(old, card); } else { st.items.unshift(card); }
-    st.seeds[key]=Date.now(); pjSave();
-  }catch(e){}
 }
 function drawProjectsPage(){
   const st=pjState(), items=st.items, now=Date.now(), today=dayKey(now);
@@ -10749,7 +10742,6 @@ function mtabsPaint(v){
   const more=bar.querySelector('button[data-more]'); if(more) more.classList.toggle('on', !hit);
 }
 try{ mtabsBuild(); }catch(e){}
-try{ pjSeed(); }catch(e){}
 /* ---------- nav ---------- */
 const titles={ rewards:'Success rewards', emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', affiliates:'Affiliates', projects:'Projects', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', goals:'Goals', settings:'Account'};
 function enhanceInteractive(root){
@@ -12008,7 +12000,9 @@ async function sbPull(opts){
   let syncLast=null, lastFetch=null;
   kv.forEach(r=>{ if(r.k==='stripe_sync_last'){ syncLast=r.v; return; } if(r.k==='lastFetch'){ lastFetch=r.v; return; }
     if(r.k==='settings_shared' && r.v && typeof r.v==='object'){ S.settings=Object.assign({}, S.settings, r.v); jset('rv_settings', S.settings); return; }
-    if(SB_KV_SKIP.has(r.k) || r.v==null || r.k[0]==='_') return; S[r.k]=r.v; jset(SB_LS[r.k]||('rv_'+r.k.toLowerCase()), r.v); });
+    if(SB_KV_SKIP.has(r.k) || r.v==null || r.k[0]==='_') return;
+    if(r.k==='projects'){ S.projects=pjMerge(S.projects, r.v); jset('rv_projects', S.projects); return; }   /* v16.13: add, never delete */
+    S[r.k]=r.v; jset(SB_LS[r.k]||('rv_'+r.k.toLowerCase()), r.v); });
   if(syncLast&&syncLast.t&&(!S.lastFetch||syncLast.t>(S.lastFetch.t||0))){ S.lastFetch={t:syncLast.t, build:BUILD, nightly:true}; jset('rv_lastfetch',S.lastFetch); }
   else if(lastFetch&&(!S.lastFetch||(lastFetch.t||0)>(S.lastFetch.t||0))){ S.lastFetch=lastFetch; jset('rv_lastfetch',S.lastFetch); }
   const supObj={bounced:{},stopped:{},control:{}}; sup.forEach(r=>{ if(supObj[r.reason]) supObj[r.reason][r.email]=r.detail||''; });
