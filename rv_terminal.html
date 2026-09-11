@@ -383,6 +383,7 @@ html[data-theme="glass"] .modal-bg{background:rgba(6,9,20,.45)} html[data-theme=
 .tl .tlt{font-size:12.5px;color:var(--text)} .tl.done .tlt{color:var(--dim);text-decoration:line-through}
 .tl .tlx{display:flex;gap:8px;align-items:flex-start} .tl .tlx .tdchk{margin-top:2px}
 .tl button.tlrm,.pjn button.pnrm{background:none;border:0;color:var(--dim);cursor:pointer;font-size:12px;padding:0 4px} .tl button.tlrm:hover,.pjn button.pnrm:hover{color:var(--bad)}
+.pjf{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;margin-bottom:6px;background:var(--panel2)} .pjf a{color:var(--accent);font-weight:600;text-decoration:none;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .pjf .sn{white-space:nowrap} #pjDetail.dragover{outline:2px dashed var(--accent);outline-offset:-6px}
 .pjn{padding:9px 0;border-bottom:1px solid var(--line)} .pjn:last-child{border-bottom:0}
 .pjn .pnd{font-family:var(--mono);font-size:10.5px;color:var(--dim);display:flex;gap:8px;align-items:center} .pjn .pnt{font-size:12.5px;color:var(--text);white-space:pre-wrap;margin-top:2px}
 @media(max-width:1180px){ #pjGrid{grid-template-columns:1fr!important} }
@@ -1076,6 +1077,13 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
           <div class="row" style="margin-top:8px;gap:8px;flex-wrap:nowrap;align-items:flex-start">
             <textarea id="pjNoteText" rows="2" placeholder="a thought, a result, a link, a decision…" style="flex:1;min-width:0;resize:vertical"></textarea>
             <button class="btn sm" id="pjNoteAdd">Add note</button>
+          </div>
+          <div class="sec" style="margin-top:16px">Files <span class="tag">up to 10 MB each · images, PDFs, spreadsheets, docs · stored privately, only the terminal login can open them</span></div>
+          <div id="pjFiles"></div>
+          <div class="row" style="margin-top:8px;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="file" id="pjFileIn" multiple style="display:none">
+            <button class="btn sm" id="pjFileAdd">Add files</button>
+            <span class="sn" id="pjFileMsg">or drop files anywhere on this card</span>
           </div>
           <div class="row" style="margin-top:16px;gap:8px;align-items:center">
             <span class="sn" id="pjMeta" style="margin-top:0;flex:1"></span>
@@ -1821,7 +1829,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.08';
+const BUILD = 'v16.10';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10541,6 +10549,49 @@ function pjId(){ return 'p'+Date.now().toString(36)+Math.random().toString(36).s
 function pjCur(){ return pjState().items.find(x=>x.id===pjSel)||null; }
 const PJ_STATUS={idea:'Idea',planned:'Planned',active:'In progress',done:'Done',parked:'Parked'};
 function pjTouch(p){ p.updated=Date.now(); pjSave(); }
+/* ---------- project files (v16.09): a private Supabase Storage bucket, one folder per project.
+   Only the signed-in terminal login can list, open or delete; links are signed for an hour. ---------- */
+const PJ_BUCKET='rv-projects', PJ_FILE_MAX=10*1024*1024;
+function pjSize(n){ n=Number(n)||0; return n>=1048576? (n/1048576).toFixed(1)+' MB' : n>=1024? Math.round(n/1024)+' KB' : n+' B'; }
+function pjSafeName(n){ return String(n||'file').replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,80); }
+async function pjStorage(path, opt){
+  const b=sbState(), tok=await sbToken();
+  const h=Object.assign({'apikey':b.anon, 'Authorization':'Bearer '+tok}, (opt&&opt.headers)||{});
+  const r=await fetchTimed(SB_URL+'/storage/v1/'+path, Object.assign({}, opt||{}, {headers:h}));
+  if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('HTTP '+r.status+' '+t.slice(0,160)); }
+  const t=await r.text(); return t? JSON.parse(t) : null;
+}
+async function pjUploadFiles(p, files){
+  const list=Array.from(files||[]); if(!p || !list.length) return;
+  if(!sbReady()){ status('Sign in first — files are stored in the database.','err'); return; }
+  const msg=document.getElementById('pjFileMsg'); let done=0;
+  for(const f of list){
+    if(f.size>PJ_FILE_MAX){ status(f.name+' is over 10 MB — skipped.','err'); continue; }
+    const path=p.id+'/'+Date.now().toString(36)+'-'+pjSafeName(f.name);
+    try{ if(msg) msg.textContent='Uploading '+f.name+'…';
+      await pjStorage('object/'+PJ_BUCKET+'/'+path, {method:'POST', body:f, headers:{'Content-Type':f.type||'application/octet-stream', 'x-upsert':'false'}});
+      (p.files=p.files||[]).push({id:pjId(), name:f.name, path, size:f.size, type:f.type||'', t:Date.now(), by:(S.sb&&S.sb.email)? String(S.sb.email).split('@')[0] : null});
+      done++; pjTouch(p);
+    }catch(e){ status('Upload failed for '+f.name+': '+e.message,'err'); }
+  }
+  if(msg) msg.textContent='or drop files anywhere on this card';
+  if(done) status(done+' file'+(done===1?'':'s')+' added to '+(p.title||'the project')+'.','ok');
+  drawProjectsPage();
+}
+async function pjOpenFile(p, fid){
+  const f=(p.files||[]).find(x=>x.id===fid); if(!f) return;
+  try{ const r=await pjStorage('object/sign/'+PJ_BUCKET+'/'+f.path, {method:'POST', body:JSON.stringify({expiresIn:3600}), headers:{'Content-Type':'application/json'}});
+    const u=r&&r.signedURL; if(!u) throw new Error('no link came back');
+    window.open(SB_URL+'/storage/v1'+u, '_blank'); }
+  catch(e){ status('Could not open '+f.name+': '+e.message,'err'); }
+}
+async function pjRemoveFile(p, fid){
+  const f=(p.files||[]).find(x=>x.id===fid); if(!f) return;
+  if(!confirm('Remove '+f.name+' from this project? The file itself is deleted.')) return;
+  try{ await pjStorage('object/'+PJ_BUCKET, {method:'DELETE', body:JSON.stringify({prefixes:[f.path]}), headers:{'Content-Type':'application/json'}}); }
+  catch(e){ status('Delete failed: '+e.message,'err'); return; }
+  p.files=(p.files||[]).filter(x=>x.id!==fid); pjTouch(p); drawProjectsPage();
+}
 /* v16.07: projects the terminal itself hands over. Seeded once per key; deleting one never re-seeds it. */
 function pjSeed(){
   try{
@@ -10564,7 +10615,6 @@ function pjSeed(){
     if(old){ Object.assign(old, card); } else { st.items.unshift(card); }
     st.seeds[key]=Date.now(); pjSave();
   }catch(e){}
-}
 }
 function drawProjectsPage(){
   const st=pjState(), items=st.items, now=Date.now(), today=dayKey(now);
@@ -10607,6 +10657,11 @@ function drawProjectsPage(){
   if(nEl) nEl.innerHTML=notes.length? notes.map(n=>'<div class="pjn"><div class="pnd">'+new Date(n.t).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})+(n.by?' · '+esc(n.by):'')+'<button type="button" class="pnrm" data-rm="'+n.id+'" title="remove">×</button></div><div class="pnt">'+esc(n.text)+'</div></div>').join('')
     : '<div class="sn">No notes yet.</div>';
   nEl&&nEl.querySelectorAll('button.pnrm').forEach(b=>{ b.onclick=()=>{ p.notes=(p.notes||[]).filter(x=>x.id!==b.dataset.rm); pjTouch(p); drawProjectsPage(); }; });
+  const files=(p.files||[]).slice().sort((a,b)=>(b.t||0)-(a.t||0)), fEl=document.getElementById('pjFiles');
+  if(fEl) fEl.innerHTML=files.length? files.map(f=>'<div class="pjf"><a href="#" data-pf="'+esc(f.id)+'" title="open in a new tab">'+esc(f.name)+'</a><span class="sn">'+pjSize(f.size)+(f.by?' · '+esc(f.by):'')+' · '+new Date(f.t).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+'</span><button type="button" class="pnrm" data-pfrm="'+esc(f.id)+'" title="remove this file">×</button></div>').join('')
+    : '<div class="sn">No files yet.</div>';
+  fEl&&fEl.querySelectorAll('[data-pf]').forEach(a=>{ a.onclick=ev=>{ ev.preventDefault(); pjOpenFile(p, a.dataset.pf); }; });
+  fEl&&fEl.querySelectorAll('[data-pfrm]').forEach(b=>{ b.onclick=()=>pjRemoveFile(p, b.dataset.pfrm); });
   set('pjMeta', 'created '+new Date(p.created||now).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit'})+' · updated '+new Date(p.updated||p.created||now).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}));
 }
 (function pjWire(){
@@ -10625,7 +10680,15 @@ function drawProjectsPage(){
   const addNote=()=>{ const p=pjCur(); if(!p) return; const text=$('pjNoteText').value.trim(); if(!text) return;
     (p.notes=p.notes||[]).push({id:pjId(), t:Date.now(), text, by:(S.sb&&S.sb.email)? String(S.sb.email).split('@')[0] : null}); $('pjNoteText').value=''; pjTouch(p); drawProjectsPage(); };
   $('pjNoteAdd').onclick=addNote; $('pjNoteText').addEventListener('keydown',e=>{ if(e.key==='Enter' && (e.metaKey||e.ctrlKey)){ e.preventDefault(); addNote(); } });
-  $('pjDelete').onclick=()=>{ const p=pjCur(); if(!p) return; if(!confirm('Delete "'+(p.title||'Untitled')+'" and all its notes? This cannot be undone.')) return;
+  $('pjFileAdd').onclick=()=>{ if(!pjCur()) return; $('pjFileIn').click(); };
+  $('pjFileIn').onchange=()=>{ const p=pjCur(); const fs=$('pjFileIn').files; if(p&&fs&&fs.length) pjUploadFiles(p, fs); $('pjFileIn').value=''; };
+  const card=$('pjDetail');
+  if(card){ ['dragenter','dragover'].forEach(ev=>card.addEventListener(ev,e=>{ if(!pjCur()) return; e.preventDefault(); card.classList.add('dragover'); }));
+    ['dragleave','drop'].forEach(ev=>card.addEventListener(ev,e=>{ card.classList.remove('dragover'); }));
+    card.addEventListener('drop',e=>{ const p=pjCur(); if(!p) return; e.preventDefault(); const fs=e.dataTransfer&&e.dataTransfer.files; if(fs&&fs.length) pjUploadFiles(p, fs); }); }
+  $('pjDelete').onclick=()=>{ const p=pjCur(); if(!p) return; if(!confirm('Delete "'+(p.title||'Untitled')+'" and all its notes and files? This cannot be undone.')) return;
+    const paths=(p.files||[]).map(f=>f.path).filter(Boolean);
+    if(paths.length){ pjStorage('object/'+PJ_BUCKET, {method:'DELETE', body:JSON.stringify({prefixes:paths}), headers:{'Content-Type':'application/json'}}).catch(()=>{}); }
     pjState().items=pjState().items.filter(x=>x.id!==p.id); pjSel=null; pjSave(); drawProjectsPage(); };
 })();
 /* ---------- phone tab bar + sidebar sheet (v15.93) — only visible under 620px ---------- */
