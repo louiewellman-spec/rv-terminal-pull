@@ -1613,7 +1613,7 @@ const SYNC_KEYS = new Set(['rv_weekly','rv_snapshots','rv_djoins','rv_posts','rv
 let syncMerging=false;
 function jset(k,v){
   if(IDB_KEYS[k]) idbWrite(k,v); else store.set(k, JSON.stringify(v));
-  if(SYNC_KEYS.has(k) && !syncMerging) scheduleSync();
+  if(SYNC_KEYS.has(k) && !syncMerging){ try{ _kvTouched.add(k); }catch(e){} scheduleSync(); }
 }
 
 /* ---------- state ---------- */
@@ -1833,7 +1833,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.14';
+const BUILD = 'v16.15';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10597,6 +10597,44 @@ function pjSave(){ jset('rv_projects', pjState()); }
    Deliberate deletions still work: they happen locally and are pushed. They just do not travel to
    another device on their own, which is the right way round — a stale tick is recoverable, a lost
    one is not. */
+/* v16.15: a device may only defend a store it actually owns. "Owned" = storage already held it when
+   this page/process booted, or a person has written it since. The headless runner boots with an empty
+   store, so its all-zero `manualAttr` default is NOT an opinion and must never beat the real counts —
+   that was a v16.14 regression this check removes. A fresh browser is in the same position.
+   Only these shapes are safe to union, and each says HOW: 'map' = object of records keyed by id,
+   'array' = append-only log with an explicit identity, 'owner' = no per-key merge, the owner wins
+   whole. Anything absent from this table keeps the old behaviour (the cloud copy wins). */
+const KV_MERGE={
+  rv_checkins:'map', rv_rewardchecks:'map', rv_abandoned:'map', rv_creditwhy:'map', rv_codetypes:'map',
+  rv_subcodes:'map', rv_handles:'map', rv_expcamp:'map', rv_emailsup:'map', rv_settings:'map',
+  rv_emaillog:'array', rv_sdlog:'array', rv_changes:'array', rv_snapshots:'array',
+  rv_manualattr:'owner', rv_weekly:'owner', rv_itusers:'owner', rv_djoins:'owner', rv_forecasts:'owner' };
+const KV_ROWKEY={
+  rv_emaillog:r=>String(r&&r.e||'').toLowerCase()+'|'+(r&&r.d)+'|'+(r&&r.c),
+  rv_sdlog:r=>String((r&&r.t)||'')+'|'+String((r&&r.cust)||(r&&r.id)||''),
+  rv_changes:r=>String((r&&r.id)!=null? r.id : JSON.stringify(r)),
+  rv_snapshots:r=>String(r&&r.d) };
+let _kvOwn=null, _kvTouched=new Set();
+function kvOwned(lsKey){
+  if(_kvOwn===null){ _kvOwn={};
+    try{ SYNC_KEYS.forEach(k=>{ _kvOwn[k]= store.get(k)!=null; }); }catch(e){ _kvOwn={}; } }
+  return !!_kvOwn[lsKey] || _kvTouched.has(lsKey);
+}
+/* one place decides what a pull does with a store a human owns */
+function kvApply(lsKey, local, remote){
+  const mode=KV_MERGE[lsKey];
+  if(!mode || !kvOwned(lsKey)) return remote;                 /* no opinion on this device — take the cloud */
+  if(mode==='owner') return local;                            /* counters and locks: the owner wins whole */
+  if(mode==='array'){
+    const key=KV_ROWKEY[lsKey]||(r=>JSON.stringify(r));
+    if(!Array.isArray(local)||!Array.isArray(remote)) return local||remote;
+    const m=new Map(); remote.forEach(r=>m.set(key(r), r)); local.forEach(r=>m.set(key(r), r));
+    const out=Array.from(m.values());
+    const t=r=>(r&&r.t!=null)? r.t : (r&&r.d!=null? Date.parse(r.d)||0 : 0);
+    return out.every(r=>t(r)) ? out.sort((x,y)=>t(x)-t(y)) : out;
+  }
+  return kvUnion(local, remote);                              /* 'map': add, never delete */
+}
 function kvUnion(a, b){
   if(a==null) return b; if(b==null) return a;
   if(Array.isArray(a) && Array.isArray(b)){
@@ -10615,12 +10653,18 @@ function kvUnion(a, b){
 function pjMerge(local, remote){
   const norm=v=>(v && typeof v==='object' && Array.isArray(v.items))? v : {items:[]};
   const a=norm(local), b=norm(remote), by={}, order=[];
+  /* v16.15: a deletion is recorded, so it travels. Without this a project deleted on one device came
+     straight back from the other one — while its uploaded files had already been removed for good. */
+  const gone=Object.assign({}, b.deleted||{}, a.deleted||{});
   const take=(list)=>list.forEach(it=>{ if(!it||!it.id) return;
     const prev=by[it.id];
     if(!prev){ by[it.id]=it; order.push(it.id); return; }
     by[it.id]=((it.updated||0) >= (prev.updated||0))? it : prev; });
   take(a.items); take(b.items);                       /* local first, so ties keep what is on screen */
-  const out={items:order.map(id=>by[id]).sort((x,y)=>(y.updated||y.created||0)-(x.updated||x.created||0))};
+  const out={items:order.map(id=>by[id])
+    .filter(it=>!(gone[it.id] && (it.updated||0) <= gone[it.id]))    /* deleted, and not edited since */
+    .sort((x,y)=>(y.updated||y.created||0)-(x.updated||x.created||0))};
+  if(Object.keys(gone).length) out.deleted=gone;
   const seeds=Object.assign({}, b.seeds||{}, a.seeds||{}); if(Object.keys(seeds).length) out.seeds=seeds;
   return out;
 }
@@ -10744,7 +10788,8 @@ function drawProjectsPage(){
   $('pjDelete').onclick=()=>{ const p=pjCur(); if(!p) return; if(!confirm('Delete "'+(p.title||'Untitled')+'" and all its notes and files? This cannot be undone.')) return;
     const paths=(p.files||[]).map(f=>f.path).filter(Boolean);
     if(paths.length){ pjStorage('object/'+PJ_BUCKET, {method:'DELETE', body:JSON.stringify({prefixes:paths}), headers:{'Content-Type':'application/json'}}).catch(()=>{}); }
-    pjState().items=pjState().items.filter(x=>x.id!==p.id); pjSel=null; pjSave(); drawProjectsPage(); };
+    const st=pjState(); st.deleted=st.deleted||{}; st.deleted[p.id]=Date.now();
+    st.items=st.items.filter(x=>x.id!==p.id); pjSel=null; pjSave(); drawProjectsPage(); };
 })();
 /* ---------- phone tab bar + sidebar sheet (v15.93) — only visible under 620px ---------- */
 const MTABS=[{v:'command',label:'Command',icon:'◉'},{v:'recovery',label:'Do today',icon:'✓'},{v:'revenue',label:'Money',icon:'£'},{v:'growth',label:'Growth',icon:'↗'},{more:true,label:'More',icon:'⋯'}];
@@ -11938,7 +11983,14 @@ function sbRowKey(table,row){ return (SB_CONFLICT[table]||'').split(',').filter(
 function sbBaseFrom(shaped){ const base={}; Object.keys(shaped).forEach(t=>{ const m=base[t]={}; shaped[t].forEach(r=>{ m[sbRowKey(t,r)]=JSON.stringify(r); }); }); return base; }
 function sbBaseReset(){ try{ _sbBase=sbBaseFrom(sbShape()); }catch(e){ _sbBase=null; } }
 function sbChangedRows(table, rows){
-  if(!_sbBase || !_sbBase[table]) return rows;                 /* never pulled this session: send everything */
+  if(!_sbBase || !_sbBase[table]){
+    /* v16.15: never pulled this session. Sending everything would let a process that booted with an
+       empty store (the headless runner, a fresh browser) write its defaults over real data, which is
+       exactly how the manual-attribution counters were zeroed. Only send what this device owns. */
+    if(table!=='rv_kv') return rows;
+    return rows.filter(r=>{ const lsKey=SB_LS[r.k]||('rv_'+String(r.k).toLowerCase());
+      return !SYNC_KEYS.has(lsKey) || kvOwned(lsKey); });
+  }
   const m=_sbBase[table]; return rows.filter(r=>m[sbRowKey(table,r)]!==JSON.stringify(r));
 }
 async function sbPush(){
@@ -12022,17 +12074,20 @@ async function sbPull(opts){
   if(inv.length){ S.invHist=S.invHist||{}; inv.forEach(r=>{ S.invHist[r.sub_id]=r.rows; }); jset('rv_invhist',S.invHist); }
   let syncLast=null, lastFetch=null;
   kv.forEach(r=>{ if(r.k==='stripe_sync_last'){ syncLast=r.v; return; } if(r.k==='lastFetch'){ lastFetch=r.v; return; }
-    if(r.k==='settings_shared' && r.v && typeof r.v==='object'){ S.settings=Object.assign({}, S.settings, r.v); jset('rv_settings', S.settings); return; }
+    if(r.k==='settings_shared' && r.v && typeof r.v==='object'){
+      /* v16.15: settings holds the VAT payment log, monthly costs and goals — a person's work.
+         Merge it the same way as everything else instead of letting the cloud overwrite it. */
+      const m=kvApply('rv_settings', S.settings, Object.assign({}, S.settings, r.v));
+      if(JSON.stringify(m)!==JSON.stringify(r.v)) _kvMerged.push(r.k);
+      S.settings=m; jset('rv_settings', S.settings); return; }
     if(SB_KV_SKIP.has(r.k) || r.v==null || r.k[0]==='_') return;
     if(r.k==='projects'){ const m=pjMerge(S.projects, r.v);
       if(JSON.stringify(m)!==JSON.stringify(r.v)) _kvMerged.push(r.k);
       S.projects=m; jset('rv_projects', S.projects); return; }
     const lsKey=SB_LS[r.k]||('rv_'+r.k.toLowerCase());
-    if(SYNC_KEYS.has(lsKey)){                                  /* v16.14: a human owns it — add, never delete */
-      const m=kvUnion(S[r.k], r.v);
-      if(JSON.stringify(m)!==JSON.stringify(r.v)) _kvMerged.push(r.k);
-      S[r.k]=m;
-    } else S[r.k]=r.v;                                         /* derived by the runner — it is the authority */
+    const m=kvApply(lsKey, S[r.k], r.v);                        /* v16.15: the table decides; default is cloud-wins */
+    if(m!==r.v && JSON.stringify(m)!==JSON.stringify(r.v)) _kvMerged.push(r.k);
+    S[r.k]=m;
     jset(lsKey, S[r.k]); });
   if(syncLast&&syncLast.t&&(!S.lastFetch||syncLast.t>(S.lastFetch.t||0))){ S.lastFetch={t:syncLast.t, build:BUILD, nightly:true}; jset('rv_lastfetch',S.lastFetch); }
   else if(lastFetch&&(!S.lastFetch||(lastFetch.t||0)>(S.lastFetch.t||0))){ S.lastFetch=lastFetch; jset('rv_lastfetch',S.lastFetch); }
