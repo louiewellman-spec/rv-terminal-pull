@@ -1833,7 +1833,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.13';
+const BUILD = 'v16.14';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10589,6 +10589,29 @@ function pjSave(){ jset('rv_projects', pjState()); }
    (v16.07-v16.12 shipped a boot-time seed that wrote a one-item list on any device whose local
    copy had not loaded yet, and that list then synced over the real one. The seed is gone and this
    merge makes the whole class of loss impossible.) */
+/* v16.14: ONE rule for everything a person types or ticks, instead of a different answer per key.
+   SYNC_KEYS is the list of stores a HUMAN owns. On a pull those are UNIONED with the cloud copy, so
+   a pull can only ever add — it can never delete a tick, a reason, a stamp or a logged send. Stores
+   the runner derives from Stripe or Discord (cash, promos, disputes, past-due, bot links…) are not
+   in SYNC_KEYS and still take the cloud copy, because there the runner is the authority.
+   Deliberate deletions still work: they happen locally and are pushed. They just do not travel to
+   another device on their own, which is the right way round — a stale tick is recoverable, a lost
+   one is not. */
+function kvUnion(a, b){
+  if(a==null) return b; if(b==null) return a;
+  if(Array.isArray(a) && Array.isArray(b)){
+    const key=x=>(x && typeof x==='object')? (x.id!=null? 'id:'+x.id : JSON.stringify(x)) : JSON.stringify(x);
+    const m=new Map(); b.forEach(x=>m.set(key(x), x)); a.forEach(x=>m.set(key(x), x));   /* local wins on a clash */
+    return Array.from(m.values());
+  }
+  const plain=v=>v && typeof v==='object' && !Array.isArray(v);
+  if(plain(a) && plain(b)){
+    const out=Object.assign({}, b);
+    Object.keys(a).forEach(k=>{ out[k]=(k in b)? kvUnion(a[k], b[k]) : a[k]; });
+    return out;
+  }
+  return a;                                   /* a plain value: the device in front of the person wins */
+}
 function pjMerge(local, remote){
   const norm=v=>(v && typeof v==='object' && Array.isArray(v.items))? v : {items:[]};
   const a=norm(local), b=norm(remote), by={}, order=[];
@@ -11990,7 +12013,7 @@ async function sbPull(opts){
   if(fcs.length){ S.forecasts=S.forecasts||{}; fcs.forEach(r=>{ S.forecasts[r.mk]=r.data; }); jset('rv_forecasts',S.forecasts); }
   /* v16.12: merge, never replace — and remember which rows the merge changed, so the union
      travels back to the cloud instead of sitting only on this device (see sbBaseReset below). */
-  const _rcMerged=[];
+  const _rcMerged=[], _kvMerged=[];
   if(rec.length){ const rc=rcState();
     rec.forEach(r=>{ const merged=rcMergeCase(rc.cases[r.cust], r.data);
       if(!rcSameCase(merged, r.data)) _rcMerged.push(r.cust);
@@ -12001,8 +12024,16 @@ async function sbPull(opts){
   kv.forEach(r=>{ if(r.k==='stripe_sync_last'){ syncLast=r.v; return; } if(r.k==='lastFetch'){ lastFetch=r.v; return; }
     if(r.k==='settings_shared' && r.v && typeof r.v==='object'){ S.settings=Object.assign({}, S.settings, r.v); jset('rv_settings', S.settings); return; }
     if(SB_KV_SKIP.has(r.k) || r.v==null || r.k[0]==='_') return;
-    if(r.k==='projects'){ S.projects=pjMerge(S.projects, r.v); jset('rv_projects', S.projects); return; }   /* v16.13: add, never delete */
-    S[r.k]=r.v; jset(SB_LS[r.k]||('rv_'+r.k.toLowerCase()), r.v); });
+    if(r.k==='projects'){ const m=pjMerge(S.projects, r.v);
+      if(JSON.stringify(m)!==JSON.stringify(r.v)) _kvMerged.push(r.k);
+      S.projects=m; jset('rv_projects', S.projects); return; }
+    const lsKey=SB_LS[r.k]||('rv_'+r.k.toLowerCase());
+    if(SYNC_KEYS.has(lsKey)){                                  /* v16.14: a human owns it — add, never delete */
+      const m=kvUnion(S[r.k], r.v);
+      if(JSON.stringify(m)!==JSON.stringify(r.v)) _kvMerged.push(r.k);
+      S[r.k]=m;
+    } else S[r.k]=r.v;                                         /* derived by the runner — it is the authority */
+    jset(lsKey, S[r.k]); });
   if(syncLast&&syncLast.t&&(!S.lastFetch||syncLast.t>(S.lastFetch.t||0))){ S.lastFetch={t:syncLast.t, build:BUILD, nightly:true}; jset('rv_lastfetch',S.lastFetch); }
   else if(lastFetch&&(!S.lastFetch||(lastFetch.t||0)>(S.lastFetch.t||0))){ S.lastFetch=lastFetch; jset('rv_lastfetch',S.lastFetch); }
   const supObj={bounced:{},stopped:{},control:{}}; sup.forEach(r=>{ if(supObj[r.reason]) supObj[r.reason][r.email]=r.detail||''; });
@@ -12012,8 +12043,10 @@ async function sbPull(opts){
   /* except the cases the merge above enriched: drop them from the baseline so the next push
      carries the union up. Without this the other device keeps its stale copy and clobbers again. */
   if(_rcMerged.length && _sbBase && _sbBase.rv_recovery_cases){
-    _rcMerged.forEach(k=>{ delete _sbBase.rv_recovery_cases[k]; });
-    try{ scheduleSync(); }catch(e){} }
+    _rcMerged.forEach(k=>{ delete _sbBase.rv_recovery_cases[k]; }); }
+  if(_kvMerged.length && _sbBase && _sbBase.rv_kv){
+    _kvMerged.forEach(k=>{ delete _sbBase.rv_kv[k]; }); }
+  if(_rcMerged.length || _kvMerged.length){ try{ scheduleSync(); }catch(e){} }
   renderAll();                                     /* renderAll() recomputes; a separate compute() here doubled the freeze */
   st('pulled '+n.subs.toLocaleString()+' subs · '+n.sessions.toLocaleString()+' sessions');
   return n;
