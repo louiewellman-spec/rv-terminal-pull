@@ -1605,7 +1605,11 @@ function jget(k,d){ const v=store.get(k); if(v==null) return d; try{ return JSON
 /* v15.82: rv_settings is here so goals, costs, VAT, trial periods and business settings typed in a
    browser are pushed within seconds — before v15.82 they sat local-only and the next auto-pull
    put the cloud's older copy back over them. */
-const SYNC_KEYS = new Set(['rv_weekly','rv_snapshots','rv_djoins','rv_posts','rv_ads','rv_campaigns','rv_manualattr','rv_handles','rv_forecasts','rv_mrrevents','rv_recovery','rv_changes','rv_settings','rv_projects','rv_rewardchecks']);
+/* v16.11: EVERY key a person can change by hand is here, so a tick, a "sent", a reason or an upload
+   reaches the cloud within seconds without the code path having to remember scheduleSync(). Keys the
+   runner derives from Stripe (subs, cash, invoices…) are pushed by the runner's own sbPush at the end
+   of each run and stay out of this list on purpose. */
+const SYNC_KEYS = new Set(['rv_weekly','rv_snapshots','rv_djoins','rv_posts','rv_ads','rv_campaigns','rv_manualattr','rv_handles','rv_forecasts','rv_mrrevents','rv_recovery','rv_changes','rv_settings','rv_projects','rv_rewardchecks','rv_checkins','rv_abandoned','rv_creditwhy','rv_codetypes','rv_emaillog','rv_emailsup','rv_expcamp','rv_sdlog','rv_subcodes','rv_itusers']);
 let syncMerging=false;
 function jset(k,v){
   if(IDB_KEYS[k]) idbWrite(k,v); else store.set(k, JSON.stringify(v));
@@ -1829,7 +1833,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.10';
+const BUILD = 'v16.11';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -8781,7 +8785,7 @@ function drawCheckins(){
       +'<td><button class="btn ghost sm" data-cidone="'+esc(r.id).replace(/"/g,'&quot;')+'">checked in</button></td></tr>'; }).join('');
   tb.querySelectorAll('[data-cidone]').forEach(b=>{ b.onclick=()=>{
     if(!S.checkins) S.checkins={};
-    S.checkins[b.getAttribute('data-cidone')]={done:Date.now()};
+    S.checkins[b.getAttribute('data-cidone')]={done:Date.now(), by:(S.sb&&S.sb.email)? String(S.sb.email).split('@')[0] : null};
     jset('rv_checkins',S.checkins); drawCheckins(); scheduleSync(); }; });
 }
 function drawUpgrades(){
