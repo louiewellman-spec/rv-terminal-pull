@@ -1821,7 +1821,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.06';
+const BUILD = 'v16.07';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3103,19 +3103,27 @@ function compute(){
        creation (not trial-end) keeps trial members honest, and using the nearest one
        (not the first ever) keeps re-subscribers in. a link with no checkout within
        3 days of it is an anomaly (relink / manual fix / wrong person) and is excluded */
-    const hSubs={}, hCust={};
+    const hSubs={}, hCust={}, emSubs={}, emCust={};
     Object.keys(cmap).forEach(k=>{ const list=cmap[k];
+      const live=list.some(x=>x.status==='active'||x.status==='past_due');
+      const created=list.map(x=>x.created).filter(isFinite);
       const hx=list.find(x=>isHandle(x));
-      if(!hx) return;
-      const h=String(nameOf(hx)).toLowerCase();
-      if(!hCust[h] || list.some(x=>x.status==='active'||x.status==='past_due')) hCust[h]=k;
-      (hSubs[h]=hSubs[h]||[]).push.apply(hSubs[h], list.map(x=>x.created).filter(isFinite));
+      if(hx){ const h=String(nameOf(hx)).toLowerCase();          /* a username, or the Discord id when the checkout captured the id */
+        if(!hCust[h] || live) hCust[h]=k;
+        (hSubs[h]=hSubs[h]||[]).push.apply(hSubs[h], created); }
+      /* v16.07: the checkout email is the third key — members with only a billing name still match */
+      list.map(x=>String(x.cemail||'').trim().toLowerCase()).filter(e=>/^[^@\s]+@[^@\s]+$/.test(e)).forEach(e=>{
+        if(!emCust[e] || live) emCust[e]=k;
+        (emSubs[e]=emSubs[e]||[]).push.apply(emSubs[e], created); });
     });
+    /* which Stripe customer a bot link belongs to: username → Discord id → checkout email */
+    const linkCust=a=>hCust[a[2]] || (a[1]&&hCust[a[1]]) || (a[7]&&emCust[a[7]]) || null;
+    const linkSubs=a=>hSubs[a[2]] || (a[1]&&hSubs[a[1]]) || (a[7]&&emSubs[a[7]]) || null;
     const rows=[]; let anomalies=0, anchoredN=0;
     bl.forEach(a=>{ const lt=Date.parse(a[0]+(String(a[0]).endsWith('Z')?'':'Z'));
       if(!isFinite(lt)) return;
       let paidT=lt;
-      const cs=hSubs[a[2]];
+      const cs=linkSubs(a);
       if(cs && cs.length){
         let best=null; cs.forEach(c=>{ if(best==null || Math.abs(c-lt)<Math.abs(best-lt)) best=c; });
         if(Math.abs(best-lt)>72*3600000){ anomalies++; return; }
@@ -3131,7 +3139,7 @@ function compute(){
           if(prior.length) joinT=prior[prior.length-1]*1000; } }
       if(joinT==null) return;
       if(anch) anchoredN++;
-      rows.push({u:a[2], tier:a[3]==='e'?'elite':'pro', lagH:Math.max(0,(paidT-joinT)/3600000),
+      rows.push({u:a[2], ck:linkCust(a), tier:a[3]==='e'?'elite':'pro', lagH:Math.max(0,(paidT-joinT)/3600000),
         joinT, paidT, inv:a[5]||null});
     });
     if(!rows.length) return {n:0, linksN:bl.length, itN:Object.keys(iu).length, anomalies};
@@ -3139,7 +3147,7 @@ function compute(){
     const pctIn=h=>Math.round(lags.filter(x=>x<=h).length/lags.length*100);
     const hourly=[]; for(let h=0;h<24;h++) hourly.push(rows.filter(r=>r.lagH>=h && r.lagH<h+1).length);
     const byU={}; rows.forEach(r=>{ byU[r.u]=r; });
-    const byCust={}; rows.forEach(r=>{ const ck=hCust[r.u]; if(ck) byCust[ck]=r; });   /* last link wins — same winner as byU */
+    const byCust={}; rows.forEach(r=>{ if(r.ck) byCust[r.ck]=r; });   /* last link wins — same winner as byU */
     /* the tail in equal daily buckets, days 2–14 */
     const daily=[]; for(let d2=1; d2<14; d2++) daily.push(rows.filter(r=>r.lagH>=d2*24 && r.lagH<(d2+1)*24).length);
     /* is the funnel getting faster: fast-conversion share per JOIN month — the funnel
@@ -10533,6 +10541,25 @@ function pjId(){ return 'p'+Date.now().toString(36)+Math.random().toString(36).s
 function pjCur(){ return pjState().items.find(x=>x.id===pjSel)||null; }
 const PJ_STATUS={idea:'Idea',planned:'Planned',active:'In progress',done:'Done',parked:'Parked'};
 function pjTouch(p){ p.updated=Date.now(); pjSave(); }
+/* v16.07: projects the terminal itself hands over. Seeded once per key; deleting one never re-seeds it. */
+function pjSeed(){
+  try{
+    const st=pjState(); st.seeds=st.seeds||{};
+    const key='exit-survey-2026-09';
+    if(st.seeds[key]) return;
+    const day=n=>{ const d=new Date(Date.now()+n*D); return d.toISOString().slice(0,10); };
+    st.items.unshift({id:pjId(), title:'Exit survey page on resellvault.co.uk', status:'planned', owner:'Tom', priority:1, due:day(7), area:'Retention',
+      summary:'One email to members whose payment failed or whose subscription is ending after a cancellation, linking to a one minute exit survey at resellvault.co.uk/feedback. The page and the Supabase table are already written (resell-vault/rv-exit-survey: TOM-BRIEF.md, site/index.html, schema.sql). Research only: nothing on the page may obstruct cancelling or read as a save attempt (DMCC). Question wording must not change.',
+      timeline:[
+        {id:pjId(), d:day(2), text:'Add site/index.html to the resellvault.co.uk project so it serves at /feedback (Next.js: public/feedback/index.html). Do not change any wording.', done:false},
+        {id:pjId(), d:day(2), text:'Run schema.sql once in the terminal project Supabase SQL editor (creates rv_exit_survey with anon insert only, signed-in read).', done:false},
+        {id:pjId(), d:day(3), text:'Confirm https://resellvault.co.uk/feedback loads on a phone and a test submit lands in rv_exit_survey.', done:false},
+        {id:pjId(), d:day(5), text:'Tell Louie the URL is live. The terminal then gets Retention › Exit survey, the CSV export, the link generator and the bridge fields.', done:false}],
+      notes:[{id:pjId(), t:Date.now(), text:'Link format for the email: https://resellvault.co.uk/feedback?m=<token>&g=pc (pending cancel) or &g=pd (failed payment). The terminal generates the tokenised links once the page is live.', by:'terminal'}],
+      created:Date.now(), updated:Date.now()});
+    st.seeds[key]=Date.now(); pjSave();
+  }catch(e){}
+}
 function drawProjectsPage(){
   const st=pjState(), items=st.items, now=Date.now(), today=dayKey(now);
   const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
@@ -10614,6 +10641,7 @@ function mtabsPaint(v){
   const more=bar.querySelector('button[data-more]'); if(more) more.classList.toggle('on', !hit);
 }
 try{ mtabsBuild(); }catch(e){}
+try{ pjSeed(); }catch(e){}
 /* ---------- nav ---------- */
 const titles={ rewards:'Success rewards', emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', affiliates:'Affiliates', projects:'Projects', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', goals:'Goals', settings:'Account'};
 function enhanceInteractive(root){
@@ -12086,7 +12114,7 @@ function blNormalize(rec){
   if(!rec || !Array.isArray(rec.links)) return null;
   const inv=rec.inv||[];
   const links=rec.links.map(a=> Array.isArray(a) && typeof a[0]==='number'
-    ? [new Date(a[0]*60000).toISOString().slice(0,19), String(a[5]||''), a[1], a[2]||'', a[3]||0, (a[4]>=0 && inv[a[4]])||'', (a[6]===1? 1 : a[6]===0? 0 : -1)]
+    ? [new Date(a[0]*60000).toISOString().slice(0,19), String(a[5]||''), a[1], a[2]||'', a[3]||0, (a[4]>=0 && inv[a[4]])||'', (a[6]===1? 1 : a[6]===0? 0 : -1), String(a[7]||'').toLowerCase()]
     : a);
   const staff=Array.isArray(rec.staff)? rec.staff : [];
   /* v16.04 success rewards: [tMin, id, rewarded, tag, via, ack, applied, staffIdx, amtPence] */
