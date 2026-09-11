@@ -1833,7 +1833,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.11';
+const BUILD = 'v16.12';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -8914,6 +8914,39 @@ function drawExpansionPage(){
 /* ---------- failed-payment recovery ---------- */
 function rcState(){ if(!S.recovery||typeof S.recovery!=='object') S.recovery={cases:{},log:[]};
   S.recovery.cases=S.recovery.cases||{}; S.recovery.log=S.recovery.log||[]; return S.recovery; }
+/* v16.12: ONE rule for bringing a cloud recovery case in, used by BOTH sync paths.
+   A DM mark is an EVENT, never a field: the arrays are unioned and can only ever grow, so a
+   pull can never erase a tick you just made. Stripe-derived fields (stage, next retry, name,
+   price) take the cloud copy because the runner is the one refreshing them; the human marks
+   (dms, offers, res) stay. Before this, sbPull did `cases[k]=remote` — a pull landing between
+   a tick and its 6-second push wiped the tick, which is why marks kept resetting. */
+function rcMergeCase(a, b){
+  if(!a) return b; if(!b) return a;
+  const uni=(x,y)=>[...new Set([...(x||[]), ...(y||[])].filter(v=>typeof v==='number'))].sort((m,n)=>m-n);
+  const out=Object.assign({}, a, b);                       /* cloud wins for the Stripe-derived fields */
+  out.dms=uni(a.dms, b.dms); out.offers=uni(a.offers, b.offers);
+  out.res=a.res||b.res||undefined; if(out.res===undefined) delete out.res;
+  out.opened=Math.min(a.opened||Infinity, b.opened||Infinity); if(!isFinite(out.opened)) out.opened=a.opened||b.opened;
+  if(a.mrr0!=null) out.mrr0=a.mrr0; if(a.disc0!=null) out.disc0=a.disc0;
+  return out;
+}
+/* v16.12: a tick is saved to the cloud THE MOMENT it is made, and says so. The 6-second debounce
+   stays as the fallback, but a mark no longer sits on one device waiting for a timer while a pull
+   is in flight. Not signed in (or bin mode): saved locally and carried by the next sync. */
+function rcFlush(what){
+  status(what+' · saving…');
+  try{ if(typeof sbReady!=='function' || !sbReady()){ scheduleSync(); status(what+' · saved on this device','ok'); return; } }
+  catch(e){ scheduleSync(); status(what+' · saved on this device','ok'); return; }
+  try{ clearTimeout(_sbEditTimer); }catch(e){}
+  sbPush().then(()=>{ status(what+' · saved to the database','ok'); })
+    .catch(e=>{ scheduleSync(); status(what+' · saved here, cloud save retrying ('+(e&&e.message||e)+')','err'); });
+}
+function rcSameCase(a, b){ try{ return JSON.stringify(a)===JSON.stringify(b); }catch(e){ return false; } }
+/* how many times this member was DMed in an earlier saga — so a reopened case never looks untouched */
+function rcPriorDms(cust){ let n=0, last=0;
+  (((S.recovery||{}).log)||[]).forEach(l=>{ if(l.cust!==cust) return; const d=(l.dms||[]).length; n+=d;
+    (l.dms||[]).forEach(t=>{ if(t>last) last=t; }); });
+  return {n, last}; }
 function rcMaintain(m){
   /* keep the case ledger in sync with reality: open a case for every live failure,
      close it (recovered/lost) the moment the data says it is over. DM marks survive
@@ -9011,7 +9044,9 @@ function drawRecoveryPage(){
       const nd=(c.dms||[]).length, no=(c.offers||[]).length;
       const dmTxt = (nd||no)? [nd? nd+' DM'+(nd===1?'':'s'):null, no? no+' offer'+(no===1?'':'s'):null].filter(Boolean).join(' · ')
           +' · last '+ago(lastTouch(c))+(fuDue(c)? ' <span class="pill mid" style="font-size:9px">follow-up due</span>':'')
-        : '<span style="color:var(--dim)">none yet</span>';
+        : (function(){ const pr=rcPriorDms(c.cust);      /* v16.12: a reopened case shows the earlier saga, so it never reads as untouched */
+            return pr.n? '<span class="sn">none this time · '+pr.n+' DM'+(pr.n===1?'':'s')+' before'+(pr.last? ', last '+ago(pr.last):'')+'</span>'
+              : '<span style="color:var(--dim)">none yet</span>'; })();
       const nm = (c.name? esc(c.name)+(c.bn?' <span class="pill" style="background:color-mix(in srgb,var(--muted) 12%,transparent);color:var(--dim);font-size:10px">name</span>':'') : '—')
         +(c.aff? ' <span class="pill" style="background:color-mix(in srgb,var(--violet) 14%,transparent);color:var(--violet);font-size:10px" title="acquired through this code — an affiliate/welcome-code member failing payment">via '+esc(c.aff)+'</span>':'');
       return '<tr><td>'+(c.invUrl
@@ -9039,12 +9074,12 @@ function drawRecoveryPage(){
     tb.querySelectorAll('[data-copy]').forEach(td=> td.onclick=()=>{ const v=td.getAttribute('data-copy'); if(v) navigator.clipboard.writeText(v).then(()=>status('Copied: '+v,'ok')); });
     tb.querySelectorAll('[data-rcdm]').forEach(b=> b.onclick=e=>{ e.stopPropagation();
       const c=rcState().cases[b.dataset.rcdm]; if(!c) return; (c.dms=c.dms||[]).push(Date.now());
-      jset('rv_recovery',S.recovery); status('DM logged.','ok'); drawRecoveryPage(); });
+      jset('rv_recovery',S.recovery); rcFlush('DM logged'); drawRecoveryPage(); });
     tb.querySelectorAll('[data-rcres]').forEach(b=> b.onclick=e=>{ e.stopPropagation();
       const c=rcState().cases[b.dataset.cust]; if(!c) return;
       c.res=b.dataset.rcres;
       if(c.res==='offer') (c.offers=c.offers||[]).push(Date.now());
-      jset('rv_recovery',S.recovery); status('Marked: '+c.res+'.','ok'); drawRecoveryPage(); });
+      jset('rv_recovery',S.recovery); rcFlush('Marked: '+c.res); drawRecoveryPage(); });
     tb.querySelectorAll('[data-rcresx]').forEach(b=> b.onclick=e=>{ e.stopPropagation();
       const c=rcState().cases[b.dataset.rcresx]; if(!c) return; delete c.res;
       jset('rv_recovery',S.recovery); drawRecoveryPage(); });
@@ -9053,7 +9088,7 @@ function drawRecoveryPage(){
       const ld=(c.dms||[])[(c.dms||[]).length-1]||0, lo=(c.offers||[])[(c.offers||[]).length-1]||0;
       if(!ld && !lo) return;
       if(lo>ld) c.offers.pop(); else c.dms.pop();
-      jset('rv_recovery',S.recovery); drawRecoveryPage(); });
+      jset('rv_recovery',S.recovery); rcFlush('Mark removed'); drawRecoveryPage(); });
   }
   /* closed cases table */
   const lh=document.querySelector('#rcLogTable thead'), lb=document.querySelector('#rcLogTable tbody');
@@ -11961,7 +11996,14 @@ async function sbPull(opts){
   if(sess.length){ S.sessions=sess.map(r=>r.data); jset('rv_sessions',S.sessions); }
   if(snaps.length){ S.snapshots=snaps.map(r=>r.data).sort((a,b)=>a.d<b.d?-1:1); jset('rv_snapshots',S.snapshots); }
   if(fcs.length){ S.forecasts=S.forecasts||{}; fcs.forEach(r=>{ S.forecasts[r.mk]=r.data; }); jset('rv_forecasts',S.forecasts); }
-  if(rec.length){ const rc=rcState(); rec.forEach(r=>{ rc.cases[r.cust]=r.data; }); jset('rv_recovery',S.recovery); }
+  /* v16.12: merge, never replace — and remember which rows the merge changed, so the union
+     travels back to the cloud instead of sitting only on this device (see sbBaseReset below). */
+  const _rcMerged=[];
+  if(rec.length){ const rc=rcState();
+    rec.forEach(r=>{ const merged=rcMergeCase(rc.cases[r.cust], r.data);
+      if(!rcSameCase(merged, r.data)) _rcMerged.push(r.cust);
+      rc.cases[r.cust]=merged; });
+    jset('rv_recovery',S.recovery); }
   if(inv.length){ S.invHist=S.invHist||{}; inv.forEach(r=>{ S.invHist[r.sub_id]=r.rows; }); jset('rv_invhist',S.invHist); }
   let syncLast=null, lastFetch=null;
   kv.forEach(r=>{ if(r.k==='stripe_sync_last'){ syncLast=r.v; return; } if(r.k==='lastFetch'){ lastFetch=r.v; return; }
@@ -11973,6 +12015,11 @@ async function sbPull(opts){
   mergeSync({emailLog:log.map(r=>({e:r.email, d:r.sent_on, c:r.campaign, t:r.kind})), emailSup:supObj});
   S._sbNightly=syncLast||null; window._wbCache=null; window._emSentMap=null;
   sbBaseReset();                                   /* v15.81: everything we hold now matches the cloud */
+  /* except the cases the merge above enriched: drop them from the baseline so the next push
+     carries the union up. Without this the other device keeps its stale copy and clobbers again. */
+  if(_rcMerged.length && _sbBase && _sbBase.rv_recovery_cases){
+    _rcMerged.forEach(k=>{ delete _sbBase.rv_recovery_cases[k]; });
+    try{ scheduleSync(); }catch(e){} }
   renderAll();                                     /* renderAll() recomputes; a separate compute() here doubled the freeze */
   st('pulled '+n.subs.toLocaleString()+' subs · '+n.sessions.toLocaleString()+' sessions');
   return n;
@@ -12264,12 +12311,7 @@ function mergeSync(rm){
   if(Array.isArray(rm.mrrEvents)){ const em={}; rm.mrrEvents.forEach(e=>{ if(e&&e.id) em[e.t+'|'+e.id]=e; }); (S.mrrEvents||[]).forEach(e=>{ if(e&&e.id) em[e.t+'|'+e.id]=e; });
     S.mrrEvents=Object.values(em).sort((a,b)=>a.t-b.t); jset('rv_mrrevents',S.mrrEvents); }
   if(rm.recovery && (rm.recovery.cases||rm.recovery.log)){ const rc=rcState();
-    Object.keys(rm.recovery.cases||{}).forEach(k=>{ const a=rc.cases[k], b=rm.recovery.cases[k];
-      if(!a){ rc.cases[k]=b; return; }
-      /* union the DM + offer logs, keep the earliest open date */
-      const dms=[...new Set([...(a.dms||[]), ...(b.dms||[])])].sort((x,y)=>x-y);
-      const offers=[...new Set([...(a.offers||[]), ...(b.offers||[])])].sort((x,y)=>x-y);
-      rc.cases[k]=Object.assign({}, b, a, {dms, offers, opened:Math.min(a.opened||Infinity, b.opened||Infinity)}); });
+    Object.keys(rm.recovery.cases||{}).forEach(k=>{ rc.cases[k]=rcMergeCase(rc.cases[k], rm.recovery.cases[k]); });
     (rm.recovery.log||[]).forEach(l=>{ if(!rc.log.some(x=>x.cust===l.cust && x.opened===l.opened)) rc.log.push(l); });
     rc.log.sort((a,b)=>(a.closed||0)-(b.closed||0)); if(rc.log.length>500) rc.log=rc.log.slice(-500);
     jset('rv_recovery', S.recovery); }
