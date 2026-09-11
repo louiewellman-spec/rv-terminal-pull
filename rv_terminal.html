@@ -1821,7 +1821,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.07';
+const BUILD = 'v16.08';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10545,20 +10545,26 @@ function pjTouch(p){ p.updated=Date.now(); pjSave(); }
 function pjSeed(){
   try{
     const st=pjState(); st.seeds=st.seeds||{};
-    const key='exit-survey-2026-09';
+    const key='exit-survey-2026-09-v2';
     if(st.seeds[key]) return;
     const day=n=>{ const d=new Date(Date.now()+n*D); return d.toISOString().slice(0,10); };
-    st.items.unshift({id:pjId(), title:'Exit survey page on resellvault.co.uk', status:'planned', owner:'Tom', priority:1, due:day(7), area:'Retention',
-      summary:'One email to members whose payment failed or whose subscription is ending after a cancellation, linking to a one minute exit survey at resellvault.co.uk/feedback. The page and the Supabase table are already written (resell-vault/rv-exit-survey: TOM-BRIEF.md, site/index.html, schema.sql). Research only: nothing on the page may obstruct cancelling or read as a save attempt (DMCC). Question wording must not change.',
+    const title='Exit survey form on resellvault.co.uk';
+    /* v16.08: the simple version (Louie: a basic form we can see results from, CSV into the terminal).
+       Replaces the v16.07 card if it is still untouched, otherwise adds alongside it. */
+    const old=st.items.find(x=>x.title==='Exit survey page on resellvault.co.uk' && !(x.notes||[]).some(n=>n.by!=='terminal') && !(x.timeline||[]).some(t=>t.done));
+    const card={id:old? old.id : pjId(), title, status:'planned', owner:'Tom', priority:1, due:day(7), area:'Retention',
+      summary:'A basic form at resellvault.co.uk/feedback (the site\'s own form block, Tally, Typeform or Jotform) with the six fixed questions and an optional "email you signed up with" field. Responses export as CSV and get dropped into the terminal on Retention › Exit survey, which matches them to members by email and shows reasons by month and tier plus the free text. Research only: nothing on the page may get in the way of cancelling or read as a save attempt. Brief with the exact questions: resell-vault/rv-exit-survey/TOM-BRIEF.md.',
       timeline:[
-        {id:pjId(), d:day(2), text:'Add site/index.html to the resellvault.co.uk project so it serves at /feedback (Next.js: public/feedback/index.html). Do not change any wording.', done:false},
-        {id:pjId(), d:day(2), text:'Run schema.sql once in the terminal project Supabase SQL editor (creates rv_exit_survey with anon insert only, signed-in read).', done:false},
-        {id:pjId(), d:day(3), text:'Confirm https://resellvault.co.uk/feedback loads on a phone and a test submit lands in rv_exit_survey.', done:false},
-        {id:pjId(), d:day(5), text:'Tell Louie the URL is live. The terminal then gets Retention › Exit survey, the CSV export, the link generator and the bridge fields.', done:false}],
-      notes:[{id:pjId(), t:Date.now(), text:'Link format for the email: https://resellvault.co.uk/feedback?m=<token>&g=pc (pending cancel) or &g=pd (failed payment). The terminal generates the tokenised links once the page is live.', by:'terminal'}],
-      created:Date.now(), updated:Date.now()});
+        {id:pjId(), d:day(2), text:'Build the form at resellvault.co.uk/feedback with the six questions exactly as written in TOM-BRIEF.md, plus the optional email field last.', done:false},
+        {id:pjId(), d:day(2), text:'Thank you text: "Read by Louie and Tom. If something is broken and you want it fixed, reply to the email you got." Privacy line under the form.', done:false},
+        {id:pjId(), d:day(3), text:'Check responses export as CSV, do one test submit on a phone, send Louie the live link.', done:false},
+        {id:pjId(), d:day(7), text:'Weekly: export the CSV and drop it into the terminal (Retention › Exit survey).', done:false}],
+      notes:[{id:pjId(), t:Date.now(), text:'Email link: https://resellvault.co.uk/feedback (add ?group=pc for pending cancel or ?group=pd for failed payment if the form tool supports a hidden field). The terminal side (CSV upload + results view) gets built once the form is live.', by:'terminal'}],
+      created:old? old.created : Date.now(), updated:Date.now()};
+    if(old){ Object.assign(old, card); } else { st.items.unshift(card); }
     st.seeds[key]=Date.now(); pjSave();
   }catch(e){}
+}
 }
 function drawProjectsPage(){
   const st=pjState(), items=st.items, now=Date.now(), today=dayKey(now);
