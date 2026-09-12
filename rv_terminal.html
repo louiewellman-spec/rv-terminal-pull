@@ -1051,7 +1051,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
     <div class="row" style="margin-top:14px;gap:8px;align-items:center;flex-wrap:wrap">
       <button class="btn" id="pjNew">New project</button>
       <input id="pjSearch" placeholder="search projects…" style="width:220px">
-      <div class="tfbtns" id="pjOwner" style="margin:0" title="whose projects to show"><button data-o="all" class="on">everyone</button><button data-o="Louie">Louie</button><button data-o="Tom">Tom</button></div>
+      <div class="tfbtns" id="pjOwnerF" style="margin:0" title="whose projects to show"><button data-o="all" class="on">everyone</button><button data-o="Louie">Louie</button><button data-o="Tom">Tom</button></div>
       <div class="tfbtns" id="pjFilter" style="margin:0"><button data-s="open" class="on">open</button><button data-s="active">in progress</button><button data-s="planned">planned</button><button data-s="idea">ideas</button><button data-s="done">done</button><button data-s="parked">parked</button><button data-s="all">all</button></div>
     </div>
     <div class="grid" style="grid-template-columns:minmax(0,2fr) minmax(0,3fr);margin-top:12px" id="pjGrid">
@@ -1396,7 +1396,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
     </div>
     <div class="sec">Early retention by join month <span class="tag">D7 / D30 / D60 · the trial-test instrument</span></div>
     <div class="card"><div class="chartbox tall"><canvas id="chDayCoh"></canvas></div>
-      <div class="sn" style="margin-top:8px">% of each month's joiners still paying 7 / 30 / 60 days after their paid start (trial days don't count). Hover a bar for the <b>committed</b> layer — the same % with members who currently have a cancel booked taken out (they look retained but are guaranteed losses), plus the raw "N have a cancel booked" count. This is the chart that says whether the free-trial test and onboarding changes are actually working — month-grain cohorts are too coarse to see it.</div></div>
+      <div class="sn" style="margin-top:8px">The bars are <b>committed</b>: the share of each month's joiners who had <b>actually bought that far</b>. D7 is simply still paying a week in, but <b>D30 means they paid the renewal invoice and D60 means they paid two</b> — reaching day 30 on the books is not the same as buying month two, and a failed renewal sits in dunning looking retained for weeks. Members with a cancel booked are taken out too (guaranteed losses). Hover for the looser "still on the books" figure, how many of those never paid the renewal, and the raw "N have a cancel booked" count. This is the chart that says whether the free-trial test and onboarding changes are actually working — month-grain cohorts are too coarse to see it.</div></div>
     <div class="sec">Why they churn <span class="tag">voluntary vs payment failed · monthly</span></div>
     <div class="card"><div class="chartbox"><canvas id="chChurnMix"></canvas></div>
       <div class="sn" style="margin-top:8px">Payment-failed churn is a dunning problem, not a product problem — if the red band grows, chase card updates before touching the offer. Click a bar to open Cancels for that period.</div></div>
@@ -1841,7 +1841,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.19';
+const BUILD = 'v16.21';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2818,6 +2818,41 @@ function compute(){
      booked (cancel_at_period_end, sub still running) is a guaranteed loss the plain
      % can't see until it lands — count them out of "committed", and count them raw */
   const cohPendNow = ix => (shadowSubs[ix]||[]).some(x=> (x.status==='active'||x.status==='past_due') && hasScheduledCancel(x) && !actualEndOf(x));
+  /* v16.21 — Louie: "day 30 commit means who pays the next invoice not who makes it to
+     day 30 because alot will then not pay". He is right, and the old test flattered us:
+     actualEndOf() returns null for past_due, so a member whose renewal invoice FAILED sits
+     in dunning with no end date and counts as retained at D30 even though no second payment
+     ever landed. Reaching day 30 is not the same as buying month two.
+     So a checkpoint that a renewal falls before now REQUIRES that renewal to be paid.
+     Evidence, in order: the date of their most recent PAID invoice (latestPaidAt), and as a
+     fallback the current period end — a member in dunning today may still have paid earlier
+     renewals, and cpe shows how many periods they actually got through. */
+  const COH_SLACK=3*D;                       /* Stripe anchors drift 28-31 days */
+  const cohPeriod = x => { const iv=String((x&&x.iv)||'month');
+    const n=parseInt(iv,10), unit=iv.replace(/^\d+-/,'');
+    const one= unit==='year'? 365*D : unit==='week'? 7*D : 30*D;
+    return (isFinite(n)&&n>1? n:1)*one; };
+  /* renewals this member has actually PAID for, by the evidence available */
+  const cohRenewalsPaid = (ix, P) => { const list=shadowSubs[ix]||[]; const s0=shadowIvs[ix][0][0];
+    let best=0;
+    list.forEach(x=>{
+      if(x.latestPaidAt && x.latestPaidAt>s0) best=Math.max(best, Math.floor((x.latestPaidAt-s0+COH_SLACK)/P));
+      if(x.cpe && x.cpe>s0)                   best=Math.max(best, Math.floor((x.cpe-s0+COH_SLACK)/P)-1);
+    });
+    return best; };
+  /* A renewal can only be judged once the data is new enough to have SEEN it. Stripe rows
+     carry the state as of the last pull, so measuring a stale export against today's clock
+     would read every recent cohort as "nobody renewed" when the truth is "not observed yet".
+     Judge against the pull time, not the wall clock, and let the usual censoring hide what
+     has not happened yet. */
+  const cohHZ=Math.min(now, (S.lastFetch && (S.lastFetch.t||S.lastFetch)) || now);
+  /* did they buy every period that had come due by the checkpoint */
+  const cohPaidThrough = (ix, days) => {
+    const list=shadowSubs[ix]||[]; if(!list.length) return true;
+    const P=Math.min.apply(null, list.map(cohPeriod));
+    const due=Math.floor((days*D+COH_SLACK)/P);          /* renewals falling on or before the checkpoint */
+    if(due<1) return true;                                /* D7, and anyone paying quarterly/yearly up front */
+    return cohRenewalsPaid(ix,P) >= due; };
   for(let mo=7;mo>=0;mo--){
     const ref=new Date(); ref.setUTCDate(1); ref.setUTCMonth(ref.getUTCMonth()-mo);
     const y=ref.getUTCFullYear(), mn=ref.getUTCMonth();
@@ -2827,13 +2862,17 @@ function compute(){
       pend:idxs.filter(cohPendNow).length, d7:null, d30:null, d60:null, c7:null, c30:null, c60:null};
     const COH_MIN_N=25;   /* below this a percentage is noise, not a result */
     [['d7','c7',7],['d30','c30',30],['d60','c60',60]].forEach(([k,ck,days])=>{
-      const obs=idxs.filter(ix=> now-shadowIvs[ix][0][0] >= days*D);
+      const obs=idxs.filter(ix=> cohHZ-shadowIvs[ix][0][0] >= days*D);
       row[k+'N']=obs.length;
-      row[k+'Mature']=(now >= end + days*D);   /* has the checkpoint elapsed for the WHOLE cohort */
+      row[k+'Mature']=(cohHZ >= end + days*D);   /* has the checkpoint elapsed for the WHOLE cohort */
       if(obs.length>=COH_MIN_N){
         const alive=obs.filter(ix=>custLiveAt(shadowIvs[ix], shadowIvs[ix][0][0]+days*D));
+        /* the plain % keeps its old meaning (still on the books at the checkpoint) so the
+           two layers read as "looked retained" vs "actually bought the next month" */
         row[k]=alive.length/obs.length*100;
-        row[ck]=alive.filter(ix=>!cohPendNow(ix)).length/obs.length*100;
+        const paid=alive.filter(cohPaidThrough0=>cohPaidThrough(cohPaidThrough0, days));
+        row[ck]=paid.filter(ix=>!cohPendNow(ix)).length/obs.length*100;
+        row[k+'Unpaid']=alive.length-paid.length;   /* looked retained, never paid the renewal */
       }
     });
     /* retention cannot rise inside a cohort — if it does, the cell is a computation
@@ -4445,6 +4484,7 @@ function analystDigest(){
     mrrWaterfallMonthly: (m.waterfall||[]).map(r=>({month:r.label, partialMonth:r.partial, newGBP:Math.round(r.newM), reactivationGBP:Math.round(r.reactM), expansionGBP:Math.round(r.expM), contractionGBP:Math.round(r.conM), churnedGBP:Math.round(r.churnM), netGBP:Math.round(r.netM), newMembers:r.newC, returningMembers:r.reactC, churnedMembers:r.churnC})),
     netRevenueRetentionMonthlyPct: (m.nrrSeries||[]).filter(r=>!r.partial).map(r=>({month:r.label, nrrPct:r.nrr==null?null:Math.round(r.nrr*10)/10, grossMrrChurnPct:r.grossChurnPct==null?null:Math.round(r.grossChurnPct*10)/10})),
     earlyRetentionByJoinMonth: (m.dayCohorts||[]).filter(r=>r.n>0).map(r=>({joinMonth:r.label, joiners:r.n,
+      lookedRetainedButNeverPaidRenewal:{day30:r.d30Unpaid||0, day60:r.d60Unpaid||0},
       committedDay7Pct:r.c7==null?null:Math.round(r.c7), committedDay30Pct:r.c30==null?null:Math.round(r.c30), committedDay60Pct:r.c60==null?null:Math.round(r.c60),
       day7N:r.d7N, day30N:r.d30N, day60N:r.d60N,
       day7Mature:!!r.d7Mature, day30Mature:!!r.d30Mature, day60Mature:!!r.d60Mature,
@@ -6228,8 +6268,11 @@ function drawRetentionPage(){
         const dk=['d7','d30','d60'][i], pk=['d7','d30','d60'][i];
         const eligible=r[dk+'N'], pay=r[pk];
         if(c.raw==null) return ['D'+[7,30,60][i]+': n='+(eligible||0)+' eligible — too early to report (needs '+(r.minN||25)+')'];
+        const unpaid=r[dk+'Unpaid']||0;
         return ['D'+[7,30,60][i]+' committed: '+c.raw+'%  (n='+eligible+')',
-          'still paying: '+(pay!=null? Math.round(pay)+'%':'—')+(r[dk+'Mature']? '' : '  · cohort not fully aged — provisional')]; },
+          (i===0? 'still on the books: ' : 'still on the books at D'+[7,30,60][i]+': ')
+            +(pay!=null? Math.round(pay)+'%':'—')+(r[dk+'Mature']? '' : '  · cohort not fully aged — provisional')]
+          .concat(unpaid? [unpaid+' of those never paid the renewal'] : []); },
       footer:items=>{ const r=items.length&&dc[items[0].dataIndex]; if(!r) return '';
         return (r.anomaly? 'CHECK: retention rose within this cohort — denominators differ, treat as an error. ' : '')
           +((r.pend)? r.pend+' of '+r.n+' have a cancel booked right now':''); }}}},
@@ -10867,6 +10910,13 @@ async function pjRemoveFile(p, fid){
   catch(e){ status('Delete failed: '+e.message,'err'); return; }
   p.files=(p.files||[]).filter(x=>x.id!==fid); pjTouch(p); drawProjectsPage();
 }
+/* "Both" is a real option on the Owner dropdown, so a shared project has to appear under
+   Louie AND Tom rather than falling out of every filter but "everyone". */
+function pjOwnerMatch(owner, want){
+  if(want==='all') return true;
+  const o=String(owner||'').trim().toLowerCase();
+  return o===String(want).toLowerCase() || o==='both';
+}
 function drawProjectsPage(){
   const st=pjState(), items=st.items, now=Date.now(), today=dayKey(now);
   const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
@@ -10882,7 +10932,7 @@ function drawProjectsPage(){
   const shown=items.filter(p=>{
     const okS = pjFilterS==='all' ? true : pjFilterS==='open' ? (p.status!=='done'&&p.status!=='parked') : p.status===pjFilterS;
     const okQ = !ql || [p.title,p.area,p.summary,(p.notes||[]).map(n=>n.text).join(' ')].join(' ').toLowerCase().includes(ql);
-    const okO = pjFilterO==='all' ? true : String(p.owner||'').trim().toLowerCase()===pjFilterO.toLowerCase();
+    const okO = pjOwnerMatch(p.owner, pjFilterO);
     return okS && okQ && okO; })
     .sort((a,b)=> (pjFilterO==='all'? String(a.owner||'~').localeCompare(String(b.owner||'~')) : 0)   /* v16.16: grouped by owner, then the usual order */
       || (a.priority||2)-(b.priority||2) || (a.due||'9999').localeCompare(b.due||'9999') || (b.updated||0)-(a.updated||0));
@@ -10894,8 +10944,8 @@ function drawProjectsPage(){
   if(empty) empty.style.display=items.length?'none':'block';
   list.querySelectorAll('.pjrow').forEach(r=>{ r.onclick=()=>{ pjSel=r.dataset.id; drawProjectsPage(); }; });
   document.querySelectorAll('#pjFilter button').forEach(b=>b.classList.toggle('on', b.dataset.s===pjFilterS));
-  document.querySelectorAll('#pjOwner button').forEach(b=>{ b.classList.toggle('on', b.dataset.o===pjFilterO);
-    const o=b.dataset.o, live=items.filter(x=>x.status!=='done'&&x.status!=='parked'&&(o==='all'||String(x.owner||'').trim().toLowerCase()===o.toLowerCase())).length;
+  document.querySelectorAll('#pjOwnerF button').forEach(b=>{ b.classList.toggle('on', b.dataset.o===pjFilterO);
+    const o=b.dataset.o, live=items.filter(x=>x.status!=='done'&&x.status!=='parked'&&pjOwnerMatch(x.owner,o)).length;
     const base=o==='all'?'everyone':o; b.textContent=live? base+' '+live : base; });
   const p=pjCur(), form=document.getElementById('pjForm'), none=document.getElementById('pjNone');
   if(!p){ if(form) form.style.display='none'; if(none) none.style.display='block'; return; }
@@ -10927,7 +10977,7 @@ function drawProjectsPage(){
     pjState().items.unshift(p); pjSel=p.id; pjFilterS='all'; pjSave(); drawProjectsPage(); setTimeout(()=>{ const t=$('pjTitle'); if(t){ t.focus(); } },30); };
   $('pjSearch').oninput=()=>drawProjectsPage();
   document.querySelectorAll('#pjFilter button').forEach(b=>{ b.onclick=()=>{ pjFilterS=b.dataset.s; drawProjectsPage(); }; });
-  document.querySelectorAll('#pjOwner button').forEach(b=>{ b.onclick=()=>{ pjFilterO=b.dataset.o; drawProjectsPage(); }; });
+  document.querySelectorAll('#pjOwnerF button').forEach(b=>{ b.onclick=()=>{ pjFilterO=b.dataset.o; drawProjectsPage(); }; });
   const field=(id,key,fn)=>{ const el=$(id); if(!el) return; el.addEventListener('input',()=>{ const p=pjCur(); if(!p) return; p[key]=fn? fn(el.value):el.value; if(key==='status'){ if(el.value==='done'&&!p.doneAt) p.doneAt=Date.now(); if(el.value!=='done') p.doneAt=null; }
     p.updated=Date.now(); clearTimeout(pjSaveT); pjSaveT=setTimeout(()=>{ pjSave(); drawProjectsPage(); }, 500); }); };
   field('pjTitle','title'); field('pjStatus','status'); field('pjOwner','owner'); field('pjPriority','priority',v=>Number(v)||2); field('pjDue','due'); field('pjArea','area'); field('pjSummary','summary');
