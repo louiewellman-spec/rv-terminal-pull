@@ -1841,7 +1841,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.21';
+const BUILD = 'v16.22';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3198,7 +3198,15 @@ function compute(){
           if(prior.length) joinT=prior[prior.length-1]*1000; } }
       if(joinT==null) return;
       if(anch) anchoredN++;
-      rows.push({u:a[2], ck:linkCust(a), tier:a[3]==='e'?'elite':'pro', lagH:Math.max(0,(paidT-joinT)/3600000),
+      const _ck=linkCust(a);
+      /* entry tier = the bot's [PRO]/[ELITE] stamp, right 98.1% of the time at the moment of
+         purchase. tierNow = what Stripe says they are on TODAY. They differ for 74 of 838 rows
+         and ~80% of that is genuine Pro→Elite upgrades AFTER the day the bar is dated by, so
+         both are true and the footnote has to say which one it is showing. */
+      const _sl=_ck && cmap[_ck];
+      rows.push({u:a[2], ck:_ck, tier:a[3]==='e'?'elite':'pro',
+        tierNow: _sl? (_sl.some(x=>tOf(x)==='elite')? 'elite':'pro') : null,
+        lagH:Math.max(0,(paidT-joinT)/3600000),
         joinT, paidT, inv:a[5]||null});
     });
     if(!rows.length) return {n:0, linksN:bl.length, itN:Object.keys(iu).length, anomalies};
@@ -3241,20 +3249,76 @@ function compute(){
       joinConv.push({d:k.slice(5), joins, b1:cohort.filter(r=>r.lagH<=1).length, b24:cohort.filter(r=>r.lagH<=24).length, prov:d4<2});
     }
     /* who invites the buyers — totals per inviter funnel, with tier split */
-    const invAgg={};
-    rows.forEach(r=>{ if(!r.inv) return; const o=invAgg[r.inv]||(invAgg[r.inv]={n:0, fast:0, pro:0, elite:0});
-      o.n++; if(r.lagH<=24) o.fast++; o[r.tier==='elite'?'elite':'pro']++; });
-    const invRows=Object.keys(invAgg).map(k=>({inv:k, n:invAgg[k].n, fast:invAgg[k].fast, pro:invAgg[k].pro, elite:invAgg[k].elite}))
-      .sort((a,b)=>b.n-a.n).slice(0,15);
+    /* v16.22 — Louie: "not sure this is right as there been more pro joins". He was right.
+       A buyer whose inviter could not be identified (the sync recovers their join date from
+       Discord's own joined_at and leaves invName empty on purpose) was DELETED here rather
+       than bucketed, so neither the bars nor the totals ever added up to real paid joins.
+       They now land in an explicit "inviter not tracked" series. Counting is also per PERSON
+       now — a re-subscriber produced one row per stint and was counted twice as a "buyer". */
+    const INV_UNKNOWN='inviter not tracked';
+    const invAgg={}; const _invSeen={};
+    rows.forEach(r=>{ const key=r.inv||INV_UNKNOWN;
+      const who=(r.ck||r.u||'')+'|'+key; if(_invSeen[who]) return; _invSeen[who]=1;
+      const o=invAgg[key]||(invAgg[key]={n:0, fast:0, pro:0, elite:0, proNow:0, eliteNow:0, tierKnown:0});
+      o.n++; if(r.lagH<=24) o.fast++; o[r.tier==='elite'?'elite':'pro']++;
+      /* tier today where Stripe can be matched, else the bot's entry tag — which the audit
+         measured at 98.1% accurate at the moment of purchase. Every row gets a tier, so the
+         split always reconciles to the total. */
+      if(r.tierNow) o.tierKnown++;
+      o[(r.tierNow||r.tier)==='elite'?'eliteNow':'proNow']++; });
+    const invAll=Object.keys(invAgg).map(k=>({inv:k, n:invAgg[k].n, fast:invAgg[k].fast, pro:invAgg[k].pro,
+      elite:invAgg[k].elite, proNow:invAgg[k].proNow, eliteNow:invAgg[k].eliteNow, tierKnown:invAgg[k].tierKnown}))
+      .sort((a,b)=>b.n-a.n);
+    const invRows=invAll.slice(0,15);
+    /* the long tail is real money: keep a summary of everything below the cut so the footnote
+       can never present a truncated list as a "total" again */
+    const invTail={ inviters:Math.max(0,invAll.length-8), n:invAll.slice(8).reduce((a,r)=>a+r.n,0) };
+    const invTotal={ people:invAll.reduce((a,r)=>a+r.n,0), inviters:invAll.length,
+      untracked:(invAgg[INV_UNKNOWN]||{}).n||0 };
+    /* Coverage. Even after bucketing the unknowns this chart can only draw people the Discord
+       bot managed to link at all — a buyer it never logged has no row to draw. Rather than let
+       that gap be discovered by someone summing the bars, measure it: how many customers took
+       their FIRST payment inside the same span, straight off Stripe. */
+    try{
+      /* The bot-link feed and the Stripe pull refresh on different clocks, so the two sides
+         have to be cut to the SAME window or the ratio is meaningless (a fresh link feed over
+         a month-old subs pull reads as 118% coverage). Cap both at whichever ran last. */
+      const _f=Math.min.apply(null, rows.map(r=>r.paidT));
+      const _hz=Math.min(Math.max.apply(null, rows.map(r=>r.paidT)),
+                         (S.lastFetch && (S.lastFetch.t||S.lastFetch)) || now);
+      if(_hz>_f){
+        let paidInSpan=0;
+        Object.keys(cmap).forEach(ck=>{ const list=(cmap[ck]||[]).filter(hasFirstPayment);
+          if(!list.length) return;
+          const first=Math.min.apply(null, list.map(stripeStartOf));
+          if(first>=_f && first<=_hz) paidInSpan++; });
+        const seenC={}; let drawn=0;
+        rows.forEach(r=>{ if(r.paidT<_f || r.paidT>_hz) return;
+          const id=r.ck||r.u; if(!id||seenC[id]) return; seenC[id]=1; drawn++; });
+        if(paidInSpan>0 && drawn<=paidInSpan){
+          invTotal.paidInSpan=paidInSpan; invTotal.drawnInSpan=drawn;
+          invTotal.coverPct=Math.round(drawn/paidInSpan*100);
+          invTotal.coverTo=dayKey(_hz);
+        }
+      }
+    }catch(e){}
+    /* the real span of the link history — the footnote used to hard-code "6-month window",
+       but the sync ships whatever fits its size budget and the next rung down is 90 days,
+       so the label has to come from the data or it will silently lie the day that flips */
+    const invSpan={ from:dayKey(Math.min.apply(null, rows.map(r=>r.paidT))),
+      to:dayKey(Math.max.apply(null, rows.map(r=>r.paidT))),
+      days:Math.round((Math.max.apply(null, rows.map(r=>r.paidT))-Math.min.apply(null, rows.map(r=>r.paidT)))/D) };
     /* paid joins per day per inviter funnel (last 62 days, by the day they PAID) */
     const invPaidDays={};
-    rows.forEach(r=>{ if(now-r.paidT>62*D || !r.inv) return; const k=dayKey(r.paidT);
-      (invPaidDays[k]=invPaidDays[k]||{})[r.inv]=(invPaidDays[k][r.inv]||0)+1; });
+    rows.forEach(r=>{ if(now-r.paidT>62*D) return; const k=dayKey(r.paidT);
+      const key=r.inv||INV_UNKNOWN;
+      (invPaidDays[k]=invPaidDays[k]||{})[key]=(invPaidDays[k][key]||0)+1; });
     const tierStat=t=>{ const a=rows.filter(r=>r.tier===t).map(r=>r.lagH).sort((x,y)=>x-y);
       return a.length>=5? {n:a.length, med:+(a[Math.floor(a.length/2)]).toFixed(1)} : {n:a.length, med:null}; };
     return { n:rows.length, linksN:bl.length, itN:Object.keys(iu).length, anomalies, anchoredN,
       med:lags[Math.floor(lags.length/2)], p1:pctIn(1), p6:pctIn(6), p24:pctIn(24), p72:pctIn(72), p168:pctIn(168),
-      hourly, daily, h1Daily, hDaily, joinConv, trend:lkTrend, invRows, invPaidDays, pro:tierStat('pro'), elite:tierStat('elite'),
+      hourly, daily, h1Daily, hDaily, joinConv, trend:lkTrend, invRows, invPaidDays, invTail, invTotal, invSpan,
+      pro:tierStat('pro'), elite:tierStat('elite'),
       over24:rows.filter(r=>r.lagH>=24).length, over168:rows.filter(r=>r.lagH>168).length, over336:rows.filter(r=>r.lagH>336).length,
       byU, byCust, updated:S.botLinks.updated||null };
   }catch(e){ return {n:0}; } })();
@@ -9820,10 +9884,17 @@ function drawAttribution(){
     /* rv.louie = the tiktok-ads link, the series this chart exists for — always shown,
        never folded into 'other members', even at zero paid joins in the window */
     if(!pNames.includes('rv.louie')){ pNames=pNames.concat('rv.louie'); restNames=restNames.filter(n=>n!=='rv.louie'); }
+    /* "inviter not tracked" is a real, sizeable group (they joined through the public link or
+       the sync could only recover their join date) — it must be visible as its own band, never
+       hidden inside "other members", or the bars stop adding up to real paid joins again */
+    const IPUNK='inviter not tracked';
+    if(!pNames.includes(IPUNK)){ pNames=pNames.concat(IPUNK); restNames=restNames.filter(n=>n!==IPUNK); }
     const ipCols=[PAL.accent,PAL.good,PAL.gold,PAL.violet,PAL.cyan,PAL.orange,PAL.muted];
-    const ipLabel=nm=> nm==='rv.louie'? 'rv.louie · tiktok ads' : nm;
+    const ipLabel=nm=> nm==='rv.louie'? 'rv.louie · tiktok ads'
+      : nm==='vanity link'? 'vanity · public discord.gg link' : nm;
     const dsets=pNames.map((nm,i)=>({label:ipLabel(nm), data:pDays.map(k=>(IPD[k]||{})[nm]||0),
-      backgroundColor:(nm==='rv.louie'? PAL.bad : ipCols[i%ipCols.length])+'C0', stack:'p', borderRadius:2}));
+      backgroundColor:(nm==='rv.louie'? PAL.bad : nm===IPUNK? rgbaOf(PAL.dim||PAL.muted,.32) : ipCols[i%ipCols.length])+(nm===IPUNK?'':'C0'),
+      stack:'p', borderRadius:2}));
     if(restNames.length) dsets.push({label:'other members', data:pDays.map(k=>restNames.reduce((s,nm)=>s+((IPD[k]||{})[nm]||0),0)),
       backgroundColor:rgbaOf(PAL.muted,.45), stack:'p', borderRadius:2});
     charts.chInvPaid=new Chart(ipc,{type:'bar',data:{labels:pDays.map(k=>k.slice(5)), datasets:dsets},
@@ -9838,9 +9909,21 @@ function drawAttribution(){
         scales:{x:{stacked:true,grid:{display:false},ticks:{color:tickCol,autoSkip:true,maxTicksLimit:10}},
           y:{stacked:true,beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol,stepSize:1}}}}});
     const ipn=document.getElementById('invPaidNote');
-    if(ipn) ipn.innerHTML='Totals (6-month window): '+IPR.slice(0,8).map(r=>'<b>'+esc(r.inv==='rv.louie'? 'rv.louie (tiktok ads)':r.inv)+'</b> '
-      +r.n+' buyer'+(r.n===1?'':'s')+' ('+r.pro+' pro'+(r.elite? ' · '+r.elite+' elite':'')+')').join(' · ')
-      +'. Bars count the day the member PAID, stacked by whose invite link originally brought them into the server — the money answer to the joins chart above.';
+    const IPT=(lastM&&lastM.lurk&&lastM.lurk.invTail)||null, IPO=(lastM&&lastM.lurk&&lastM.lurk.invTotal)||null,
+          IPS=(lastM&&lastM.lurk&&lastM.lurk.invSpan)||null;
+    const inWin=pDays.reduce((s,k)=>s+Object.keys(IPD[k]||{}).reduce((a,n)=>a+(IPD[k][n]||0),0),0);
+    if(ipn) ipn.innerHTML=
+      '<b>Bars: '+inWin+' paid joins in the last '+invPTfD+' days</b>, counted on the day the member PAID and stacked by whose invite link brought them in. '
+      +'Everyone is shown — buyers whose inviter was never tracked have their own band rather than being dropped, so the bars add up.'
+      +'<br><b>Totals'+(IPS? ' ('+IPS.from+' to '+IPS.to+', '+IPS.days+' days — the whole link history the sync currently carries)':'')+':</b> '
+      +IPR.slice(0,8).map(r=>{ const nm=r.inv==='rv.louie'? 'rv.louie (tiktok ads)': r.inv==='vanity link'? 'vanity link (public discord.gg)': r.inv;
+          /* tierNow only exists where the link resolved to a Stripe customer — show the
+             remainder explicitly rather than letting the split fail to add up to the total */
+          return '<b>'+esc(nm)+'</b> '+r.n+' ('+r.proNow+' pro · '+r.eliteNow+' elite)'; }).join(' · ')
+      +(IPT&&IPT.inviters>0? ' · plus <b>'+IPT.n+'</b> across '+IPT.inviters+' smaller inviters' : '')
+      +(IPO? '. <b>'+IPO.people+' people in total</b> from '+IPO.inviters+' sources'+(IPO.untracked? ', of which '+IPO.untracked+' had no inviter we could identify':'')+'.' : '.')
+      +(IPO&&IPO.coverPct!=null? ' Up to '+IPO.coverTo+' it covers <b>'+IPO.drawnInSpan+' of the '+IPO.paidInSpan+' people who actually started paying ('+IPO.coverPct+'%)</b> — the rest were never logged by the Discord bot, so this chart cannot see them.' : '')
+      +' Counted per person, so a member who resubscribed is one buyer, not two. Tier is what they are on <b>today</b> where they match a Stripe customer, otherwise the tier they joined on — the elite counts run well above the joining split because Pro members upgrade later, and that upgrade belongs to whoever brought them.';
   }
   /* churn by affiliate code — same stripe basis as the channel table, per code */
   const AC=(lastM&&lastM.affChurn)||[];
