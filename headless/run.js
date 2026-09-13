@@ -34,7 +34,35 @@ const document={ getElementById(id){ return realIds.has(id)? (made[id]||(made[id
   body:new El('body'), documentElement:new El('html'), head:{appendChild(){}}, title:'', readyState:'complete' };
 const mem={};
 const localStorage={ getItem:k=>Object.prototype.hasOwnProperty.call(mem,k)? mem[k]:null, setItem:(k,v)=>{mem[k]=String(v)}, removeItem:k=>{delete mem[k]}, clear(){}, get length(){return Object.keys(mem).length} };
-/* seed the settings the app reads at load — exactly what the browser has in localStorage */
+/* ---- warm state between ticks ----------------------------------------------------------
+   This process is recreated every 15 minutes, so it used to re-download the whole of Postgres
+   each time just to have something to merge into: rv_subs (~1.7 MB) + rv_sessions (~2.3 MB),
+   96 times a day. That is ~11 GB of egress a month against a 5 GB free-tier allowance, and it
+   is what put the org 9.46 GB into its quota in ten days (12 Sep 2026).
+   The loop reuses one workspace, so keep the store on disk between ticks and pull lean.
+   Secrets are NEVER part of it — the seeds below are re-applied from env after the load. */
+const STATE=path.join(E.RUNNER_TEMP||require('os').tmpdir(), 'rv-runner-state.json');
+const STATE_MAX_AGE=6*3600*1000;      /* older than this, take the full pull again */
+let warm=false;
+try{
+  const st=fs.statSync(STATE);
+  if(Date.now()-st.mtimeMs < STATE_MAX_AGE){
+    const saved=JSON.parse(fs.readFileSync(STATE,'utf8'));
+    if(saved && typeof saved==='object'){
+      Object.keys(saved).forEach(k=>{ mem[k]=saved[k]; });
+      warm=!!(mem.rv_subs && mem.rv_sessions);
+    }
+  }
+}catch(e){ warm=false; }
+function saveState(){
+  try{
+    const out={}; Object.keys(mem).forEach(k=>{ if(k!=='rv_settings' && k!=='rv_sb') out[k]=mem[k]; });
+    fs.writeFileSync(STATE, JSON.stringify(out));
+    return true;
+  }catch(e){ return false; }
+}
+/* seed the settings the app reads at load — exactly what the browser has in localStorage.
+   These carry the secrets and must always win over anything restored above. */
 mem.rv_settings=JSON.stringify({key:STRIPE_KEY, binId:BIN_ID, binKey:BIN_KEY, autoRefresh:false});
 mem.rv_sb=JSON.stringify({email:SB_EMAIL, password:SB_PASSWORD, remember:true, auto:true});
 function Chart(){ this.destroy=()=>{}; this.resize=()=>{}; this.update=()=>{}; this.data={datasets:[]}; }
@@ -91,7 +119,11 @@ try{ vm.runInContext(script, ctx, {timeout:120000}); }catch(e){ console.error('b
   try{
     log('signing in to Supabase');
     await run("sbAuth({grant:'password', payload:{email:S.sb.email, password:S.sb.password}})");
-    log('pulling previous state'); out.pulled=await run('sbPull()');
+    /* warm = this workspace already holds subs/sessions from an earlier tick, so only the small
+       human-owned tables need fetching (settings, marks, recovery, forecasts, the email log). */
+    log(warm? 'pulling changes only (warm state)' : 'pulling previous state (cold)');
+    out.warm=warm;
+    out.pulled=await run(warm? 'sbPull({lean:true})' : 'sbPull()');
     /* The app runs its expensive 6-hourly "slow lane" (catalogs, invoice sweep, nested decline-code
        expand) whenever window._rvSlowAt is older than 6h — and a fresh Node process always starts at 0,
        so the FIRST run took 8m23s and every scheduled run would have too. 96 x 8 min a day blows the
@@ -108,6 +140,9 @@ try{ vm.runInContext(script, ctx, {timeout:120000}); }catch(e){ console.error('b
     out.weekly=run('(function(){ try{ const W=weeklyState(); return {week:W.weekStart, locked:!!(W.locked&&W.locked.lockedAt)}; }catch(e){ return {err:e.message}; } })()');
     out.ok=true;
   }catch(e){ out.ok=false; out.error=e.message; out.stack=String(e.stack||'').split('\n').slice(0,4).join(' | '); }
+  /* only keep state from a run that actually completed, so a half-finished tick can never
+     become the warm baseline the next one trusts */
+  out.stateSaved = out.ok? saveState() : false;
   out.seconds=Math.round((Date.now()-t0)/1000);
   console.log(JSON.stringify(out,null,1)); process.exit(out.ok?0:1);
 })();
