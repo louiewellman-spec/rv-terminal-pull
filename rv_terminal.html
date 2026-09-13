@@ -1841,7 +1841,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.22';
+const BUILD = 'v16.23';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -12343,14 +12343,26 @@ async function sbPull(opts){
      recovery/invoices/kv wholesale (Postgres is the fresher copy after a nightly run); the email
      log and never-email lists MERGE, because both sides can hold sends the other has not seen. */
   const quiet=!!(opts&&opts.quiet), st=t=>{ if(!quiet) sbStatusMsg(t); };
-  st('pulling subscriptions…');  const subs=await sbPage('rv_subs','data','order=created.asc');
-  st('pulling sessions…');       const sess=await sbPage('rv_sessions','data','order=created.desc');
+  /* v16.23 LEAN PULL. The heavy tables are rv_subs (~1.7 MB) and rv_sessions (~2.3 MB), and the
+     headless runner re-downloaded both every 15 minutes from a fresh process — 4 MB x 96 a day,
+     which is what pushed the Supabase org 9.46 GB past a 5 GB egress allowance in ten days.
+     A caller that already holds those rows locally (the runner, once it keeps state between
+     ticks) passes lean:true and gets only the small, human-owned tables. The `if(x.length)`
+     guards below mean an empty array simply leaves the local copy alone. */
+  const lean=!!(opts&&opts.lean);
+  let subs=[], sess=[], inv=[];
+  if(!lean){
+    st('pulling subscriptions…');  subs=await sbPage('rv_subs','data','order=created.asc');
+    st('pulling sessions…');       sess=await sbPage('rv_sessions','data','order=created.desc');
+  }
   st('pulling the rest…');
   const snaps=await sbPage('rv_snapshots','data','order=d.asc'), fcs=await sbPage('rv_forecasts','mk,data'),
-        rec=await sbPage('rv_recovery_cases','cust,data'), inv=await sbPage('rv_inv_hist','sub_id,rows'),
+        rec=await sbPage('rv_recovery_cases','cust,data'),
         kv=await sbPage('rv_kv','k,v'), log=await sbPage('rv_email_log','email,sent_on,campaign,kind'),
         sup=await sbPage('rv_email_sup','email,reason,detail');
+  if(!lean) inv=await sbPage('rv_inv_hist','sub_id,rows');
   const n={subs:subs.length, sessions:sess.length, snapshots:snaps.length, forecasts:fcs.length, recovery:rec.length, invoices:inv.length, kv:kv.length, emailLog:log.length, neverEmail:sup.length};
+  if(lean) n.lean=true;
   if(subs.length){ S.subs=subs.map(r=>r.data); jset('rv_subs',S.subs); }
   if(sess.length){ S.sessions=sess.map(r=>r.data); jset('rv_sessions',S.sessions); }
   if(snaps.length){ S.snapshots=snaps.map(r=>r.data).sort((a,b)=>a.d<b.d?-1:1); jset('rv_snapshots',S.snapshots); }
