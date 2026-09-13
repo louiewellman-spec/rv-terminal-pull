@@ -1281,6 +1281,19 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
     <div class="sec">Upgrades over time <span class="tag">monthly · count + £/mo added</span></div>
     <div class="card"><div class="chartbox"><canvas id="chExTrend"></canvas></div>
       <div class="empty" id="exTrendEmpty" style="display:none">No Pro→Elite upgrades detected yet — the detector reads the whole subs timeline, so this fills the moment one exists.</div></div>
+    <div class="sec">Had Elite, on Pro now <span class="tag" id="exLapsTag">a separate list · they already know what Elite is</span></div>
+    <div class="card">
+      <div class="row" style="gap:8px;margin-bottom:10px">
+        <button class="btn ghost" id="exLapsEmail">Export emails</button>
+        <button class="btn ghost" id="exLapsDiscord">Export discord</button>
+        <button class="btn ghost" id="exLapsDiscordid" title="Discord user IDs from the bot links, one per line">Export discord IDs</button>
+        <button class="btn ghost" id="exLapsCsv">Export CSV</button>
+        <span class="sn" style="align-self:center">kept out of the pitch list below so nobody gets both emails</span>
+      </div>
+      <div style="overflow-x:auto;max-height:420px;overflow-y:auto"><table id="exLapsTable"><thead></thead><tbody></tbody></table></div>
+      <div class="empty" id="exLapsEmpty" style="display:none">Nobody has dropped from Elite to Pro yet — this fills the moment someone does.</div>
+      <div class="sn" id="exLapsNote" style="margin-top:8px"></div>
+    </div>
     <div class="sec">Who to pitch right now <span class="tag" id="exTargTag">live Pro members inside the peak window · click to copy</span></div>
     <div class="card">
       <div class="row" style="gap:8px;margin-bottom:10px">
@@ -1841,7 +1854,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.23';
+const BUILD = 'v16.24';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3147,10 +3160,17 @@ function compute(){
     const xx=lv[0];
     exTargets.push({duser:nameOf(xx), bn:!isHandle(xx), email:xx.cemail||null, monthly:lv.reduce((a,x)=>a+x.monthly,0), days:Math.round(age)});
   }); exTargets.sort((a,b)=>b.days-a.days); }   /* oldest-in-window first = least time left */
+  /* lapsed-Elite members get their OWN list and are removed from the ordinary pitch list,
+     so nobody is emailed both a first-time pitch and a come-back pitch */
+  let exLapsed=[]; try{ exLapsed=eliteLapsedList(); }catch(e){ exLapsed=[]; }
+  const exLapsedKey={}; exLapsed.forEach(r=>{ if(r.email) exLapsedKey[String(r.email).toLowerCase()]=1; if(r.duser) exLapsedKey['@'+r.duser]=1; });
+  const exTargetsClean=exTargets.filter(r=>!( (r.email && exLapsedKey[String(r.email).toLowerCase()]) || (r.duser && exLapsedKey['@'+r.duser]) ));
   const expansion={ n30:ex30.length, mrr30:Math.round(ex30.reduce((a,v)=>a+v.add,0)), nAll:exEvs.length,
     medTen:exEvs.length? Math.round(exEvs.map(v=>v.tenD).sort((x,y)=>x-y)[Math.floor(exEvs.length/2)]) : null,
     conv:{elig:exElig, done:exConv, eligAll:exEligAll, doneAll:exConvAll}, hazard:exHaz, monthly:exMonthly, peak:exPeak,
-    targets:exTargets, targetsN:exTargets.length };
+    targets:exTargetsClean, targetsN:exTargetsClean.length,
+    lapsed:exLapsed, lapsedN:exLapsed.length,
+    lapsedMrr:Math.round(exLapsed.reduce((a,r)=>a+Math.max(0,(r.wasAmt||0)-(r.monthly||0)),0)) };
   /* ---- lurk gap: discord join (invite tracker, per user id) → paid (bot-log auto-link),
      matched on discord user id. hour-level truth about when new joiners convert. ---- */
   const lurk=(()=>{ try{
@@ -9112,8 +9132,36 @@ function exExport(kind){
     r=>[r.duser||'', r.monthly||0, r.days, peak? Math.max(0, peak.hi-r.days):'', r.email||'']);
 }
 ['Email','Discord','Discordid','Csv'].forEach(k=>{ const b=document.getElementById('exExp'+k); if(b) b.onclick=()=>exExport(k.toLowerCase()); });
+function exLapsExport(kind){
+  const rows=((lastM&&lastM.expansion&&lastM.expansion.lapsed)||[]).map(r=>({...r}));
+  listExport(rows, kind, 'elite_lapsed',
+    'discord_or_name,paying_now_gbp,was_paying_gbp,days_since_they_dropped,email',
+    r=>[r.duser||'', r.monthly||0, r.wasAmt||0, r.daysSince, r.email||'']);
+}
+['Email','Discord','Discordid','Csv'].forEach(k=>{ const b=document.getElementById('exLaps'+k); if(b) b.onclick=()=>exLapsExport(k.toLowerCase()); });
+function drawEliteLapsed(){
+  const E=(lastM&&lastM.expansion)||{}, rows=E.lapsed||[];
+  const th=document.querySelector('#exLapsTable thead'), tb=document.querySelector('#exLapsTable tbody');
+  const em=document.getElementById('exLapsEmpty'); if(em) em.style.display=rows.length?'none':'block';
+  if(!th||!tb) return;
+  th.innerHTML=rows.length? '<tr><th>Member</th><th>Paying now</th><th>Was paying</th><th>Dropped</th></tr>' : '';
+  tb.innerHTML=rows.slice(0,50).map(r=>{
+    const warm=r.daysSince<=60;
+    return '<tr><td style="color:var(--text);font-weight:600">'+esc(r.duser||r.email||'member')+'</td>'
+      +'<td class="num">£'+(r.monthly||0)+'</td>'
+      +'<td class="num" style="color:var(--dim)">£'+(r.wasAmt||0)+'</td>'
+      +'<td class="num"><span class="pill '+(warm?'good':'cold')+'">'+r.daysSince+'d ago</span></td></tr>'; }).join('');
+  const n=document.getElementById('exLapsNote');
+  if(n) n.innerHTML= rows.length
+    ? '<b>'+rows.length+' member'+(rows.length===1?'':'s')+' held Elite and are on Pro today</b>'
+      +(E.lapsedMrr? ', worth <b>£'+E.lapsedMrr+'/mo</b> if every one of them went back' : '')
+      +'. Newest drops first — the closer to the day they left Elite, the warmer. They are taken out of the pitch list below so nobody is sent a first-time pitch and a come-back pitch at once. '
+      +(rows.length>50? 'Showing the first 50; the export has all '+rows.length+'.' : 'Export hands the whole list to Tom.')
+    : '';
+}
 function drawExpansionPage(){
   if(!lastM || !lastM.expansion) return;
+  drawEliteLapsed();
   const E=lastM.expansion;
   const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
   const setH=(id,v)=>{ const el=document.getElementById(id); if(el) el.innerHTML=v; };
@@ -10569,6 +10617,40 @@ function churnStripeAt(subsArr, t, win){
   const s=stripeChurnStats(subsArr, t, win);
   const den=s.base.length+s.added.length;
   return den ? s.churned.length/den*100 : NaN;
+}
+/* v16.24 — Louie: "if someone had elite then no longer has it, add them to a diffrent email
+   marketing elite upgrade group". Members who HELD Elite and are on Pro today are the warmest
+   upgrade audience there is: they already know what they are buying back. They are deliberately
+   kept OUT of the ordinary "who to pitch" list, because a win-back-to-Elite pitch is a different
+   email from a first-time pitch. Someone who left altogether is NOT here — that is win-back.
+   Detected the same two ways upgradeEvents() finds the move in the other direction: the backend
+   cancel-Pro/create-Elite shape (a new sub id, so same-sub diffs never see it), and a same-sub
+   price change out of the plan-change ledger. */
+function eliteLapsedList(){
+  const subs=liveSubsList().filter(hasFirstPayment), now=Date.now();
+  const tOf=x=>x.tier||tierOf(null,x.monthly);
+  const byC={}; subs.forEach(x=>{ const k=custKey(x); (byC[k]=byC[k]||[]).push(x); });
+  const out=[];
+  Object.keys(byC).forEach(k=>{
+    const list=byC[k], live=list.filter(x=>stripePaidAt(x,now));
+    if(!live.length) return;                          /* gone entirely — that is a win-back case */
+    if(live.some(x=>tOf(x)==='elite')) return;        /* still Elite, nothing to pitch */
+    let droppedT=null, wasAmt=0;
+    /* shape 1: an Elite subscription of theirs that has ended */
+    list.filter(x=>tOf(x)==='elite').forEach(el=>{
+      const end=actualEndOf(el);
+      if(end!=null && end<=now && (droppedT==null || end>droppedT)){ droppedT=end; wasAmt=el.monthly||wasAmt; } });
+    /* shape 2: a same-sub price change that dropped them out of Elite */
+    list.forEach(x=>{ (planEventsFor(x)||[]).forEach(e=>{
+      if(e.t<=now && tierOf(null,e.from||0)==='elite' && tierOf(null,e.to||0)==='pro'
+         && (droppedT==null || e.t>droppedT)){ droppedT=e.t; wasAmt=e.from||wasAmt; } }); });
+    if(droppedT==null) return;
+    const xx=live[0];
+    out.push({ duser:nameOf(xx), bn:!isHandle(xx), email:xx.cemail||null,
+      monthly:Math.round(live.reduce((a,x)=>a+x.monthly,0)), wasAmt:Math.round(wasAmt||0),
+      droppedT, daysSince:Math.max(0,Math.round((now-droppedT)/D)) });
+  });
+  return out.sort((a,b)=>b.droppedT-a.droppedT);      /* most recent drop first = warmest */
 }
 function upgradeEvents(){
   /* every real Pro→Elite expansion, from BOTH shapes an upgrade takes:
