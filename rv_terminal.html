@@ -925,7 +925,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
       </div>
       <div class="sn" id="caExpHint" style="margin-bottom:10px"></div>
       <div style="overflow-x:auto;max-height:640px;overflow-y:auto"><table id="caTable"><thead><tr>
-        <th>Date</th><th>Discord / name</th><th>Tier</th><th>£/mo</th><th>Reason</th><th>Source</th><th>Email</th>
+        <th>Date</th><th>Discord / name</th><th>Tier</th><th>£/mo</th><th>Reason</th><th>Why they said</th><th>Source</th><th>Email</th>
       </tr></thead><tbody id="caBody"></tbody></table></div>
     </div>
     <div class="sec">Cancel flow over time <span class="tag">voluntary vs payment failed · daily + 7d and 14d averages · read the 14d line, the daily bars are noisy</span></div>
@@ -1854,7 +1854,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.25';
+const BUILD = 'v16.26';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -5675,7 +5675,15 @@ function drawCancelsPage(){
       sl.innerHTML='<b style="color:var(--text)">Save rate</b> · since tracking began: '+sched+' scheduled cancels seen · <b>'+saves+' un-cancelled</b>'+(sched? ' ('+Math.round(saves/Math.max(sched,1)*100)+'%)':'')+' — this is your DM save rate; if it stalls, change the save offer, not the volume.';
     } }catch(e){}
   const eh=document.getElementById('caExpHint');
-  if(eh) eh.innerHTML=rows.length+' members · <span class="gtx gtx-green" style="font-weight:700">'+withEmail+' have an email</span> · '+withHandle+' have a discord handle'+(rows.length-withHandle? ' · '+(rows.length-withHandle)+' show billing name only (they skipped the discord field at checkout, email still works for those)':'')+(resubN? ' · <span class="gtx gtx-gold" style="font-weight:700">'+resubN+' re-subscribed</span> ('+(caHideResub?'hidden':'click Hide re-subscribed to drop them')+')':'');
+  /* most people never answer the cancel survey, so say how many DID — otherwise a column
+     that is mostly dashes reads as broken rather than as "they were never asked" */
+  const gaveN=rows.filter(r=>r.cfb||(r.ccm||'').trim()).length;
+  let whyBit='';
+  if(gaveN){ const c={}; rows.forEach(r=>{ if(r.cfb) c[r.cfb]=(c[r.cfb]||0)+1; });
+    const top=Object.keys(c).sort((x,y)=>c[y]-c[x])[0];
+    whyBit=' · <b>'+gaveN+' gave a reason</b>'+(top? ' (most common: '+esc(CANCEL_FB[top]||top).toLowerCase()+')':'');
+  } else if(rows.length) whyBit=' · none of these gave a reason at cancel';
+  if(eh) eh.innerHTML=rows.length+' members · <span class="gtx gtx-green" style="font-weight:700">'+withEmail+' have an email</span> · '+withHandle+' have a discord handle'+(rows.length-withHandle? ' · '+(rows.length-withHandle)+' show billing name only (they skipped the discord field at checkout, email still works for those)':'')+(resubN? ' · <span class="gtx gtx-gold" style="font-weight:700">'+resubN+' re-subscribed</span> ('+(caHideResub?'hidden':'click Hide re-subscribed to drop them')+')':'')+whyBit;
   const body=document.getElementById('caBody'); if(!body) return;
   body.innerHTML = rows.map(r=>{
     const who = r.handle ? esc(r.handle) : '<span style="color:var(--dim)">'+esc(r.name||'unknown')+' <span class="pill" style="background:color-mix(in srgb,var(--muted) 12%,transparent);color:var(--dim);font-size:10px">name</span></span>';
@@ -5684,18 +5692,36 @@ function drawCancelsPage(){
       '<td><span class="pill '+(r.tier==='elite'?'mid':'good')+'">'+(r.tier==='elite'?'Elite':'Pro')+'</span></td>'+
       '<td class="num">£'+(Math.round((r.monthly||0)*100)/100).toFixed(2)+'</td>'+
       '<td><span class="pill '+(r.reason==='payment failed'?'cold':'good')+'">'+r.reason+'</span></td>'+
+      '<td>'+cancelWhy(r)+'</td>'+
       '<td>'+(r.src?esc(srcLabel(r.src)):'<span style="color:var(--dim)">—</span>')+'</td>'+
       '<td class="sn" style="font-size:12px">'+(r.email?esc(r.email):'—')+'</td></tr>';
-  }).join('') || '<tr><td colspan="7" class="empty">no cancels in this range</td></tr>';
+  }).join('') || '<tr><td colspan="8" class="empty">no cancels in this range</td></tr>';
   body.querySelectorAll('[data-copy]').forEach(tr=> tr.onclick=()=>{ const v=tr.getAttribute('data-copy'); if(v) navigator.clipboard.writeText(v).then(()=>status('Copied: '+v,'ok')); });
   try{ drawCancelFlow(); }catch(e){}
 }
+/* v16.26 — Louie: "can u add cancelation reason". The Reason column is the CATEGORY (did the
+   card fail or did they choose to go); this is what the member actually picked in Stripe's
+   cancel survey, plus any free text they left. Only ~13% ever give one — cancelling through
+   the billing portal or by DM leaves it blank — so a dash here means "not asked/not given",
+   never "no reason". */
+const CANCEL_FB={ too_expensive:'Too expensive', missing_features:'Missing features',
+  switched_service:'Switched to another', unused:"Wasn't using it", customer_service:'Customer service',
+  too_complex:'Too complicated', low_quality:'Not good enough', other:'Other' };
+const cancelWhy=r=>{
+  const fb=r&&r.cfb? (CANCEL_FB[r.cfb]||String(r.cfb).replace(/_/g,' ')) : null;
+  const cm=(r&&r.ccm||'').trim();
+  if(!fb && !cm) return '<span style="color:var(--dim)">—</span>';
+  const tip=cm? esc(cm.slice(0,300)) : '';
+  const label=fb||'Note';
+  return '<span class="pill '+(r.cfb==='too_expensive'?'mid':r.cfb==='unused'?'cold':'good')+'"'
+    +(cm? ' title="'+tip.replace(/"/g,'&quot;')+'" style="cursor:help"':'')+'>'+esc(label)+(cm?' 💬':'')+'</span>';
+};
 function caExport(kind){
   const rows=caRows();
   let lines, fname, note;
   if(kind==='email'){ const e=rows.map(r=>r.email).filter(Boolean); lines=e.join('\n'); fname='cancels_emails'; note=e.length+' emails'; }
   else if(kind==='discord'){ const h=rows.map(r=>r.handle).filter(Boolean); lines=h.join('\n'); fname='cancels_discord'; note=h.length+' discord handles ('+(rows.length-h.length)+' had none)'; }
-  else { lines='date,discord_or_name,tier,monthly_gbp,reason,source,email\n'+rows.map(r=>[r.date,(r.handle||r.name||''),r.tier,(r.monthly||0),r.reason,(r.src||''),(r.email||'')].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n'); fname='cancels_full'; note=rows.length+' rows'; }
+  else { lines='date,discord_or_name,tier,monthly_gbp,reason,why_they_said,their_comment,source,email\n'+rows.map(r=>[r.date,(r.handle||r.name||''),r.tier,(r.monthly||0),r.reason,(r.cfb? (CANCEL_FB[r.cfb]||r.cfb):''),(r.ccm||''),(r.src||''),(r.email||'')].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n'); fname='cancels_full'; note=rows.length+' rows'; }
   if(!lines){ status('Nothing to export for this filter.','err'); return; }
   const ext=kind==='csv'?'csv':'txt';
   const blob=new Blob([lines],{type:'text/'+(kind==='csv'?'csv':'plain')});
