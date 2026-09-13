@@ -1854,7 +1854,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.24';
+const BUILD = 'v16.25';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -12406,9 +12406,10 @@ async function sbPush(){
   }
   return total;
 }
-async function sbPage(table, select, extra){
+async function sbPage(table, select, extra, maxRows){
   /* PostgREST caps a response at 1000 rows: walk Range windows until a short page */
   const out=[]; for(let from=0; ; from+=1000){
+    if(maxRows && out.length>=maxRows) break;
     const b=sbState(), tok=await sbToken();
     const r=await fetchTimed(SB_URL+'/rest/v1/'+table+'?select='+(select||'*')+(extra? '&'+extra:''),
       {headers:{'apikey':b.anon,'Authorization':'Bearer '+tok,'Range-Unit':'items','Range':from+'-'+(from+999)}}, 60000);
@@ -12443,7 +12444,15 @@ async function sbPull(opts){
         kv=await sbPage('rv_kv','k,v'), log=await sbPage('rv_email_log','email,sent_on,campaign,kind'),
         sup=await sbPage('rv_email_sup','email,reason,detail');
   if(!lean) inv=await sbPage('rv_inv_hist','sub_id,rows');
-  const n={subs:subs.length, sessions:sess.length, snapshots:snaps.length, forecasts:fcs.length, recovery:rec.length, invoices:inv.length, kv:kv.length, emailLog:log.length, neverEmail:sup.length};
+  /* v16.25 — the plan-change ledger was PUSHED to rv_mrr_events and never pulled back, so any
+     browser that hydrated purely from Postgres (a phone, a new device, a cleared one) had no
+     record of anyone's price history. subMrrAt() then falls through to the member's price TODAY
+     for every past date — legacyGrossAt only covers the June 2026 price change, never a tier
+     move — so everyone now on Elite read as Elite all the way back, and "Elite share of MRR"
+     showed ~50% for the summer on a phone against ~32% on a desktop that still held the ledger.
+     Newest first and bounded: the charts reach back a year, the local store keeps 2000. */
+  let mev=[]; if(!lean){ try{ mev=await sbPage('rv_mrr_events','data','order=t.desc', 3000); }catch(e){ mev=[]; } }
+  const n={subs:subs.length, sessions:sess.length, snapshots:snaps.length, forecasts:fcs.length, recovery:rec.length, invoices:inv.length, kv:kv.length, emailLog:log.length, neverEmail:sup.length, planChanges:mev.length};
   if(lean) n.lean=true;
   if(subs.length){ S.subs=subs.map(r=>r.data); jset('rv_subs',S.subs); }
   if(sess.length){ S.sessions=sess.map(r=>r.data); jset('rv_sessions',S.sessions); }
@@ -12458,6 +12467,12 @@ async function sbPull(opts){
       rc.cases[r.cust]=merged; });
     jset('rv_recovery',S.recovery); }
   if(inv.length){ S.invHist=S.invHist||{}; inv.forEach(r=>{ S.invHist[r.sub_id]=r.rows; }); jset('rv_invhist',S.invHist); }
+  if(mev.length){ /* union with whatever this device already had, same key as mergeSync */
+    const em={}; mev.forEach(r=>{ const e=r&&r.data; if(e&&e.id) em[e.t+'|'+e.id]=e; });
+    (S.mrrEvents||[]).forEach(e=>{ if(e&&e.id) em[e.t+'|'+e.id]=e; });
+    S.mrrEvents=Object.values(em).sort((a,b)=>a.t-b.t).slice(-2000);
+    jset('rv_mrrevents', S.mrrEvents);
+    planLedgerMemo={src:null,len:-1,last:null,byId:{},all:[]};   /* the ledger changed — drop the memo */ }
   let syncLast=null, lastFetch=null;
   kv.forEach(r=>{ if(r.k==='stripe_sync_last'){ syncLast=r.v; return; } if(r.k==='lastFetch'){ lastFetch=r.v; return; }
     if(r.k==='settings_shared' && r.v && typeof r.v==='object'){
