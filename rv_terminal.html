@@ -1712,6 +1712,16 @@ const fmtGBP2 = n => new Intl.NumberFormat('en-GB',{style:'currency',currency:'G
 const pct = n => isFinite(n) ? (Math.round(n*10)/10) + '%' : '—';
 const dayKey = ts => new Date(ts).toISOString().slice(0,10);
 const today = () => dayKey(Date.now());
+/* v16.27 — a Discord username as Stripe's checkout captured it can still carry the legacy
+   "#NNNN" discriminator (typed by the member, or pasted from an old profile) even though
+   Discord retired it and the bot's own API calls never return one. Every place that matches
+   a Stripe-captured handle against a bot-reported one has to normalise both sides through
+   THIS, or a member like "Kavabunga#9003" never resolves to "kavabunga" and reads as if no
+   inviter was ever tracked — Louie: "why do these names not pop up then, anoyying". A '#'
+   cannot appear in a real Discord username, so stripping one is always safe, never a false
+   match. */
+const dHandle = s => { let h=String(s||'').trim().toLowerCase(); if(h[0]==='@') h=h.slice(1);
+  return h.replace(/#\d{1,4}$/, ''); };
 const uid = () => Math.random().toString(36).slice(2,9);
 const D = 86400000;
 function vatEstimate(){
@@ -1854,7 +1864,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.26';
+const BUILD = 'v16.27';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3187,7 +3197,7 @@ function compute(){
       const live=list.some(x=>x.status==='active'||x.status==='past_due');
       const created=list.map(x=>x.created).filter(isFinite);
       const hx=list.find(x=>isHandle(x));
-      if(hx){ const h=String(nameOf(hx)).toLowerCase();          /* a username, or the Discord id when the checkout captured the id */
+      if(hx){ const h=dHandle(nameOf(hx));          /* a username, or the Discord id when the checkout captured the id */
         if(!hCust[h] || live) hCust[h]=k;
         (hSubs[h]=hSubs[h]||[]).push.apply(hSubs[h], created); }
       /* v16.07: the checkout email is the third key — members with only a billing name still match */
@@ -3195,9 +3205,11 @@ function compute(){
         if(!emCust[e] || live) emCust[e]=k;
         (emSubs[e]=emSubs[e]||[]).push.apply(emSubs[e], created); });
     });
-    /* which Stripe customer a bot link belongs to: username → Discord id → checkout email */
-    const linkCust=a=>hCust[a[2]] || (a[1]&&hCust[a[1]]) || (a[7]&&emCust[a[7]]) || null;
-    const linkSubs=a=>hSubs[a[2]] || (a[1]&&hSubs[a[1]]) || (a[7]&&emSubs[a[7]]) || null;
+    /* which Stripe customer a bot link belongs to: username → Discord id → checkout email.
+       a[2]/a[1] normalise through dHandle too — bot rows are clean today, but this stays
+       symmetric with the hCust build above so neither side can silently drift apart again. */
+    const linkCust=a=>hCust[dHandle(a[2])] || (a[1]&&hCust[dHandle(a[1])]) || (a[7]&&emCust[a[7]]) || null;
+    const linkSubs=a=>hSubs[dHandle(a[2])] || (a[1]&&hSubs[dHandle(a[1])]) || (a[7]&&emSubs[a[7]]) || null;
     const rows=[]; let anomalies=0, anchoredN=0;
     bl.forEach(a=>{ const lt=Date.parse(a[0]+(String(a[0]).endsWith('Z')?'':'Z'));
       if(!isFinite(lt)) return;
@@ -8694,10 +8706,10 @@ function discordIdMap(){
   try{ ((src&&src.links)||[]).forEach(a=>{ if(!Array.isArray(a)) return;
     const h=(typeof a[2]==='string' && a[2].length>1 && !isId(a[2]))? a[2] : null;
     let id=isId(a[1])? a[1] : null; if(!id) a.forEach(v=>{ if(!id && isId(v)) id=v; });
-    if(h&&id) m[h.toLowerCase()]=id; }); }catch(e){}
+    if(h&&id) m[dHandle(h)]=id; }); }catch(e){}
   _didRef=src; _did=m; return m;
 }
-function discordIdOf(handle){ if(!handle) return null; const m=discordIdMap(); return m[String(handle).trim().toLowerCase()]||null; }
+function discordIdOf(handle){ if(!handle) return null; const m=discordIdMap(); return m[dHandle(handle)]||null; }
 function listExport(rows, kind, fname, csvHead, csvRow){
   /* shared bulk-export: emails / discord handles / discord user ids as plain lists, or the full
      CSV — built for handing a follow-up list to Tom without touching Stripe */
@@ -10360,7 +10372,7 @@ function rewardsView(){
     const t=Date.parse(String(a[0])+'Z')||0; if(!byId[id] || t>byId[id].t) byId[id]={t, u:a[2]||'', tier:a[3]||'', tag:(a[6]==null? -1 : a[6])}; });
   const subById={}, subByName={};
   (S.subs||[]).forEach(x=>{ const d=x.duser? String(x.duser).trim():''; if(!d) return;
-    if(/^\d{15,}$/.test(d)) (subById[d]=subById[d]||[]).push(x); else (subByName[d.toLowerCase()]=subByName[d.toLowerCase()]||[]).push(x); });
+    if(/^\d{15,}$/.test(d)) (subById[d]=subById[d]||[]).push(x); else (subByName[dHandle(d)]=subByName[dHandle(d)]||[]).push(x); });
   const live=x=>x.status==='active'||x.status==='past_due';
   const byM={};
   succ.slice().sort((a,b)=>a.t-b.t).forEach(e=>{
@@ -10373,7 +10385,7 @@ function rewardsView(){
   const rows=[];
   ids.forEach(id=>{
     const lk=byId[id]||null, m=byM[id]||null;
-    const subs=subById[id]||(lk&&lk.u? subByName[String(lk.u).toLowerCase()] : null)||[];
+    const subs=subById[id]||(lk&&lk.u? subByName[dHandle(lk.u)] : null)||[];
     const cur=subs.filter(live).sort((a,b)=>(b.cpe||0)-(a.cpe||0))[0]||subs[0]||null;
     const paidT=lk? lk.t : (cur? stripeStartOf(cur) : null);
     const recent=!!(paidT && paidT>=since);
