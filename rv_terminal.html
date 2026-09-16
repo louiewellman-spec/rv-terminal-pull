@@ -870,6 +870,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
       </div>
       <div class="chartbox tall"><canvas id="chJoinsNeeded"></canvas></div>
       <div style="overflow-x:auto;margin-top:10px"><table id="jnTable"><thead></thead><tbody></tbody></table></div>
+      <div style="overflow-x:auto;margin-top:14px"><table id="jnLadder"><thead></thead><tbody></tbody></table></div>
       <div class="sn" id="jnNote" style="margin-top:8px"></div>
       <div class="empty" id="jnEmpty" style="display:none">Needs subscription history — refresh data first.</div>
     </div>
@@ -1864,7 +1865,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.27';
+const BUILD = 'v16.28';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -7854,46 +7855,61 @@ function drawJoinsNeeded(){
   if(empty) empty.style.display='none';
   const labs=R.weeks.map(w=>{ const d=new Date(w.end+'T00:00:00Z');
     return d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}); });
-  const line=(label,v,col,dash)=>({label, type:'line', data:labs.map(()=>v), borderColor:col,
-    borderDash:dash, borderWidth:1.5, pointRadius:0, noGlow:true, order:0});
   const N=R.needed;
+  /* v16.28: the chart carries ONLY what actually varies week to week — the cancel bars and
+     their range — plus one reference line for the join rate being run right now. The old
+     version drew four more dashed constants on top. "Hold flat" was the worst of them:
+     N.flat IS the mean of these same bars (see baseWk in joinsNeeded), so it drew the bars'
+     own average back over the bars. The growth targets are thresholds, not time series —
+     constants plotted against time invite a reader to look for a slope that cannot exist,
+     and four of them inside 8 units of a 50-unit axis just read as one thick smudge.
+     They belong in the ladder below, where the comparison they want is the one on offer. */
   const ds=[
     {label:'Cancels · likely range', data:R.weeks.map(w=>w.high), backgroundColor:rgbaOf(PAL.bad,.14),
       borderColor:rgbaOf(PAL.bad,.28), borderWidth:1, pointRadius:0, type:'line', fill:'+1', order:4},
-    {label:'range low', data:R.weeks.map(w=>w.low), borderColor:rgbaOf(PAL.bad,.28), borderWidth:1,
+    {label:'', data:R.weeks.map(w=>w.low), borderColor:rgbaOf(PAL.bad,.28), borderWidth:1,
       pointRadius:0, type:'line', order:4},
-    {label:'Cancels projected', data:R.weeks.map(w=>w.base), backgroundColor:rgbaOf(PAL.bad,.62),
+    {label:'Leaving each week', data:R.weeks.map(w=>w.base), backgroundColor:rgbaOf(PAL.bad,.62),
       borderRadius:3, type:'bar', order:3},
-    line('Hold flat', N.flat, rgbaOf(PAL.muted,.85), [5,4]),
-    line('+£1,000 MRR/mo', N.k1, PAL.accent, [6,4]),
-    line('+5% members/mo', N.g5, PAL.gold, [6,4]),
-    line('+10% members/mo', N.g10, PAL.good, [6,4]),
-    {label:'Your pace now', type:'line', data:labs.map(()=>R.paceWk.d28), borderColor:PAL.gold,
-      borderWidth:2.5, pointRadius:0, noGlow:true, order:1}
+    {label:'Joining each week, at your pace now', type:'line', data:labs.map(()=>R.paceWk.d28),
+      borderColor:PAL.gold, borderWidth:2.5, pointRadius:0, noGlow:true, order:1}
   ];
-  if(N.goal!=null) ds.push(line(N.goalLabel||'Goal', N.goal, PAL.violet, [2,3]));
-  chart('chJoinsNeeded',{type:'bar',data:{labels:labs,datasets:ds},
+  chart('chJoinsNeeded',{type:'bar',data:{labels:labs,datasets:ds,rvMeta:'members per week · next 5 weeks'},
     options:{...op, plugins:{...op.plugins,
-      legend:{...op.plugins.legend, labels:{...op.plugins.legend.labels, filter:it=>it.text!=='range low'}},
+      legend:{...op.plugins.legend, labels:{...op.plugins.legend.labels, filter:it=>!!it.text}},
       tooltip:{...TT, callbacks:{...TT.callbacks, label:c=>{ if(c.raw==null) return null;
-        if(c.dataset.label==='Cancels projected') return 'about '+Math.round(c.raw)+' cancels that week';
+        if(!c.dataset.label) return null;
+        if(c.dataset.label==='Leaving each week') return 'about '+Math.round(c.raw)+' cancels that week';
         if(c.dataset.label==='Cancels · likely range') return 'could be '+R.weeks[c.dataIndex].low+' to '+R.weeks[c.dataIndex].high;
-        if(c.dataset.label==='range low') return null;
-        return c.dataset.label+': '+Math.round(c.raw)+' joins a week'; }}}},
+        return Math.round(c.raw)+' joins a week'; }}}},
       scales:{x:{grid:{display:false},ticks:{color:tickCol}},
         y:{beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol},title:{display:true,text:'per week',color:tickCol}}}}});
 
-  const rows=[['Cancels projected', R.weeks.map(w=>String(w.base))],
-    ['…could be', R.weeks.map(w=>w.low+'–'+w.high)],
-    ['Joins to hold flat', R.weeks.map(()=>String(N.flat))]];
-  if(N.k1!=null) rows.push(['Joins for +£1,000 MRR', R.weeks.map(()=>String(N.k1))]);
-  rows.push(['Joins for +5% members', R.weeks.map(()=>String(N.g5))]);
-  rows.push(['Joins for +10% members', R.weeks.map(()=>String(N.g10))]);
-  if(N.goal!=null) rows.push([esc(N.goalLabel||'Goal'), R.weeks.map(()=>String(N.goal))]);
+  /* Only the two rows that actually change across the five weeks. The four target rows that
+     used to sit here were constants repeated five times each — 20 cells carrying 4 numbers. */
+  const rows=[['Members leaving', R.weeks.map(w=>String(w.base))],
+    ['…could be as many as', R.weeks.map(w=>w.low+'–'+w.high)]];
   const t=document.getElementById('jnTable');
   if(t) t.innerHTML='<thead><tr><th>Week ending</th>'+labs.map(l=>'<th class="num">'+esc(l)+'</th>').join('')+'</tr></thead><tbody>'
     +rows.map((r,i)=>'<tr><td style="color:var(--text)'+(i===0?';font-weight:600':'')+'">'+r[0]+'</td>'
       +r[1].map(v=>'<td class="num">'+v+'</td>').join('')+'</tr>').join('')+'</tbody>';
+
+  /* The ladder: each target, the joins a week it needs, and whether the current pace clears
+     it. This is what the four dashed lines were trying and failing to say on the chart. */
+  const paceNow=Math.round(R.paceWk.d28);
+  const rungs=[['Just replace the members leaving', N.flat]];
+  if(N.k1!=null) rungs.push(['Add £1,000 MRR a month', N.k1]);
+  rungs.push(['Grow members 5% a month', N.g5], ['Grow members 10% a month', N.g10]);
+  if(N.goal!=null) rungs.push([N.goalLabel||'Goal', N.goal]);
+  const lad=document.getElementById('jnLadder');
+  if(lad) lad.innerHTML='<thead><tr><th>What it takes</th><th class="num">Joins a week</th>'
+    +'<th class="num">At '+paceNow+'/wk you are</th></tr></thead><tbody>'
+    +rungs.map(r=>{ const d=paceNow-r[1];
+      const pill=d>=0? '<span class="pill good">'+d+' clear</span>'
+                     : '<span class="pill bad">'+Math.abs(d)+' short</span>';
+      return '<tr><td style="color:var(--text)">'+esc(r[0])+'</td>'
+        +'<td class="num" style="color:var(--text);font-weight:600">'+r[1]+'</td>'
+        +'<td class="num">'+pill+'</td></tr>'; }).join('')+'</tbody>';
 
   const chip=document.getElementById('jnChip');
   if(chip){ const cls=R.status==='below'?'bad':(R.status==='close'?'mid':'good');
@@ -7901,8 +7917,8 @@ function drawJoinsNeeded(){
     chip.innerHTML='<span class="pill '+cls+'" style="font-size:13px">'+Math.round(R.paceWk.d28)+'/wk joining vs '
       +N.flat+' needed · '+word+'</span>'; }
   const pace=document.getElementById('jnPace');
-  if(pace) pace.innerHTML='pace: '+R.paceWk.d7+'/wk over 7 days · '+R.paceWk.d14+' over 14 · <b style="color:var(--text)">'
-    +R.paceWk.d28+' over 28</b>';
+  if(pace) pace.innerHTML='joins a week: <b style="color:var(--text)">'+R.paceWk.d28+'</b> averaged over 28 days'
+    +' <span style="opacity:.75">(last 7 days '+R.paceWk.d7+' · last 14 '+R.paceWk.d14+')</span>';
   const note=document.getElementById('jnNote');
   if(note) note.innerHTML='<b style="color:var(--text)">How this is built:</b> cancels are modelled per <b>tenure week</b>, '
     +'not as one flat churn rate — people leave on renewal days, so the weekly spikes are real and are left in. '
@@ -7912,7 +7928,7 @@ function drawJoinsNeeded(){
     +(R.calibration.factor<1? ' — raw it runs hot' : '')+'. '
     +'<b style="color:var(--text)">Seasonality:</b> ×'+R.seasonal.factor+' ('+esc(R.seasonal.basis)+'). '
     +R.pending+' pending cancellations are spread over the next four weeks, and new joiners are added at the current pace so their week-4 renewal shows up. '
-    +'Joins-needed lines assume ARPU of £'+R.arpu+'.';
+    +'The joins-a-week targets assume ARPU of £'+R.arpu+'.';
 }
 
 /* ===================== WEEKLY FORECAST =====================
