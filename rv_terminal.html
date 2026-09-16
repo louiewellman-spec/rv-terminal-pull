@@ -1865,7 +1865,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.29';
+const BUILD = 'v16.30';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3075,6 +3075,13 @@ function compute(){
     if(any) rcLiveInfo[k]={mon:Math.round(mon*100)/100, disc:Math.round(disc*100)/100};
     if(lastPaid||lastEnd) rcCloseAt[k]={paidAt:lastPaid||null, endedAt:lastEnd||null};
   });
+  /* Recovery log rows are keyed by whatever id was canonical WHEN THEY WERE WRITTEN, and
+     custKey() collapses a returning member's several Stripe customer records into one of
+     them — so a row can hold an id that is no longer the group's key. Index every raw id
+     in the group as well (canonical wins, set above). Without this 57 of 174 rows could
+     not be resolved at all and silently kept their noticed-at stamp. */
+  Object.keys(cmap).forEach(k=>{ const v=rcCloseAt[k]; if(!v) return;
+    cmap[k].forEach(x=>{ if(x.cust && !rcCloseAt[x.cust]) rcCloseAt[x.cust]=v; }); });
   const rcOpenPD = livePD.filter(s=>s.status==='past_due').map(x=>{
     /* failedAt: the open invoice date when we have it; for a brand-new sub the creation
        date is the failure date; for an OLD sub with no invoice record, sub-creation is
@@ -9320,12 +9327,18 @@ function rcPriorDms(cust){ let n=0, last=0;
    in that case the close is bounded to the end of the dunning window and flagged
    inexact rather than silently reported as precise. */
 const RC_DUN=40*D;
-function rcCloseTime(outcome, opened, ca, now){
+function rcCloseTime(outcome, opened, ca, now, had){
   ca=ca||{};
+  if(!opened) return {t:null, exact:false};
   const raw=(outcome==='lost')? ca.endedAt : ca.paidAt;
-  if(!raw || !opened) return {t:null, exact:false};
-  if(raw<=opened) return {t:null, exact:false};
-  if(raw<=opened+RC_DUN) return {t:Math.min(raw, now), exact:true};
+  if(raw && raw>opened) return raw<=opened+RC_DUN
+    ? {t:Math.min(raw, now), exact:true}
+    : {t:Math.min(opened+RC_DUN, now), exact:false};
+  /* Nothing in the data pins the exact moment. Leaving the existing stamp is not neutral —
+     that stamp is the page load that noticed, which can be months after the fact. Stripe
+     never duns beyond ~5 weeks, so the case demonstrably ended inside that window: keep an
+     existing stamp only if it is already inside it, otherwise bound it. Marked inexact. */
+  if(had && had>opened && had<=opened+RC_DUN) return {t:had, exact:false};
   return {t:Math.min(opened+RC_DUN, now), exact:false};
 }
 function rcMaintain(m){
@@ -9348,7 +9361,7 @@ function rcMaintain(m){
      row as already considered (1 exact, 2 bounded to the dunning window, 0 nothing in the
      data to go on) so this costs one pass, once, and never churns the log afterwards. */
   rc.log.forEach(l=>{ if(l.cAt!=null) return;
-    const ct=rcCloseTime(l.outcome, l.opened, (rd.closeAt||{})[l.cust], now);
+    const ct=rcCloseTime(l.outcome, l.opened, (rd.closeAt||{})[l.cust], now, l.closed);
     if(ct.t){ l.closed=ct.t; l.cAt=ct.exact?1:2; } else l.cAt=0;
     dirty=true; });
   const open={};
@@ -9391,7 +9404,7 @@ function rcMaintain(m){
        that resolved while the terminal was shut got stamped with the moment it was next
        opened. 77 of 174 rows shared one timestamp before this fix, and 46% of the headline
        "recovered in 30 days" was manufactured by a single page load. */
-    const ct=rcCloseTime(outcome, c.opened, (rd.closeAt||{})[k], now);
+    const ct=rcCloseTime(outcome, c.opened, (rd.closeAt||{})[k], now, null);
     rc.log.push({cust:k, name:c.name, bn:c.bn, tier:c.tier, mrr:info? info.mon : c.mrr, kind:'pd',
       opened:c.opened, closed:ct.t||now, cAt:ct.t? (ct.exact?1:2) : 0,
       outcome, res:c.res||null, dms:c.dms||[], offers:c.offers||[]});
