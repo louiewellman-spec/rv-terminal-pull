@@ -1865,7 +1865,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.28';
+const BUILD = 'v16.29';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3063,11 +3063,17 @@ function compute(){
      once a sub cancels it is Cancels-page territory and the case closes as lost. */
   /* liveInfo per customer: live £/mo + current discount £ — the close-time evidence that
      separates "card paid" from "took a retention offer" (discount appeared / price dropped) */
-  const rcLiveInfo={};
-  Object.keys(cmap).forEach(k=>{ let mon=0, disc=0, any=false;
+  const rcLiveInfo={}, rcCloseAt={};
+  /* v16.29: when a recovery case ENDS, in real time. A save ends when their card actually
+     paid (latestPaidAt); a loss ends when the sub actually ended (canceled). Without these
+     rcMaintain had nothing to stamp a close with except Date.now() — see the note there. */
+  Object.keys(cmap).forEach(k=>{ let mon=0, disc=0, any=false, lastPaid=0, lastEnd=0;
     cmap[k].forEach(x=>{ const live=paidAt(x,now);
-      if(live){ any=true; mon+=x.monthly; disc+=(x.fo||0)+(x.ro||0); } });
+      if(live){ any=true; mon+=x.monthly; disc+=(x.fo||0)+(x.ro||0); }
+      if(x.latestPaidAt && x.latestPaidAt<=now) lastPaid=Math.max(lastPaid, x.latestPaidAt);
+      if(x.canceled && x.canceled<=now) lastEnd=Math.max(lastEnd, x.canceled); });
     if(any) rcLiveInfo[k]={mon:Math.round(mon*100)/100, disc:Math.round(disc*100)/100};
+    if(lastPaid||lastEnd) rcCloseAt[k]={paidAt:lastPaid||null, endedAt:lastEnd||null};
   });
   const rcOpenPD = livePD.filter(s=>s.status==='past_due').map(x=>{
     /* failedAt: the open invoice date when we have it; for a brand-new sub the creation
@@ -3112,7 +3118,7 @@ function compute(){
       mrr:Math.round(inM.reduce((a,x)=>a+(x.mrr||0),0)),
       backPct: now-e>=60*D && inM.length>=5? Math.round(inM.filter(x=>x.back).length/inM.length*100) : null,
       partial:hm===0}); }
-  const recoveryData = {openPD:rcOpenPD, liveInfo:rcLiveInfo,
+  const recoveryData = {openPD:rcOpenPD, liveInfo:rcLiveInfo, closeAt:rcCloseAt,
     hist:{ all:pfEvents.length, mrrLost:Math.round(pfEvents.reduce((a,x)=>a+(x.mrr||0),0)),
       mature:pfMature.length, back:pfBackE.length,
       b30:pfMature.filter(e=>e.back && e.days<=30).length,
@@ -9308,6 +9314,20 @@ function rcPriorDms(cust){ let n=0, last=0;
   (((S.recovery||{}).log)||[]).forEach(l=>{ if(l.cust!==cust) return; const d=(l.dms||[]).length; n+=d;
     (l.dms||[]).forEach(t=>{ if(t>last) last=t; }); });
   return {n, last}; }
+/* The real-world moment a recovery case ended, NOT the moment this code noticed it.
+   Returns {t, exact}. Stripe never duns longer than ~5 weeks, so a payment later than
+   40 days after the case opened is a subsequent RENEWAL, not the save that closed it —
+   in that case the close is bounded to the end of the dunning window and flagged
+   inexact rather than silently reported as precise. */
+const RC_DUN=40*D;
+function rcCloseTime(outcome, opened, ca, now){
+  ca=ca||{};
+  const raw=(outcome==='lost')? ca.endedAt : ca.paidAt;
+  if(!raw || !opened) return {t:null, exact:false};
+  if(raw<=opened) return {t:null, exact:false};
+  if(raw<=opened+RC_DUN) return {t:Math.min(raw, now), exact:true};
+  return {t:Math.min(opened+RC_DUN, now), exact:false};
+}
 function rcMaintain(m){
   /* keep the case ledger in sync with reality: open a case for every live failure,
      close it (recovered/lost) the moment the data says it is over. DM marks survive
@@ -9324,6 +9344,13 @@ function rcMaintain(m){
     for(let i=rc.log.length-1;i>=0;i--){ const l=rc.log[i], key=l.cust+'|'+dayKey(l.opened||0);
       if(seenD[key]){ dirty=true; continue; } seenD[key]=1; keep.unshift(l); }
     rc.log=keep; }
+  /* one-time backfill: re-derive `closed` for every row written before v16.29. cAt marks a
+     row as already considered (1 exact, 2 bounded to the dunning window, 0 nothing in the
+     data to go on) so this costs one pass, once, and never churns the log afterwards. */
+  rc.log.forEach(l=>{ if(l.cAt!=null) return;
+    const ct=rcCloseTime(l.outcome, l.opened, (rd.closeAt||{})[l.cust], now);
+    if(ct.t){ l.closed=ct.t; l.cAt=ct.exact?1:2; } else l.cAt=0;
+    dirty=true; });
   const open={};
   rd.openPD.forEach(r=>{ open[r.cust]=r; });
   Object.keys(open).forEach(k=>{ const r=open[k]; const c=rc.cases[k];
@@ -9360,8 +9387,14 @@ function rcMaintain(m){
     /* replace, never duplicate: clear any earlier rows for this member's same saga */
     for(let i=rc.log.length-1;i>=0;i--){ const l=rc.log[i];
       if(l.cust===k && (l.opened===c.opened || (now-l.closed)<14*D)) rc.log.splice(i,1); }
+    /* closed:now was the bug — this function only ever runs in a BROWSER, so every case
+       that resolved while the terminal was shut got stamped with the moment it was next
+       opened. 77 of 174 rows shared one timestamp before this fix, and 46% of the headline
+       "recovered in 30 days" was manufactured by a single page load. */
+    const ct=rcCloseTime(outcome, c.opened, (rd.closeAt||{})[k], now);
     rc.log.push({cust:k, name:c.name, bn:c.bn, tier:c.tier, mrr:info? info.mon : c.mrr, kind:'pd',
-      opened:c.opened, closed:now, outcome, res:c.res||null, dms:c.dms||[], offers:c.offers||[]});
+      opened:c.opened, closed:ct.t||now, cAt:ct.t? (ct.exact?1:2) : 0,
+      outcome, res:c.res||null, dms:c.dms||[], offers:c.offers||[]});
     delete rc.cases[k]; dirty=true;
   });
   if(rc.log.length>500) rc.log=rc.log.slice(-500);
@@ -11447,7 +11480,7 @@ function recoveryForSync(){
      off the synced cases — ~2KB for 25 cases, and the bin is key-protected */
   const pickCase=c=>{ const {opened,kind,dms,offers,stage,nextTry,mrr0,disc0,res,name,bn,email,handle,tier,mrr,invUrl,aff}=c||{}; return {opened,kind,dms:dms||[],offers:offers||[],stage,nextTry,mrr0,disc0,res,name,bn,email,handle,tier,mrr,invUrl,aff:aff||null}; };
   const cases={}; Object.entries(S.recovery.cases||{}).forEach(([id,c])=>{ cases[id]=pickCase(c); });
-  const log=(S.recovery.log||[]).map(l=>{ const {cust,tier,mrr,kind,opened,closed,outcome,res,dms,offers,seed}=l||{}; return {cust,tier,mrr,kind,opened,closed,outcome,res,dms:dms||[],offers:offers||[],seed}; });
+  const log=(S.recovery.log||[]).map(l=>{ const {cust,tier,mrr,kind,opened,closed,cAt,outcome,res,dms,offers,seed}=l||{}; return {cust,tier,mrr,kind,opened,closed,cAt,outcome,res,dms:dms||[],offers:offers||[],seed}; });
   return {cases,log};
 }
 /* gzip→base64 for the bundle's cold blobs (CompressionStream is native in his Chrome) */
