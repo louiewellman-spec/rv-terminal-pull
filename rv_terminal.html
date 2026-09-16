@@ -1865,7 +1865,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.31';
+const BUILD = 'v16.33';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -6101,9 +6101,14 @@ function drawRevenuePage(){
         return x.monthly; };
       /* collection haircut from the live past-due share — the observed slice of renewals that fail and sit unpaid */
       const pdN=m.pastDue||0, collRate=Math.max(.85, Math.min(1, 1-(pdN/Math.max(1,(m.subsCount||0)+pdN))));
-      const perDay={}, perDayN={};
+      const perDay={}, perDayN={}, perDayPast={}, perDayPastN={};
       eligible.forEach(x=>{ const d3=Math.min(anchDay(x), dim);
-        if(d3>today2){ perDay[d3]=(perDay[d3]||0)+expMonthGBP(x); perDayN[d3]=(perDayN[d3]||0)+1; } });
+        if(d3>today2){ perDay[d3]=(perDay[d3]||0)+expMonthGBP(x); perDayN[d3]=(perDayN[d3]||0)+1; }
+        /* v16.32: the same renewal calendar, pointed BACKWARDS. Days already collected had no
+           expectation drawn against them, so a big blue bar and a weak one looked alike — you
+           could see the month was on track without seeing which DAYS carried it. Kept in its
+           own map so schedRem (which feeds the forecast) stays future-only and unchanged. */
+        else { perDayPast[d3]=(perDayPast[d3]||0)+expMonthGBP(x); perDayPastN[d3]=(perDayPastN[d3]||0)+1; } });
       const schedRem=Object.values(perDay).reduce((a,b)=>a+b,0);
       /* new-join £ at the last-14d pace */
       const nd14=(m.newDetail||[]).filter(x=>now2-x.t<14*D);
@@ -6127,13 +6132,22 @@ function drawRevenuePage(){
          (green + blue), the running actual (solid gold) continued by the forecast (dashed gold), and the
          month-start locked forecast's pace (dotted) so forecast against actual is one glance. */
       const bd2=(S.cash&&S.cash.byDay)||null;
-      const labs=[], act=[], bars=[], nline=[], cumA=[], cumF=[], lockL=[]; let runA=0, runF=null;
+      const labs=[], act=[], bars=[], nline=[], cumA=[], cumF=[], lockL=[], ghost=[]; let runA=0, runF=null;
       for(let d4=1; d4<=dim; d4++){ labs.push(String(mo+1).padStart(2,'0')+'-'+String(d4).padStart(2,'0'));
         lockL.push(frozen? Math.round(frozen*d4/dim) : null);
         if(d4<=today2){ const k=dayKey(Date.UTC(yy,mo,d4)); const v=(bd2&&bd2[k])? Math.round((bd2[k].paid||0)-(bd2[k].refunded||0)) : null;
           act.push(v); bars.push(null); nline.push(null);
+          /* v16.33: NO newPerDay here. Copying the green bars' formula was wrong pointed
+             backwards: for a future day newPerDay is joins that have not happened yet, so it
+             is rightly added on top of the scheduled renewals of members who already exist.
+             For a day already gone those joins HAVE happened, which means they are in
+             `eligible` and already counted on their own anchor day in perDayPast — adding
+             the pace again counted every one of them twice. It also put a flat ~£188 handicap
+             on every single past day, which is why the tally read 0 of 16 days beaten: that
+             was not underperformance, it was a constant added to the target. */
+          ghost.push(Math.round((perDayPast[d4]||0)*collRate));
           if(v!=null) runA+=v; cumA.push(bd2? Math.round(runA) : (d4===today2? Math.round(mtd) : null)); cumF.push(d4===today2? Math.round(bd2? runA : mtd) : null); }
-        else { const v=(perDay[d4]||0)*collRate; act.push(null); bars.push(Math.round(v+newPerDay)); nline.push(Math.round(newPerDay));
+        else { const v=(perDay[d4]||0)*collRate; act.push(null); bars.push(Math.round(v+newPerDay)); nline.push(Math.round(newPerDay)); ghost.push(null);
           if(runF==null) runF=(bd2? runA : mtd); runF+=v+newPerDay; cumA.push(null); cumF.push(Math.round(runF)); } }
       if(labs.length){
         chart('chCashFc',{type:'bar',data:{labels:labs,datasets:[
@@ -6145,14 +6159,25 @@ function drawRevenuePage(){
           {label:'Expected',data:bars,backgroundColor:rgbaOf(PAL.good,.5),borderRadius:2,stack:'c',order:3},
           {label:'Collected · running total',type:'line',data:cumA,borderColor:PAL.gold,borderWidth:2.5,pointRadius:cumA.map((v,i)=>(v!=null&&i===today2-1)?4:0),pointBackgroundColor:PAL.gold,tension:.2,spanGaps:true,yAxisID:'y2',noGlow:true,order:1},
           {label:'…on track to finish',type:'line',data:cumF,borderColor:rgbaOf(PAL.gold,.55),borderDash:[6,4],borderWidth:2,pointRadius:0,tension:.2,spanGaps:true,yAxisID:'y2',noGlow:true,order:1},
-          {label:'Month-start forecast',type:'line',data:lockL,borderColor:rgbaOf(PAL.muted,.9),borderDash:[5,4],borderWidth:2,pointRadius:0,yAxisID:'y2',noGlow:true,order:2}
+          {label:'Month-start forecast',type:'line',data:lockL,borderColor:rgbaOf(PAL.muted,.9),borderDash:[5,4],borderWidth:2,pointRadius:0,yAxisID:'y2',noGlow:true,order:2},
+          /* A stepped line rather than a fourth bar: bars in Chart.js sit BESIDE each other,
+             never behind, and a day you want to read as one quantity should not become two
+             columns. Stepped-middle holds each day's level flat across its own bar, so the
+             blue standing above the line is the day beating it. */
+          {label:'Expected that day',type:'line',data:ghost,stepped:'middle',borderColor:rgbaOf(PAL.muted,.95),
+            borderDash:[4,3],borderWidth:1.5,pointRadius:0,fill:false,spanGaps:false,noGlow:true,order:0}
         ]},options:{...op,plugins:{...op.plugins,legend:{...op.plugins.legend,labels:{...op.plugins.legend.labels,filter:it=>!(it.text==='Month-start forecast'&&!frozen)}},tooltip:{...TT,callbacks:{...TT.callbacks,
           label:c=>{ if(c.raw==null) return null; const d5=c.dataIndex+1;
-            if(c.datasetIndex===0) return 'collected: £'+c.raw.toLocaleString();
+            if(c.datasetIndex===0){ const g=ghost[c.dataIndex];
+              if(g==null) return 'collected: £'+c.raw.toLocaleString();
+              const dv=Math.round(c.raw-g);
+              return 'collected: £'+c.raw.toLocaleString()+' — '+(dv>=0? 'beat the day by £'+dv.toLocaleString() : 'short of the day by £'+Math.abs(dv).toLocaleString()); }
             if(c.datasetIndex===1){ const n=perDayN[d5]||0, nj=Math.round(newPerDay);
               return '£'+c.raw.toLocaleString()+' expected — '+n+' renewal'+(n===1?'':'s')+' plus ~£'+nj.toLocaleString()+' new joins'; }
             if(c.datasetIndex===2) return 'collected so far: £'+c.raw.toLocaleString();
             if(c.datasetIndex===3) return 'on track to finish: £'+c.raw.toLocaleString();
+            if(c.datasetIndex===5){ const n2=perDayPastN[d5]||0;
+              return 'expected that day: £'+c.raw.toLocaleString()+' — '+n2+' renewal'+(n2===1?'':'s')+' plus new joins'; }
             return 'month-start forecast said: £'+c.raw.toLocaleString(); }}}},
           scales:{x:{stacked:true,grid:{display:false},ticks:{color:tickCol,autoSkip:true,maxTicksLimit:12}},
             y:{stacked:true,beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol,callback:v=>'£'+Number(v).toLocaleString()}},
@@ -6163,6 +6188,12 @@ function drawRevenuePage(){
       const paceNow = frozen? Math.round(frozen*today2/dim) : null;
       const gotNow  = Math.round(bd2? runA : mtd);
       const gap     = paceNow!=null? gotNow-paceNow : null;
+      /* day-by-day record against the ghost: the month can sit on its overall pace while most
+         individual days miss and one big renewal day carries it, which is worth knowing */
+      let dBeat=0, dMiss=0, expSoFar=0;
+      for(let i=0;i<ghost.length;i++){ const g=ghost[i], a=act[i];
+        if(g==null||a==null) continue; expSoFar+=g; if(a>=g) dBeat++; else dMiss++; }
+      const dTot=dBeat+dMiss, expRound=Math.round(expSoFar), dayGap=gotNow-expRound;
       setH('cfNote',
         (gap!=null
           ? '<b style="color:var(--text)">Forecast vs collected:</b> the month-start forecast said '+fmtGBP(paceNow)
@@ -6170,9 +6201,15 @@ function drawRevenuePage(){
             +(gap>=0?'gtx gtx-green':'gtx gtx-red')+'">'+(gap>=0?'ahead by ':'behind by ')+fmtGBP(Math.abs(gap))+'</b>'
             +'. On the renewal calendar it finishes at '+fmtGBP(Math.round(fc))+' against a forecast of '+fmtGBP(Math.round(frozen))+'.'
           : '<b style="color:var(--text)">Cash this month:</b> '+fmtGBP(gotNow)+' collected by day '+today2+', finishing at '+fmtGBP(Math.round(fc))+' on the renewal calendar. No month-start forecast was locked, so there is nothing to grade it against yet.')
-        +'<br><span class="sn"><b>The bars:</b> blue is cash that settled, green is what the renewal calendar expects — every live sub renews on its own anchor day, priced from that member\'s recent invoices, so legacy prices, discounts and comped months are all in. Hover a day for the split. '
+        +(dTot? '<br><b style="color:var(--text)">Day by day:</b> '+dBeat+' of '+dTot+' days beat what the calendar expected — '
+            +fmtGBP(gotNow)+' against '+fmtGBP(expRound)+', <b class="'
+            +(dayGap>=0?'gtx gtx-green':'gtx gtx-red')+'">'+(dayGap>=0?'ahead by ':'behind by ')+fmtGBP(Math.abs(dayGap))+'</b>.' : '')
+        +'<br><span class="sn"><b>The bars:</b> blue is cash that settled, green is what the renewal calendar expects — every live sub renews on its own anchor day, priced from that member\'s recent invoices, so legacy prices, discounts and comped months are all in. '
         +'<b>The haircut:</b> scheduled £ is cut to '+(Math.round(collRate*1000)/10)+'% (the share currently on failed cards — '+pdN+' payers); pending-cancels and past-dues are left out entirely. New joins run flat at the last-14-days pace, £'+Math.round(newPerDay).toLocaleString()+'/day. '
-        +'This assumes you do nothing — recovering failed cards or saving pending-cancels lands above it.</span>');
+        +'Recovering failed cards or saving pending-cancels lands above it. '
+        +'<b>The dashed step:</b> renewals scheduled for that past day, same haircut — blue above it beat its day. '
+        +'New joins are not added on top: by then they sit in their own day already. '
+        +'Members who have since cancelled drop out, so it reads low.</span>');
     }
   }catch(e){ reportNonFatal('Cash forecast', e); }   /* was silent — a throw here just blanked the panel */
   /* ---- locked forecast vs current expected: the frozen plan against today's projection ---- */
