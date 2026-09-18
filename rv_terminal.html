@@ -1865,7 +1865,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.33';
+const BUILD = 'v16.35';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2028,9 +2028,45 @@ function legacyGrossAt(x,t){
   if(mig<PRICE_MIG_T) mig=Date.UTC(2026,6,Math.min(dNum,31));
   return t<mig? old : null;
 }
+/* v16.34: WHAT THEY ACTUALLY PAID, from invoice history. Before this, any member the
+   plan-change ledger had no event for — and whom legacyGrossAt's June-2026 model did not
+   cover — was priced at TODAY'S rate for their whole history. That is every price this
+   business has ever run other than the June migration: the £18 entry, the £32 rollover
+   test, any individual discount since ended. Measured on live data 18 Sep 2026, it hit
+   248 of 397 paying members at Dec 2025 (59% of that month's reported MRR) and overstated
+   the month by £767 on £10,667. Current MRR was always right, which is exactly why it
+   went unnoticed: the error only grows as you look further back.
+
+   Two rules that matter:
+   · MEDIAN of the window, not the nearest invoice, and zero-value invoices are dropped —
+     a comped month is ~18% of cash here, and MRR must not collapse because someone got a
+     free one. Recurring plan value is the question, not cash collected.
+   · Never used at or after the member's most recent invoice. From there the LIVE
+     subscription price is the truth, so today's headline MRR is untouched by this. */
+const INV_WIN = 45*D;
+function invMrrAt(x,t){
+  const rows=(S.invHist||{})[x&&x.id];
+  if(!rows||!rows.length) return null;
+  const paid=rows.filter(r=>r&&r[2]==='p'&&r[1]>0.005);
+  if(!paid.length) return null;
+  /* v16.35: the "live price wins" guard applies ONLY to a subscription that is still
+     running. For one that has ENDED there is no live price to defer to — x.monthly is just
+     the last cached figure — so its own invoices are the better evidence at any date. The
+     first cut of this guard skipped every churned member whose final invoice landed before
+     the date being asked about, which at Dec 2025 was 107 of 397 payers still priced at
+     today's rate with a real invoice sitting 9-24 days earlier. Active members are still
+     protected, so today's headline MRR is unchanged either way. */
+  const live = x && (x.status==='active' || x.status==='past_due' || x.status==='trialing');
+  if(live && t >= paid[paid.length-1][0]*60000) return null;   /* rows are time-ascending */
+  const win=paid.filter(r=>Math.abs(r[0]*60000-t)<=INV_WIN).map(r=>r[1]).sort((a,b)=>a-b);
+  if(!win.length) return null;
+  return win[Math.floor(win.length/2)];
+}
 function subMrrAt(x,t){
   const ev=planEventsFor(x);
   if(ev.some(e=>e.t>t)) return netPlanAmount(x,subGrossAt(x,t));
+  /* actual invoices outrank both the June-migration MODEL and the today's-price guess */
+  const iv=invMrrAt(x,t); if(iv!=null) return iv;
   if(!ev.length){ const lg=legacyGrossAt(x,t); if(lg!=null) return netPlanAmount(x,lg); }
   return Math.max(0,Number(x&&x.monthly)||0);
 }
