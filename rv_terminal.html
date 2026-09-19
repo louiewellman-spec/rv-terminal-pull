@@ -1313,10 +1313,11 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
   <!-- SUCCESS REWARDS (v16.05): three groups — Complete (post + RV tag, credit added), Watch (one of the two), Nothing (neither → check in, churn risk) -->
   <section class="view" id="v-rewards">
     <div class="sec">Success rewards <span class="tag">post a win in #success wearing the RV tag → 10% off the next renewal, added by the bot · members who do neither are the churn risk</span></div>
-    <div class="grid c4">
+    <div class="grid c5">
       <div class="card clickable" data-seg="done"><h3>Complete · post + tag</h3><div class="big num gtx gtx-green" id="swDoneN">—</div><div class="sn" id="swDoneD"></div></div>
       <div class="card clickable" data-seg="watch"><h3>Watch · one of the two</h3><div class="big num gtx gtx-gold" id="swWatchN">—</div><div class="sn" id="swWatchD"></div></div>
       <div class="card clickable" data-seg="none"><h3>Nothing · check in</h3><div class="big num gtx gtx-red" id="swNoneN">—</div><div class="sn" id="swNoneD"></div></div>
+      <div class="card"><h3>Active subscription</h3><div class="big num gtx gtx-cyan" id="swLiveN">—</div><div class="sn" id="swLiveD"></div></div>
       <div class="card"><h3>10% applied</h3><div class="big num" id="swApplied">—</div><div class="sn" id="swAppliedD"></div></div>
     </div>
     <div class="row" id="swSeg" style="gap:6px;margin:14px 0 8px;flex-wrap:wrap">
@@ -1865,7 +1866,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.35';
+const BUILD = 'v16.36';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10566,14 +10567,28 @@ function drawRewardsPage(){
   document.querySelectorAll('#v-rewards .card[data-seg]').forEach(c=>{ c.onclick=()=>{ swSeg=c.getAttribute('data-seg'); drawRewardsPage(); }; });
   const th=$('swTable').querySelector('thead'), tb=$('swTable').querySelector('tbody');
   if(!v.has){
-    ['swDoneN','swWatchN','swNoneN','swApplied'].forEach(id=>{ $(id).textContent='—'; });
-    ['swDoneD','swWatchD','swNoneD','swAppliedD'].forEach(id=>{ $(id).textContent=''; });
+    ['swDoneN','swWatchN','swNoneN','swLiveN','swApplied'].forEach(id=>{ $(id).textContent='—'; });
+    ['swDoneD','swWatchD','swNoneD','swLiveD','swAppliedD'].forEach(id=>{ $(id).textContent=''; });
     $('swNote').innerHTML='<span class="sn">No success-reward data in this browser yet — it arrives with the next Discord sync (hourly) and the runner\'s next pull (15 min). Press Pull latest after that.</span>';
     th.innerHTML=''; tb.innerHTML=''; return;
   }
   $('swDoneN').textContent=v.done.length; $('swDoneD').textContent=v.doneRecent+' of the '+v.recentN+' who paid '+v.sinceLabel+' ('+pct(v.doneRecent,v.recentN)+') · '+v.done.length+' all time';
   $('swWatchN').textContent=v.watch.length; $('swWatchD').textContent=v.watch.filter(r=>r.post==='held').length+' posted without the tag · '+v.watch.filter(r=>!r.post).length+' wear the tag but never posted';
   $('swNoneN').textContent=v.noneOpen.length; $('swNoneD').textContent=(v.none.length-v.noneOpen.length)+' checked in · '+pct(v.noneOpen.length,v.recentN)+' of recent payers have done neither';
+  /* v16.36: how many of the people on this page are still PAYING. The page is a churn-risk
+     list, so the number that matters is not how many have gone quiet but how many of those
+     are still live — those are the ones there is still something to save. `liveSub` is
+     already on every row (status active or past_due); nothing new is computed here. */
+  const onPage=v.done.concat(v.watch, v.none);
+  const liveAll=onPage.filter(r=>r.liveSub).length;
+  const liveNone=v.noneOpen.filter(r=>r.liveSub).length;
+  const gone=onPage.filter(r=>r.sub && !r.liveSub).length;
+  const unmatched=onPage.filter(r=>!r.sub).length;
+  $('swLiveN').textContent=liveAll;
+  $('swLiveD').innerHTML='of '+onPage.length+' on this page ('+pct(liveAll,onPage.length)+') · <b style="color:var(--text)">'
+    +liveNone+'</b> of them have done neither'
+    +(gone? ' · '+gone+' already cancelled' : '')
+    +(unmatched? ' · '+unmatched+' not matched to Stripe' : '');
   $('swApplied').textContent=pct(v.applied,v.done.length); $('swAppliedD').textContent=v.applied+' of '+v.done.length+' credits on Stripe'+(v.updated? ' · Discord synced '+new Date(v.updated).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'');
   const nextTd=r=> r.nextT? dt(r.nextT)+(r.nextGBP!=null? ' · £'+r.nextGBP:'') : (r.sub? '<span class="sn">no live sub</span>' : '<span class="sn">not matched to Stripe</span>');
   if(swSeg==='done'){
