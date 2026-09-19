@@ -1866,7 +1866,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.36';
+const BUILD = 'v16.37';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10508,9 +10508,21 @@ function rewardsView(){
   const since=Math.max(now-45*D, startT), W=now-since;
   const byId={};                                   /* discord id → latest paid link */
   links.forEach(a=>{ if(!Array.isArray(a)) return; const id=String(a[1]||''); if(!/^\d{15,}$/.test(id)) return;
-    const t=Date.parse(String(a[0])+'Z')||0; if(!byId[id] || t>byId[id].t) byId[id]={t, u:a[2]||'', tier:a[3]||'', tag:(a[6]==null? -1 : a[6])}; });
-  const subById={}, subByName={};
-  (S.subs||[]).forEach(x=>{ const d=x.duser? String(x.duser).trim():''; if(!d) return;
+    const t=Date.parse(String(a[0])+'Z')||0; if(!byId[id] || t>byId[id].t) byId[id]={t, u:a[2]||'', tier:a[3]||'', tag:(a[6]==null? -1 : a[6]), email:String(a[7]||'').trim().toLowerCase()}; });
+  /* v16.37: matching a Discord id to a Stripe sub used to rely on x.duser ALONE, which is
+     empty on 3,710 of 3,753 subs — so this page matched 6 of its 200 members and every
+     other row read "not matched to Stripe" (names and paid dates blank, next charge blank).
+     The bot log already carries each member's EMAIL (a[7] after blNormalize) and Stripe
+     carries cemail, so email is the bridge: 175 of the same 200 on live data. The checkout-
+     session handle maps (the same ones compute() builds for nameOf) pick up a few more. */
+  const subById={}, subByName={}, subByEmail={}, subByHandle={};
+  const hBySub={}, hByCust={};
+  (S.sessions||[]).slice().sort((a,b)=>(b.created||0)-(a.created||0)).forEach(x=>{ if(!x||!x.duser) return;
+    if(x.sub && !hBySub[x.sub]) hBySub[x.sub]=x.duser; if(x.cust && !hByCust[x.cust]) hByCust[x.cust]=x.duser; });
+  (S.subs||[]).forEach(x=>{
+    const e=x.cemail? String(x.cemail).trim().toLowerCase():''; if(e) (subByEmail[e]=subByEmail[e]||[]).push(x);
+    const h=hBySub[x.id]||(x.cust&&hByCust[x.cust])||null; if(h) (subByHandle[dHandle(h)]=subByHandle[dHandle(h)]||[]).push(x);
+    const d=x.duser? String(x.duser).trim():''; if(!d) return;
     if(/^\d{15,}$/.test(d)) (subById[d]=subById[d]||[]).push(x); else (subByName[dHandle(d)]=subByName[dHandle(d)]||[]).push(x); });
   const live=x=>x.status==='active'||x.status==='past_due';
   const byM={};
@@ -10524,7 +10536,8 @@ function rewardsView(){
   const rows=[];
   ids.forEach(id=>{
     const lk=byId[id]||null, m=byM[id]||null;
-    const subs=subById[id]||(lk&&lk.u? subByName[dHandle(lk.u)] : null)||[];
+    const em=(lk&&lk.email)||'', hu=(lk&&lk.u)? dHandle(lk.u) : '';
+    const subs=subById[id]||(em&&subByEmail[em])||(hu&&(subByHandle[hu]||subByName[hu]))||[];
     const cur=subs.filter(live).sort((a,b)=>(b.cpe||0)-(a.cpe||0))[0]||subs[0]||null;
     const paidT=lk? lk.t : (cur? stripeStartOf(cur) : null);
     const recent=!!(paidT && paidT>=since);
@@ -10542,6 +10555,7 @@ function rewardsView(){
       tag, post, postT:m? (m.rewardT||m.heldT) : null, lag:(m&&paidT)? Math.round((m.first-paidT)/D):null, via:(m&&m.via)||'', ack:(m&&m.ack)||'',
       applied:!!(m&&m.applied), by:(m&&m.by)||'', amt:(m&&m.amt)||0,
       nextT:(cur&&live(cur))? (cur.cpe||null) : null, nextGBP:cur? Math.round(cur.monthly||0) : null, sub:!!cur, liveSub:!!(cur&&live(cur)),
+      subStatus:cur? (cur.status||null) : null, subEnd:cur? (cur.canceled||null) : null,
       checked:ck? (ck.done||0) : 0, checkedBy:(ck&&ck.by)||''});
   });
   const done=rows.filter(r=>r.seg==='done').sort((a,b)=>(b.postT||0)-(a.postT||0));
@@ -10590,22 +10604,31 @@ function drawRewardsPage(){
     +(gone? ' · '+gone+' already cancelled' : '')
     +(unmatched? ' · '+unmatched+' not matched to Stripe' : '');
   $('swApplied').textContent=pct(v.applied,v.done.length); $('swAppliedD').textContent=v.applied+' of '+v.done.length+' credits on Stripe'+(v.updated? ' · Discord synced '+new Date(v.updated).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'');
-  const nextTd=r=> r.nextT? dt(r.nextT)+(r.nextGBP!=null? ' · £'+r.nextGBP:'') : (r.sub? '<span class="sn">no live sub</span>' : '<span class="sn">not matched to Stripe</span>');
+  /* v16.37: one Subscription cell per member — ACTIVE / PAST DUE / TRIAL / CANCELLED — so the
+     question "is this person still paying" is answered on the row, not by hovering a date. */
+  const subTd=r=>{
+    if(!r.sub) return '<span class="sn">not matched to Stripe</span>';
+    if(r.subStatus==='trialing') return '<span class="pill mid">TRIAL</span>'+(r.nextT? ' <span class="sn">ends '+dt(r.nextT)+'</span>':'');
+    if(r.liveSub){ const pd=r.subStatus==='past_due';
+      return '<span class="pill '+(pd?'mid':'good')+'">'+(pd?'PAST DUE':'ACTIVE')+'</span>'
+        +(r.nextT? ' <span class="sn">'+(pd?'retrying':'renews')+' '+dt(r.nextT)+(r.nextGBP!=null? ' · £'+r.nextGBP:'')+'</span>':''); }
+    return '<span class="pill bad">CANCELLED</span>'+(r.subEnd? ' <span class="sn">'+dt(r.subEnd)+'</span>':'');
+  };
   if(swSeg==='done'){
     $('swNote').innerHTML='<b style="color:var(--text)">'+v.done.length+'</b> members posted a win wearing the RV tag · newest first';
-    th.innerHTML='<tr><th>Member</th><th>Discord ID</th><th>Paid on</th><th>Posted</th><th>Days to post</th><th>Via</th><th>Ack</th><th>10% credit</th></tr>';
-    tb.innerHTML=v.done.slice(0,120).map(r=>'<tr>'+nameTd(r)+'<td>'+dt(r.paidT)+'</td><td>'+dt(r.postT)+'</td><td class="num">'+(r.lag!=null? r.lag:'—')+'</td><td>'+esc(r.via||'—')+'</td><td>'+esc(r.ack||'—')+'</td>'
+    th.innerHTML='<tr><th>Member</th><th>Discord ID</th><th>Subscription</th><th>Paid on</th><th>Posted</th><th>Days to post</th><th>Via</th><th>Ack</th><th>10% credit</th></tr>';
+    tb.innerHTML=v.done.slice(0,120).map(r=>'<tr>'+nameTd(r)+'<td>'+subTd(r)+'</td><td>'+dt(r.paidT)+'</td><td>'+dt(r.postT)+'</td><td class="num">'+(r.lag!=null? r.lag:'—')+'</td><td>'+esc(r.via||'—')+'</td><td>'+esc(r.ack||'—')+'</td>'
       +'<td>'+(r.applied? '<span class="pill good">APPLIED'+(r.amt? ' £'+r.amt.toFixed(2):'')+'</span>'+(r.by? ' <span class="sn">by '+esc(r.by)+'</span>':'') : '<span class="pill mid">NOT YET ON STRIPE</span>')+'</td></tr>').join('');
   } else if(swSeg==='watch'){
     $('swNote').innerHTML='<b style="color:var(--text)">'+v.watch.length+'</b> did one of the two'+(v.tagKnown? '' : ' · <span style="color:var(--gold)">tag status arrives with the next Discord sync</span>')+' · newest payer first';
-    th.innerHTML='<tr><th>Member</th><th>Discord ID</th><th>Paid on</th><th>Days ago</th><th>Has</th><th>Missing</th><th>RV tag</th><th>Next charge</th><th>Email</th></tr>';
-    tb.innerHTML=v.watch.slice(0,120).map(r=>'<tr>'+nameTd(r)+'<td>'+dt(r.paidT)+'</td><td class="num">'+(r.days!=null? r.days:'—')+'</td>'
+    th.innerHTML='<tr><th>Member</th><th>Discord ID</th><th>Subscription</th><th>Paid on</th><th>Days ago</th><th>Has</th><th>Missing</th><th>RV tag</th><th>Email</th></tr>';
+    tb.innerHTML=v.watch.slice(0,120).map(r=>'<tr>'+nameTd(r)+'<td>'+subTd(r)+'</td><td>'+dt(r.paidT)+'</td><td class="num">'+(r.days!=null? r.days:'—')+'</td>'
       +'<td>'+(r.post==='held'? '<span class="pill mid">POSTED A WIN</span> <span class="sn">'+dt(r.postT)+'</span>' : '<span class="pill mid">RV TAG ON</span>')+'</td>'
-      +'<td>'+(r.post==='held'? 'the RV tag — the credit grants itself once it goes on' : 'a win in #success')+'</td><td>'+tagTd(r)+'</td><td>'+nextTd(r)+'</td><td'+copy(r.email)+'>'+esc(r.email||'—')+'</td></tr>').join('');
+      +'<td>'+(r.post==='held'? 'the RV tag — the credit grants itself once it goes on' : 'a win in #success')+'</td><td>'+tagTd(r)+'</td><td'+copy(r.email)+'>'+esc(r.email||'—')+'</td></tr>').join('');
   } else {
     $('swNote').innerHTML= v.noneOpen.length? '<b style="color:var(--text)">'+v.noneOpen.length+'</b> paid '+v.sinceLabel+' and have done neither · longest silent first · a row leaves when you hit checked in' : '<span class="sn">Everyone who paid '+v.sinceLabel+' has posted a win or put the tag on, or has been checked in.</span>';
-    th.innerHTML='<tr><th>Member</th><th>Discord ID</th><th>Paid on</th><th>Days ago</th><th>Tier</th><th>RV tag</th><th>Next charge</th><th>Email</th><th></th></tr>';
-    tb.innerHTML=v.noneOpen.slice(0,150).map(r=>'<tr>'+nameTd(r)+'<td>'+dt(r.paidT)+'</td><td class="num">'+(r.days!=null? r.days:'—')+'</td><td><span class="pill '+(r.tier==='elite'?'good':'cold')+'">'+esc((r.tier||'?').toUpperCase())+'</span></td><td>'+tagTd(r)+'</td><td>'+nextTd(r)+'</td><td'+copy(r.email)+'>'+esc(r.email||'—')+'</td>'
+    th.innerHTML='<tr><th>Member</th><th>Discord ID</th><th>Subscription</th><th>Paid on</th><th>Days ago</th><th>Tier</th><th>RV tag</th><th>Email</th><th></th></tr>';
+    tb.innerHTML=v.noneOpen.slice(0,150).map(r=>'<tr>'+nameTd(r)+'<td>'+subTd(r)+'</td><td>'+dt(r.paidT)+'</td><td class="num">'+(r.days!=null? r.days:'—')+'</td><td><span class="pill '+(r.tier==='elite'?'good':'cold')+'">'+esc((r.tier||'?').toUpperCase())+'</span></td><td>'+tagTd(r)+'</td><td'+copy(r.email)+'>'+esc(r.email||'—')+'</td>'
       +'<td><button class="btn ghost sm" data-swdone="'+esc(r.id)+'">checked in</button></td></tr>').join('');
     tb.querySelectorAll('[data-swdone]').forEach(b=>{ b.onclick=()=>{ const id=b.getAttribute('data-swdone'); if(!S.rewardChecks) S.rewardChecks={};
       S.rewardChecks[id]={done:Date.now(), by:(S.sb&&S.sb.email)? String(S.sb.email).split('@')[0] : null};
