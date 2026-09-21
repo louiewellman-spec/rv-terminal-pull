@@ -20,7 +20,14 @@ while :; do
     git fetch -q --depth=1 origin main && git reset -q --hard origin/main || say "git refresh failed - using the checkout as is"
   fi
   runs=$((runs+1)); say "pull #$runs"
-  $PULL; rc=$?
+  # v16.38: a tick must never be able to hang the link. On 21 Sep 2026 a Supabase org
+  # transfer left one node process waiting on a request that never returned, and with no
+  # bound on the pull the whole 5h35m link froze in that tick - nothing published for hours
+  # while the browser worked fine. 600s is ~40x a normal tick; a slot missed is far cheaper
+  # than a link lost. (ubuntu runner: coreutils timeout; exit 124 = killed for time.)
+  timeout -k 30 600 $PULL; rc=$?
+  [ $rc -eq 124 ] && say "::warning::pull #$((runs+1)) killed after 600s - hung request"
+
   if [ $rc -eq 0 ]; then say "pull #$runs ok"; else fails=$((fails+1)); say "::warning::pull #$runs failed (exit $rc)"; fi
   # The private repo's own crons (Discord hourly, Revolut 4-hourly) get dropped by GitHub just like
   # this one's did, so the chain kicks them off itself: Discord on the first slot of every hour,
