@@ -1866,7 +1866,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.37';
+const BUILD = 'v16.38';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3459,7 +3459,7 @@ function compute(){
   for(let i=179;i>=0;i--){
     /* each point is that DAY'S CLOSE (today = now), so the last two points are
        "today so far" and "yesterday's close" — which is what /day should mean */
-    mrrSeries.push({d:dayKeyBack(now,i), v:Math.round(mrrAt(subs,dayCloseAt(now,i)))});
+    mrrSeries.push({d:dayKeyBack(now,i), v:Math.round(mrrOnDay(subs, dayCloseAt(now,i), now))});   /* v16.38 */
   }
   /* weekly new vs cancels (12 weeks) */
   const wkFlow=[];
@@ -7502,7 +7502,7 @@ function rpPathChart(st){
     const tick = back? (dom===1) : (dom===1||dom%5===0);
     labels.push(tick? dt.toLocaleDateString('en-GB', back? {month:'short'} : {day:'numeric',month:'short'}) : '');
     fulls.push(dt.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}));
-    const a=dayStart<=now? Math.round(mrrAt(subs, Math.min(now,dayEnd))) : null;
+    const a=dayStart<=now? Math.round(mrrOnDay(subs, dayEnd, now)) : null;   /* v16.38: snapshot where one exists */
     /* split the line so the months before this one read as context, not as the thing being graded */
     actual.push(isCur? a : null);
     prevMonth.push(isCur? (i2===curOffset? a : null) : a);
@@ -10726,6 +10726,23 @@ function mrrProfileAt(p,t){
   if(p.steps){ for(let i=0;i<p.steps.length;i++){ if(p.steps[i].t>t) return p.steps[i].v; } return p.mon; }
   if(p.lu!=null && t<p.lu) return p.lv;
   return p.mon;
+}
+/* v16.38: MRR for a PAST day should be what the terminal actually read that day, not a
+   re-derivation from today's subscriber list. Measured 21 Sep 2026 against the daily
+   snapshots: the reconstruction ran a near-constant +£169 above them on 1-16 Sept and then
+   exactly £0 from the 17th — a fixed set of subs that the live headline was excluding at the
+   time (a scheduled cancel or a pause, later reversed) which leave NO trace on today's sub
+   record, so no reconstruction can know. Stripe agreed with the snapshots (20 Sept: £24,030
+   vs £24,034). So: completed day + snapshot exists → the snapshot; otherwise → mrrAt(). */
+function mrrSnapMap(){
+  const src=S.snapshots||null; if(_msm && _msmRef===src) return _msm;
+  const m={}; (src||[]).forEach(x=>{ if(x&&x.d&&x.mrr!=null&&isFinite(x.mrr)) m[x.d]=Number(x.mrr); });
+  _msmRef=src; _msm=m; return m;
+}
+let _msm=null, _msmRef=null;
+function mrrOnDay(subsArr, dayEnd, now){
+  if(dayEnd < (now==null? Date.now() : now)){ const v=mrrSnapMap()[dayKey(dayEnd)]; if(v!=null) return v; }
+  return mrrAt(subsArr, Math.min(now==null? Date.now() : now, dayEnd));
 }
 function mrrAt(subsArr, t){
   /* v16.00 perf: memo per (array, t). One recompute asks for the same (array, t) pairs many times
