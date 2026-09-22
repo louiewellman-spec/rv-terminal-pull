@@ -640,7 +640,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
     <div class="card"><div class="tfbtns" id="mvTf"><button data-tf="7">7d</button><button data-tf="30">30d</button><button data-tf="60">60d</button><button data-tf="90" class="on">90d</button><button data-tf="180">180d</button><button data-tf="365">1y</button></div>
     <div id="mvRow" style="display:flex;flex-wrap:wrap;gap:26px;margin-top:10px"></div>
       <div class="chartbox" style="height:210px;margin-top:12px"><canvas id="chMove"></canvas></div>
-      <div class="sn" style="margin-top:8px">Numbers and chart both follow the timeframe buttons: daily up to 30d, calendar weeks starting Monday up to 180d, calendar months for 1y, last bucket is the current partial. Green is MRR gained from joins, rejoins and upgrades, red is MRR lost to cancels and downgrades, gold is the net. <b>Upgrades are tracked two ways</b>: the daily refresh diff catches them live, and <b>Pull all-time data backfills the full history from invoice prices</b> — every past upgrade lands on the day it billed.</div></div>
+      <div class="sn" style="margin-top:8px">Numbers and chart both follow the timeframe buttons: daily up to 30d, calendar weeks starting Monday up to 180d, calendar months for 1y, last bucket is the current partial. Green is MRR gained from joins, rejoins and upgrades, red is MRR lost to cancels and downgrades, gold is the net. <b>Upgrades are tracked three ways</b>: the refresh diff catches them live; a member whose last cycle invoice witnessed a different tier from today\'s and has no event since is booked at the proration charge Stripe raised, or at the moment observed; and <b>Pull all-time data backfills the full history from invoice prices</b> — every past upgrade lands on the day it billed.</div></div>
 
     <div class="sec">Reconciliation <span class="tag">check vs stripe dashboard</span></div>
     <div class="card">
@@ -1866,7 +1866,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.41';
+const BUILD = 'v16.42';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -1978,6 +1978,19 @@ function tierOf(name, monthly){
    backwards from today's plan. Without this, every later Pro→Elite expansion is
    incorrectly painted across the member's entire history. */
 let planLedgerMemo={src:null,len:-1,last:null,byId:{},all:[]};
+/* identity of a ledger event, for de-duplication across devices */
+function mrrEventKey(e){ return e? [Math.round(Number(e.t)||0), e.id||'', e.kind||'', e.from!=null? Math.round(Number(e.from)*100) : '', e.to!=null? Math.round(Number(e.to)*100) : ''].join('|') : ''; }
+/* which local events must go to the database: newer than the newest remote one, or — when a
+   backfill has produced historic timestamps and `have` (remote keys) is supplied — anything the
+   remote does not hold. Pure; covered by ledger_push_test.js. */
+function mrrEventsToPush(local, remoteMaxT, have){
+  const seen=new Set(), out=[];
+  (local||[]).forEach(e=>{ if(!e || !Number.isFinite(Number(e.t))) return;
+    const k=mrrEventKey(e); if(seen.has(k)) return; seen.add(k);
+    if(have){ if(!have.has(k)) out.push(e); }
+    else if(Number(e.t)>(remoteMaxT||0)) out.push(e); });
+  return out;
+}
 function planLedger(){
   const src=S.mrrEvents||[], last=src.length?src[src.length-1]:null;
   if(planLedgerMemo.src===src && planLedgerMemo.len===src.length && planLedgerMemo.last===last) return planLedgerMemo;
@@ -2203,7 +2216,7 @@ function harvestPlanChanges(invs){
     if(!ev.length) return;
     const all=(S.mrrEvents||[]).concat(ev).sort((a,b)=>a.t-b.t);
     const out=[]; all.forEach(e=>{ if(!out.some(o=>o.id===e.id && Math.abs(o.t-e.t)<3*D && Math.abs(o.to-e.to)<0.5)) out.push(e); });
-    S.mrrEvents=out.slice(-2000); jset('rv_mrrevents', S.mrrEvents);
+    S.mrrEvents=out.slice(-2000); jset('rv_mrrevents', S.mrrEvents); S._mrrKeyDiff=true;   /* v16.42: historic timestamps need a key-diff push */
   }catch(e){}
 }
 function harvestInvoiceCodes(invs){
@@ -2370,6 +2383,7 @@ async function refresh(){
           S.mrrEvents.push({t:Date.now(), id:n.id, cust:n.cust||null, kind:'resume'}); });
       if(S.mrrEvents.length>2000) S.mrrEvents=S.mrrEvents.slice(-2000);
       jset('rv_mrrevents', S.mrrEvents);
+      window._rvReconcileTiers=true;   /* v16.42: run once the invoice history for this refresh is in */
     }catch(e){}
     S.subs = _newSubs;
     /* slow-lane gate: catalogs (products/promos/coupons) and the deep invoice sweep barely
@@ -2430,6 +2444,16 @@ async function refresh(){
     /* v15.84: the runner is the only thing with a jsonbin key — read the two side bins here so
        the browsers get them through the database */
     if(S.settings.binKey){ try{ window._rvProfit=null; await fetchProfitBin(); }catch(e){} try{ await fetchEmailFlags(true); }catch(e){} }
+    /* v16.42: tier changes the live diff never witnessed. The diff only sees a change that
+       happens between two refreshes of the SAME process; a cold link, a dead link, or (13-22
+       Sep 2026) a push that silently dropped every event leaves a member Elite today with a
+       Pro-priced last cycle invoice and no ledger event to say when. Book it: at the proration
+       charge Stripe raised when the plan changed (latestPaidAt after the last cycle invoice) if
+       there is one, else at the moment it was observed — the same convention the terminal
+       already uses for scheduled cancels and pauses. */
+    try{ if(window._rvReconcileTiers){ window._rvReconcileTiers=false;
+      const add=unobservedTierChanges(S.subs||[], S.invHist||{}, S.mrrEvents||[], Date.now());
+      if(add.length){ S.mrrEvents=(S.mrrEvents||[]).concat(add); if(S.mrrEvents.length>2000) S.mrrEvents=S.mrrEvents.slice(-2000); jset('rv_mrrevents', S.mrrEvents); } } }catch(e){ reportNonFatal('Tier reconcile', e); }
     /* keep the cash-collected card current between deep pulls: re-pull just this month's
        and last month's charges and overwrite those two buckets */
     try{
@@ -3475,7 +3499,7 @@ function compute(){
   for(let i=179;i>=0;i--){
     /* each point is that DAY'S CLOSE (today = now), so the last two points are
        "today so far" and "yesterday's close" — which is what /day should mean */
-    mrrSeries.push({d:dayKeyBack(now,i), v:Math.round(mrrOnDay(subs, dayCloseAt(now,i), now))});   /* v16.38 */
+    mrrSeries.push({d:dayKeyBack(now,i), v:Math.round(mrrOnDay(subs, dayCloseAt(now,i), now, mrr))});   /* v16.38 · v16.42: today = the headline */
   }
   /* weekly new vs cancels (12 weeks) */
   const wkFlow=[];
@@ -7527,7 +7551,7 @@ function rpPathChart(st){
     const tick = back? (dom===1) : (dom===1||dom%5===0);
     labels.push(tick? dt.toLocaleDateString('en-GB', back? {month:'short'} : {day:'numeric',month:'short'}) : '');
     fulls.push(dt.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}));
-    const a=dayStart<=now? Math.round(mrrOnDay(subs, dayEnd, now)) : null;   /* v16.38: snapshot where one exists */
+    const a=dayStart<=now? Math.round(mrrOnDay(subs, dayEnd, now, (lastM&&isFinite(lastM.mrr))? lastM.mrr : null)) : null;   /* v16.38 snapshot first · v16.42 today = headline */
     /* split the line so the months before this one read as context, not as the thing being graded */
     actual.push(isCur? a : null);
     prevMonth.push(isCur? (i2===curOffset? a : null) : a);
@@ -10328,7 +10352,7 @@ window.addEventListener('error', e=>{ try{ status('js error: '+(e.message||'unkn
 window.addEventListener('unhandledrejection', e=>{ try{ status('request error: '+((e.reason&&e.reason.message)||'unknown'),'err'); }catch(_){} });
 document.getElementById('cardChurn').onclick = ()=>{ seriesModal('Churn % · stripe subscriber churn rate · trailing 30d', (arr,t)=>{ const v=churnStripeAt(arr,t); return isFinite(v)? Math.round(v*10)/10 : null; }, v=>v+'%', {ma:true}); };
 document.getElementById('cardLTV').onclick = ()=>{ seriesModal('Expected LTV trend £ · arpu ÷ churn — the forward-looking estimate, NOT the actual £ on the card; it swings when churn wobbles, read the shape not the level', (arr,t)=>{ const a=activeAt(arr,t); if(!a) return null; const arpu=mrrAt(arr,t)/a; const ch=churnStripeAt(arr,t); return (isFinite(ch)&&ch>0)? Math.round(arpu/(ch/100)) : null; }, v=>'£'+v, {ma:true}); };
-document.getElementById('cardMRR').onclick = ()=>{ seriesModal('MRR £', (arr,t)=>Math.round(mrrOnDay(arr,t,Date.now())), v=>'£'+Number(v).toLocaleString(), {ma:true}); };   /* v16.40: snapshot where one exists (t is a day close, or now) */
+document.getElementById('cardMRR').onclick = ()=>{ seriesModal('MRR £', (arr,t)=>Math.round(mrrOnDay(arr,t,Date.now(),(lastM&&isFinite(lastM.mrr))? lastM.mrr : null)), v=>'£'+Number(v).toLocaleString(), {ma:true}); };   /* v16.40 snapshot first · v16.42 today = headline */
 document.getElementById('cardCashToday').onclick = ()=>cashDailyModal(60);
 /* v15.04: the daily cash modal, rebuilt. Solid bars (weekends dimmed, today gold and partial), a 7-day
    average line as the real signal, Monday-only date ticks, a stat strip and last-four-weeks chips. */
@@ -10738,8 +10762,36 @@ function dayKeyBack(now, i){
    WHICH TIER the member was on (an amount at or above £45 is Elite) — and the price for that
    tier comes from the plan, never from the amount paid: pricing from cash collected turned the
    £18 entry month and the £1 win-back arm into MRR and under-counted August by £1,400. */
-const ELITE_MIN_INV=45;
 function tierPriceAt(tier, t, mig){ const pre = mig!=null && t<mig; return tier==='elite'? (pre?50:60) : (pre?25:28); }
+/* Which tier does a paid invoice amount witness for THIS member? Compare it to the member's own
+   expected net for each tier (their forever/repeating discounts applied), take the nearer, and
+   refuse to answer when the amount is more than 35% off both — a one-off coupon month says
+   nothing about tier. A flat £45 threshold (v16.41) read a 50%-off Elite as Pro. */
+function invTierFor(x, amt){
+  const ne=netPlanAmount(x,60), np=netPlanAmount(x,28);
+  const de=Math.abs(amt-ne), dp=Math.abs(amt-np), best=Math.min(de,dp), ref=de<dp? ne : np;
+  if(best>0.35*Math.max(1,ref)) return null;
+  return de<dp? 'elite' : 'pro';
+}
+const tierNow = x => (typeof tOf==='function'? tOf(x) : (Number(x&&x.monthly)>=45? 'elite':'pro'));
+/* live members whose last classifiable cycle invoice witnessed a different tier from today's, with
+   no ledger event since that invoice → one 'obs' event each. Pure; covered by ledger_push_test.js. */
+function unobservedTierChanges(subs, invHist, events, now){
+  const evBy={}; (events||[]).forEach(e=>{ if(e&&e.id&&e.from!=null) (evBy[e.id]=evBy[e.id]||[]).push(e); });
+  const out=[];
+  (subs||[]).forEach(x=>{
+    if(!x||!x.id||!(x.status==='active'||x.status==='past_due')) return;
+    const rows=((invHist||{})[x.id]||[]).filter(r=>r&&r[2]==='p'&&r[1]>0.005);
+    let last=null; for(let i=rows.length-1;i>=0;i--){ const tr=invTierFor(x, rows[i][1]); if(tr){ last={tier:tr, t:rows[i][0]*60000}; break; } }
+    if(!last) return;
+    const nowT=tierNow(x); if(last.tier===nowT) return;
+    if((evBy[x.id]||[]).some(e=>Number(e.t)>last.t)) return;
+    const lp=Number(x.latestPaidAt)||0;
+    const t=(lp>last.t+3600000 && lp<=now)? lp : now;
+    out.push({t, id:x.id, cust:x.cust||null, from:Math.round(netPlanAmount(x, last.tier==='elite'?60:28)*100)/100, to:Math.round((Number(x.monthly)||0)*100)/100, src:'obs'});
+  });
+  return out;
+}
 function mrrProfile(x){
   if(!hasFirstPayment(x)) return null;
   const s=stripeStartOf(x); if(s==null) return null;
@@ -10757,16 +10809,18 @@ function mrrProfile(x){
       mig=Math.min(mig, PRICE_MIG_T+32*D); } }
   /* tier changes witnessed by invoices, oldest first */
   const rows=((S.invHist||{})[x&&x.id]||[]).filter(r=>r&&r[2]==='p'&&r[1]>0.005);
-  const todayTier = g>=ELITE_MIN_INV? 'elite' : 'pro';
+  const todayTier = tierNow(x);
   const steps=[];
-  if(rows.length){
-    let tier=rows[0][1]>=ELITE_MIN_INV? 'elite':'pro';
+  /* v16.42: classify each invoice against the member's own expected nets; skip the unclassifiable */
+  const cls=rows.map(r=>({t:r[0]*60000, tier:invTierFor(x, r[1])})).filter(r=>r.tier);
+  if(cls.length){
+    let tier=cls[0].tier;
     const t0=tier;
-    for(let i=1;i<rows.length;i++){ const tr=rows[i][1]>=ELITE_MIN_INV? 'elite':'pro';
-      if(tr!==tier){ const at=rows[i][0]*60000; steps.push({t:at, v:netPlanAmount(x, tierPriceAt(tier, at, mig))}); tier=tr; } }
-    /* invoices never reached today's tier (a churned member's cached price, or a change since the
-       last invoice): the earlier tier held for the whole observed life */
-    if(tier!==todayTier) steps.push({t:Infinity, v:netPlanAmount(x, tierPriceAt(tier, e||Date.now(), mig))});
+    for(let i=1;i<cls.length;i++){ const tr=cls[i].tier;
+      if(tr!==tier){ const at=cls[i].t; steps.push({t:at, v:netPlanAmount(x, tierPriceAt(tier, at, mig))}); tier=tr; } }
+    /* invoices never reached today's tier: the earlier tier held until the member ended, or — for a
+       live member — until now (the 'obs' reconcile books the dated event; this is the fallback) */
+    if(tier!==todayTier){ const until=e||Date.now(); steps.push({t:until, v:netPlanAmount(x, tierPriceAt(tier, until-1, mig))}); }
     /* the first segment may straddle the June migration: split it at the migration date */
     if(mig!=null && steps.length && steps[0].t>mig && t0===todayTier){ steps.unshift({t:mig, v:netPlanAmount(x, tierPriceAt(t0, mig-1, mig))}); }
     else if(mig!=null && steps.length && steps[0].t>mig){ steps.unshift({t:mig, v:netPlanAmount(x, tierPriceAt(t0, mig-1, mig))}); }
@@ -10793,9 +10847,13 @@ function mrrSnapMap(){
   _msmRef=src; _msm=m; return m;
 }
 let _msm=null, _msmRef=null;
-function mrrOnDay(subsArr, dayEnd, now){
-  if(dayEnd < (now==null? Date.now() : now)){ const v=mrrSnapMap()[dayKey(dayEnd)]; if(v!=null) return v; }
-  return mrrAt(subsArr, Math.min(now==null? Date.now() : now, dayEnd));
+function mrrOnDay(subsArr, dayEnd, now, liveVal){
+  const n=(now==null? Date.now() : now);
+  if(dayEnd < n){ const v=mrrSnapMap()[dayKey(dayEnd)]; if(v!=null) return v; }
+  /* v16.42: TODAY is the live headline, not a reconstruction of it — the Reports chart read
+     £24,082 under a header saying £24,378 for the same instant */
+  else if(liveVal!=null && isFinite(liveVal)) return liveVal;
+  return mrrAt(subsArr, Math.min(n, dayEnd));
 }
 function mrrAt(subsArr, t){
   /* v16.00 perf: memo per (array, t). One recompute asks for the same (array, t) pairs many times
@@ -12665,19 +12723,29 @@ async function sbPush(){
       sbStatusMsg('pushing '+table+' · '+Math.min(i+500,rows.length)+'/'+rows.length);
     }
   }
-  /* append-only tables: only send what is not already up there */
+  /* append-only tables: only send what is not already up there.
+     v16.42: BY CONTENT, NOT BY INDEX. The old rule pushed local rows beyond the remote COUNT,
+     which assumes local ⊇ remote in the same order. The local ledger is capped at 2000 and the
+     remote had grown to 2,279 rows for 767 unique events (the same rule had been pushing
+     duplicates), so 2,279 > 767 meant NOTHING was pushed from 13 Sep 2026 on — every upgrade
+     the runner detected died with its link. Louie's seven Pro→Elite upgrades on 22 Sep never
+     reached the database. Now: anything newer than the newest remote event goes up, and a
+     backfill (historic timestamps) asks for a key-diff instead. */
   const ev=(S.mrrEvents||[]);
   if(ev.length){
-    const haveN=await sbCount('rv_mrr_events');
-    if(haveN<ev.length){
-      const rows=ev.map(x=>({owner:uid, t:new Date(x&&x.t? x.t : (Array.isArray(x)? x[0]:0)).toISOString(), data:x}))
-        .filter(r=>r.t && r.t>'1971');
-      for(let i=haveN>0? haveN:0; i<rows.length; i+=500){
+    let remoteMax=0; try{ const r=await sbRest('rv_mrr_events?select=t&order=t.desc&limit=1'); remoteMax=(r&&r[0]&&Date.parse(r[0].t))||0; }catch(e){ remoteMax=0; }
+    let have=null;
+    if(S._mrrKeyDiff){ try{ const r=await sbRest('rv_mrr_events?select=data&limit=5000'); have=new Set((r||[]).map(x=>mrrEventKey(typeof x.data==='string'? JSON.parse(x.data) : x.data))); }catch(e){ have=null; } }
+    const fresh=mrrEventsToPush(ev, remoteMax, have);
+    if(fresh.length){
+      const rows=fresh.map(x=>({owner:uid, t:new Date(x.t).toISOString(), data:x}));
+      for(let i=0;i<rows.length;i+=500){
         await sbRest('rv_mrr_events', {method:'POST', body:rows.slice(i,i+500), prefer:'return=minimal'});
         total+=Math.min(500, rows.length-i);
         sbStatusMsg('pushing mrr events · '+Math.min(i+500,rows.length)+'/'+rows.length);
       }
     }
+    S._mrrKeyDiff=false;
   }
   const log=(S.emailLog||[]);
   if(log.length){
