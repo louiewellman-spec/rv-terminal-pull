@@ -1866,7 +1866,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.43';
+const BUILD = 'v16.44';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -12743,7 +12743,10 @@ async function sbPush(){
   if(ev.length){
     let remoteMax=0; try{ const r=await sbRest('rv_mrr_events?select=t&order=t.desc&limit=1'); remoteMax=(r&&r[0]&&Date.parse(r[0].t))||0; }catch(e){ remoteMax=0; }
     let have=null;
-    if(S._mrrKeyDiff){ try{ const r=await sbRest('rv_mrr_events?select=data&limit=5000'); have=new Set((r||[]).map(x=>mrrEventKey(typeof x.data==='string'? JSON.parse(x.data) : x.data))); }catch(e){ have=null; } }
+    /* v16.44: PAGED. A plain `limit=5000` is silently capped at 1000 rows by PostgREST, and the
+       table holds 2,306 (22 Sep 2026) — a key-diff against an arbitrary 1000 of them would have
+       pushed the other ~1,300 as duplicates on the first reconcile. Walk every page. */
+    if(S._mrrKeyDiff){ try{ const r=await sbPage('rv_mrr_events','data','',50000); have=new Set((r||[]).map(x=>mrrEventKey(typeof x.data==='string'? JSON.parse(x.data) : x.data))); }catch(e){ have=null; } }
     const fresh=mrrEventsToPush(ev, remoteMax, have);
     if(fresh.length){
       const rows=fresh.map(x=>({owner:uid, t:new Date(x.t).toISOString(), data:x}));
