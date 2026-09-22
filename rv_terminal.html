@@ -1866,7 +1866,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.39';
+const BUILD = 'v16.41';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2059,9 +2059,14 @@ function invMrrAt(x,t){
      protected, so today's headline MRR is unchanged either way. */
   const live = x && (x.status==='active' || x.status==='past_due' || x.status==='trialing');
   if(live && t >= paid[paid.length-1][0]*60000) return null;   /* rows are time-ascending */
-  const win=paid.filter(r=>Math.abs(r[0]*60000-t)<=INV_WIN).map(r=>r[1]).sort((a,b)=>a-b);
-  if(!win.length) return null;
-  return win[Math.floor(win.length/2)];
+  /* v16.40: what they were paying ON day t is witnessed by invoices at or before t; invoices
+     after t only speak when there is nothing earlier in the window. A plain median of the
+     whole window read an Elite upgrade two weeks early (30 Jul £28 + 1 Sep £60 → £60 on 15 Aug). */
+  const win=paid.filter(r=>Math.abs(r[0]*60000-t)<=INV_WIN);
+  const before=win.filter(r=>r[0]*60000<=t).map(r=>r[1]).sort((a,b)=>a-b);
+  const pick=before.length? before : win.filter(r=>r[0]*60000>t).map(r=>r[1]).sort((a,b)=>a-b);
+  if(!pick.length) return null;
+  return pick[Math.floor(pick.length/2)];
 }
 function subMrrAt(x,t){
   const ev=planEventsFor(x);
@@ -10323,7 +10328,7 @@ window.addEventListener('error', e=>{ try{ status('js error: '+(e.message||'unkn
 window.addEventListener('unhandledrejection', e=>{ try{ status('request error: '+((e.reason&&e.reason.message)||'unknown'),'err'); }catch(_){} });
 document.getElementById('cardChurn').onclick = ()=>{ seriesModal('Churn % · stripe subscriber churn rate · trailing 30d', (arr,t)=>{ const v=churnStripeAt(arr,t); return isFinite(v)? Math.round(v*10)/10 : null; }, v=>v+'%', {ma:true}); };
 document.getElementById('cardLTV').onclick = ()=>{ seriesModal('Expected LTV trend £ · arpu ÷ churn — the forward-looking estimate, NOT the actual £ on the card; it swings when churn wobbles, read the shape not the level', (arr,t)=>{ const a=activeAt(arr,t); if(!a) return null; const arpu=mrrAt(arr,t)/a; const ch=churnStripeAt(arr,t); return (isFinite(ch)&&ch>0)? Math.round(arpu/(ch/100)) : null; }, v=>'£'+v, {ma:true}); };
-document.getElementById('cardMRR').onclick = ()=>{ seriesModal('MRR £', (arr,t)=>Math.round(mrrAt(arr,t)), v=>'£'+Number(v).toLocaleString(), {ma:true}); };
+document.getElementById('cardMRR').onclick = ()=>{ seriesModal('MRR £', (arr,t)=>Math.round(mrrOnDay(arr,t,Date.now())), v=>'£'+Number(v).toLocaleString(), {ma:true}); };   /* v16.40: snapshot where one exists (t is a day close, or now) */
 document.getElementById('cardCashToday').onclick = ()=>cashDailyModal(60);
 /* v15.04: the daily cash modal, rebuilt. Solid bars (weekends dimmed, today gold and partial), a 7-day
    average line as the real signal, Monday-only date ticks, a stat strip and last-four-weeks chips. */
@@ -10725,6 +10730,16 @@ function dayKeyBack(now, i){
    subMrrAt exactly: with ledger events the price before time t is the `from` of the earliest event
    still after t (what subGrossAt's backwards walk lands on); with none, the June-2026 legacy price
    applies while t < min(their first renewal on/after 7 Jun, 9 Jul) — legacyGrossAt's two cut-offs. */
+/* v16.41: EXPANSION read from invoice history. The plan-change ledger only holds changes a tab
+   or the runner happened to observe; a member who upgraded Pro→Elite unobserved carried today's
+   £60 over every month they paid £28, so past MRR was inflated by exactly the upgrades since
+   (measured 22 Sep 2026: 43 live Elite members with no ledger event, +£368 at 1 Aug from the
+   10 provably on Pro then). Invoices are only trusted for what they are unambiguous about —
+   WHICH TIER the member was on (an amount at or above £45 is Elite) — and the price for that
+   tier comes from the plan, never from the amount paid: pricing from cash collected turned the
+   £18 entry month and the £1 win-back arm into MRR and under-counted August by £1,400. */
+const ELITE_MIN_INV=45;
+function tierPriceAt(tier, t, mig){ const pre = mig!=null && t<mig; return tier==='elite'? (pre?50:60) : (pre?25:28); }
 function mrrProfile(x){
   if(!hasFirstPayment(x)) return null;
   const s=stripeStartOf(x); if(s==null) return null;
@@ -10734,13 +10749,31 @@ function mrrProfile(x){
   if(ev.length) return {s, e, mon, steps:ev.map(ev1=>({t:ev1.t, v:netPlanAmount(x, Math.max(0,Number(ev1.from)||0))}))};
   const g=Math.round(Number(x&&x.gross!=null? x.gross : x&&x.monthly)||0);
   const old = g===28? 25 : g===60? 50 : null;
-  if(old==null) return {s, e, mon};
-  const base=paidStartOf(x);
-  if(base==null || base>=PRICE_MIG_T) return {s, e, mon};
-  const dNum=new Date(base).getUTCDate();
-  let mig=Date.UTC(2026,5,Math.min(dNum,30));
-  if(mig<PRICE_MIG_T) mig=Date.UTC(2026,6,Math.min(dNum,31));
-  return {s, e, mon, lu:Math.min(mig, PRICE_MIG_T+32*D), lv:netPlanAmount(x,old)};
+  /* the member's June-2026 migration date, if the old→new price change applies to them */
+  let mig=null;
+  if(old!=null){ const base=paidStartOf(x);
+    if(base!=null && base<PRICE_MIG_T){ const dNum=new Date(base).getUTCDate();
+      mig=Date.UTC(2026,5,Math.min(dNum,30)); if(mig<PRICE_MIG_T) mig=Date.UTC(2026,6,Math.min(dNum,31));
+      mig=Math.min(mig, PRICE_MIG_T+32*D); } }
+  /* tier changes witnessed by invoices, oldest first */
+  const rows=((S.invHist||{})[x&&x.id]||[]).filter(r=>r&&r[2]==='p'&&r[1]>0.005);
+  const todayTier = g>=ELITE_MIN_INV? 'elite' : 'pro';
+  const steps=[];
+  if(rows.length){
+    let tier=rows[0][1]>=ELITE_MIN_INV? 'elite':'pro';
+    const t0=tier;
+    for(let i=1;i<rows.length;i++){ const tr=rows[i][1]>=ELITE_MIN_INV? 'elite':'pro';
+      if(tr!==tier){ const at=rows[i][0]*60000; steps.push({t:at, v:netPlanAmount(x, tierPriceAt(tier, at, mig))}); tier=tr; } }
+    /* invoices never reached today's tier (a churned member's cached price, or a change since the
+       last invoice): the earlier tier held for the whole observed life */
+    if(tier!==todayTier) steps.push({t:Infinity, v:netPlanAmount(x, tierPriceAt(tier, e||Date.now(), mig))});
+    /* the first segment may straddle the June migration: split it at the migration date */
+    if(mig!=null && steps.length && steps[0].t>mig && t0===todayTier){ steps.unshift({t:mig, v:netPlanAmount(x, tierPriceAt(t0, mig-1, mig))}); }
+    else if(mig!=null && steps.length && steps[0].t>mig){ steps.unshift({t:mig, v:netPlanAmount(x, tierPriceAt(t0, mig-1, mig))}); }
+  }
+  if(steps.length) return {s, e, mon, steps};
+  if(mig==null) return {s, e, mon};
+  return {s, e, mon, lu:mig, lv:netPlanAmount(x,old)};
 }
 function mrrProfileAt(p,t){
   if(p.steps){ for(let i=0;i<p.steps.length;i++){ if(p.steps[i].t>t) return p.steps[i].v; } return p.mon; }
@@ -11086,7 +11119,7 @@ function seriesModal(title, calc, fmt, opts){
         gEl.className='chip '+(dirGood==null?'flat':dirGood?'up':'down');
       } else { gEl.textContent=''; gEl.style.display='none'; } }
   };
-  openModal('<h2>'+title+'</h2><div class="tfbtns" id="mTf">'+[30,60,90,180,365].map(d=>'<button data-tf="'+d+'">'+(d>=365?'1y':d+'d')+'</button>').join('')+'<span class="chip flat" id="mGrow" style="margin-left:10px;align-self:center"></span>'+(opts&&opts.ma?'<button id="mMa" style="margin-left:auto">7d avg</button>':'')+'</div><div style="height:340px"><canvas id="mSeries"></canvas></div><div class="sn" style="margin-top:10px">Reconstructed from paid-start and Stripe-metric end dates. The June 2026 price change (Pro £25→£28, Elite £50→£60) is backfilled: members are priced at the old rate before their migration renewal — exact where the plan-change ledger caught it, modelled as their first renewal after 7 Jun where it didn\'t. Expired coupons are not backfilled, so older £ values stay approximate. Stripe stays source of truth.</div>');
+  openModal('<h2>'+title+'</h2><div class="tfbtns" id="mTf">'+[30,60,90,180,365].map(d=>'<button data-tf="'+d+'">'+(d>=365?'1y':d+'d')+'</button>').join('')+'<span class="chip flat" id="mGrow" style="margin-left:10px;align-self:center"></span>'+(opts&&opts.ma?'<button id="mMa" style="margin-left:auto">7d avg</button>':'')+'</div><div style="height:340px"><canvas id="mSeries"></canvas></div><div class="sn" style="margin-top:10px">Past days use the MRR the terminal recorded that day where a snapshot exists; older days are reconstructed from paid-start and Stripe-metric end dates. Tier changes are read from each member\'s invoice history, so an upgrade or downgrade shows when it happened instead of being painted backwards; members are always priced at plan value, not at what a discounted month collected. Where invoices say nothing, the June 2026 price change (Pro £25→£28, Elite £50→£60) is modelled. Stripe stays source of truth.</div>');
   document.querySelectorAll('#mTf button').forEach(b=> b.onclick=()=>{ tf=Number(b.dataset.tf); draw(); });
   const mb=document.getElementById('mMa'); if(mb) mb.onclick=()=>{ ma=!ma; draw(); };
   draw();
