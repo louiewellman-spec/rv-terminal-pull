@@ -1866,7 +1866,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.38';
+const BUILD = 'v16.39';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2428,12 +2428,23 @@ async function refresh(){
     /* keep the cash-collected card current between deep pulls: re-pull just this month's
        and last month's charges and overwrite those two buckets */
     try{
-      if(S.cash && S.cash.byMonth){
+      /* v16.39: SELF-SEED. This used to run only if S.cash already existed, and the runner has
+         no durable source for it (rv_cash is not in Supabase; the runner never reads the
+         bridge) — so every cold link started with no cash, the guard skipped the sweep in
+         silence, and the tile sat on £0 while Stripe showed money. From 22:09Z on 21 Sep
+         2026 that was every link. A sweep that rebuilds this month and last from charges
+         needs nothing pre-existing, so start from an empty store when there is none. */
+      if(!S.cash || !S.cash.byMonth) S.cash={byMonth:{}, byDay:S.cash&&S.cash.byDay||{}, updated:(S.cash&&S.cash.updated)||null, n:(S.cash&&S.cash.n)||0};
+      {
         const nd=new Date(); const pmStart=Date.UTC(nd.getUTCFullYear(), nd.getUTCMonth()-1, 1);
         const rch = await stripeAll('/v1/charges', {'created[gte]': Math.floor(pmStart/1000), 'expand[]':['data.balance_transaction']}, 30, 'recent charges');
         const bm={}, bd={};
-        rch.forEach(c=>{ const k=new Date(c.created*1000).toISOString().slice(0,7);
-          const dk2=new Date(c.created*1000).toISOString().slice(0,10);
+        /* v16.39: LONDON days, not UTC. Stripe's dashboard buckets in the account timezone
+           (Europe/London); this bucketed in UTC, so every renewal landing 23:00-24:00Z
+           (midnight-to-1am UK, a busy slot for Discord sign-up anchors) sat on the wrong
+           day. Measured 22 Sep 2026: yesterday read £537 here vs £583.18 on Stripe, and
+           the gap was exactly the £46 paid in the 23h-UTC hour of the day before. */
+        rch.forEach(c=>{ const dk2=ukDayKey(c.created*1000), k=dk2.slice(0,7);
           const b=bm[k]||(bm[k]={paid:0,refunded:0,fee:0});
           const b2=bd[dk2]||(bd[dk2]={paid:0,refunded:0,fee:0});
           const f=(c.currency||'gbp')==='eur'?EURGBP:1;
@@ -2444,9 +2455,9 @@ async function refresh(){
         S.cash.byDay=Object.assign({}, S.cash.byDay||{}, bd);
         { const keep=Object.keys(S.cash.byDay).sort().slice(-120); const nd={};
           keep.forEach(k=>{ nd[k]=S.cash.byDay[k]; }); S.cash.byDay=nd; }
-        S.cash.recentAt=Date.now(); jset('rv_cash', S.cash);
+        S.cash.recentAt=Date.now(); delete S.cash.sweepErr; jset('rv_cash', S.cash);
       }
-    }catch(e){}
+    }catch(e){ try{ if(S.cash) S.cash.sweepErr={t:Date.now(), m:String(e&&e.message||e).slice(0,160)}; }catch(_){} reportNonFatal('Cash sweep', e); }
 
     status('Checking Discord member count…');
     const members = await discordMembers();
@@ -3825,8 +3836,8 @@ function renderAll(){
 
   /* command cards */
   /* cash collected today — real money through Stripe, not MRR */
-  { const bd=(S.cash&&S.cash.byDay)||{}, tk=today();
-    const yk=dayKey(Date.now()-D);
+  { const bd=(S.cash&&S.cash.byDay)||{}, tk=ukDayKey(Date.now());   /* v16.39: London day, to match the buckets */
+    const yk=ukDayKey(Date.now()-D);
     const t=bd[tk], y=bd[yk];
     const set2=(id,v)=>{ const e2=document.getElementById(id); if(e2) e2.textContent=v; };
     const setH2=(id,v)=>{ const e2=document.getElementById(id); if(e2) e2.innerHTML=v; };
@@ -3839,23 +3850,27 @@ function renderAll(){
       const ynet=y? (y.paid||0)-(y.refunded||0) : null;
       set2('ovCashToday', fmtGBP(Math.round(net)));
       /* month to date, so a quiet day reads against the month rather than looking broken */
-      const mk2=mkOf(Date.now()); let mtd=0;
+      const mk2=tk.slice(0,7); let mtd=0;                       /* v16.39: London month */
       Object.keys(bd).forEach(k=>{ if(k.slice(0,7)===mk2) mtd+=(bd[k].paid||0)-(bd[k].refunded||0); });
       /* SAME DATE LAST MONTH is the honest comparison for cash: renewals bill on a
          member's anchor day, so the 1st against the 31st compares a quiet day to
          month-end. Day-of-month clamps for short months (31 Mar -> 28/29 Feb). */
-      const lmk=(function(){ const d3=new Date(); const y3=d3.getUTCFullYear(), mo3=d3.getUTCMonth(), dy3=d3.getUTCDate();
+      const lmk=(function(){ const y3=+tk.slice(0,4), mo3=+tk.slice(5,7)-1, dy3=+tk.slice(8);   /* v16.39: from the London date */
         const lastPrev=new Date(Date.UTC(y3,mo3,0)).getUTCDate();
         return dayKey(Date.UTC(y3,mo3-1,Math.min(dy3,lastPrev))); })();
       const lm=bd[lmk], lmnet=lm? (lm.paid||0)-(lm.refunded||0) : null;
       window._rvCashCmp={lmk, lmnet, net};
-      setH2('ovCashTodaySub', (lmnet!=null? monLabel(lmk.slice(0,7))+' '+lmk.slice(8)+': '+fmtGBP(Math.round(lmnet))
+      setH2('ovCashTodaySub', (lmnet!=null? lmk.slice(8)+' '+monLabel(lmk.slice(0,7))+': '+fmtGBP(Math.round(lmnet))   /* v16.39: "22 Aug 26", was "Aug 26 22" */
           : (ynet!=null? 'yesterday '+fmtGBP(Math.round(ynet)) : 'first day of data'))
         +(t&&t.refunded? ' · '+fmtGBP(Math.round(t.refunded))+' refunded':''));
       setH2('ovCashFoot', fmtGBP(Math.round(mtd))+' so far in '+monLabel(mk2)
         +(ynet!=null? ' · yesterday '+fmtGBP(Math.round(ynet)):''));
       const ch=document.getElementById('cashTodayChip');
-      if(ch){ const cmp=window._rvCashCmp||{};
+      /* v16.39: a £0 that is really "nobody has swept the charges for hours" must not look like £0 */
+      const swAge=S.cash&&S.cash.recentAt? (Date.now()-S.cash.recentAt)/3600000 : null;
+      if(ch && swAge!=null && swAge>3){ ch.textContent='charges not swept for '+Math.round(swAge)+'h'; ch.className='chip bad';
+        ch.title=(S.cash.sweepErr? 'last sweep error: '+S.cash.sweepErr.m : 'the runner has not refreshed cash since '+new Date(S.cash.recentAt).toLocaleString('en-GB')); }
+      else if(ch){ const cmp=window._rvCashCmp||{};
         if(cmp.lmnet==null||cmp.lmnet===0){ ch.textContent=''; ch.className='chip flat';
           ch.title='no data for the same date last month yet — the charge window only reaches back to the start of last month'; }
         else { const d2=net-cmp.lmnet;
@@ -4142,7 +4157,7 @@ async function deepPull(){
     const ch = await stripeAll('/v1/charges', {'expand[]':['data.balance_transaction']}, 1000, 'charges');
     const byMonth = {};
     ch.forEach(c=>{
-      const k = new Date(c.created*1000).toISOString().slice(0,7);
+      const k = ukDayKey(c.created*1000).slice(0,7);            /* v16.39: London month */
       const m = byMonth[k] || (byMonth[k]={paid:0,refunded:0,fee:0});
       const f = (c.currency||'gbp')==='eur' ? EURGBP : 1;
       if(c.paid && c.status==='succeeded'){ m.paid += c.amount/100*f; m.fee=(m.fee||0)+stripeFeeOf(c)*f; }
@@ -4150,7 +4165,7 @@ async function deepPull(){
     });
     const byDay={};
     ch.forEach(c=>{
-      const k=new Date(c.created*1000).toISOString().slice(0,10);
+      const k=ukDayKey(c.created*1000);                         /* v16.39: London day */
       const b=byDay[k]||(byDay[k]={paid:0,refunded:0,fee:0});
       const f=(c.currency||'gbp')==='eur' ? EURGBP : 1;
       if(c.paid && c.status==='succeeded'){ b.paid += c.amount/100*f; b.fee=(b.fee||0)+stripeFeeOf(c)*f; }
@@ -4338,7 +4353,12 @@ document.getElementById('importFile').onchange=e=>{
         d.sdLog.forEach(e=>{ if(e&&!have.has(e.t+'|'+e.cust)) (S.sdLog=S.sdLog||[]).push(e); });
         S.sdLog.sort((a,b)=>a.t-b.t); if(S.sdLog.length>400) S.sdLog=S.sdLog.slice(-400); jset('rv_sdlog',S.sdLog); }
       objects.forEach(([name,key])=>{ if(d[name]&&typeof d[name]==='object'&&!Array.isArray(d[name])){ S[name]=d[name]; jset(key,S[name]); } });
-      const nullable=[['cash','rv_cash'],['disputes','rv_disputes'],['fx','rv_fx'],['pastDue','rv_pastdue'],['signalsCache','rv_signals'],['botLinks','rv_botlinks']];
+      /* v16.39: cash is MERGED, not replaced. The runner only ever sweeps this month and last,
+         while a browser that did the all-time pull holds ~14 months; replacing would throw that
+         history away on every sync. Incoming buckets win where both have the key (fresher);
+         everything else is kept; null is never accepted. */
+      if(Object.prototype.hasOwnProperty.call(d,'cash') && d.cash && typeof d.cash==='object'){ S.cash=mergeCash(S.cash||jg('rv_cash'), d.cash); jset('rv_cash',S.cash); }
+      const nullable=[['disputes','rv_disputes'],['fx','rv_fx'],['pastDue','rv_pastdue'],['signalsCache','rv_signals'],['botLinks','rv_botlinks']];
       nullable.forEach(([name,key])=>{ if(Object.prototype.hasOwnProperty.call(d,name)){ S[name]=d[name]; jset(key,S[name]); } });
       if(!Object.prototype.hasOwnProperty.call(d,'pastDue')&&Object.prototype.hasOwnProperty.call(d,'pastdue')){ S.pastDue=d.pastdue; jset('rv_pastdue',S.pastDue); }
       if(d.recovery&&(d.recovery.cases||d.recovery.log)){ const rc=rcState();
@@ -12956,6 +12976,18 @@ function blNormalize(rec){
     ? {t:a[0]*60000, id:String(a[1]||''), rewarded:a[2]===1, tag:(a[3]==null? -1 : a[3]), via:a[4]||'', ack:a[5]||'', applied:a[6]===1, by:(a[7]>=0 && staff[a[7]])||'', amt:(a[8]||0)/100}
     : a).filter(x=>x && x.id) : [];
   return {v:rec.v||2, updated:rec.updated||'', links, days:rec.days||null, invDays:rec.invDays||null, staff, success};
+}
+/* Union of two cash stores. Buckets: incoming wins per key (it is the fresher sweep); keys the
+   incoming side lacks are kept. Metadata: the newer all-time pull (`updated`) keeps its `n`;
+   recentAt is the max. Pure — used by mergeSync and covered by cash_seed_test.js. */
+function mergeCash(local, incoming){
+  const L=(local&&typeof local==='object')? local : {}, I=(incoming&&typeof incoming==='object')? incoming : {};
+  const out={ byMonth:Object.assign({}, L.byMonth||{}, I.byMonth||{}), byDay:Object.assign({}, L.byDay||{}, I.byDay||{}) };
+  const newerIn=(I.updated||0)>=(L.updated||0);
+  out.updated=newerIn? (I.updated||L.updated||null) : L.updated; out.n=newerIn? (I.n!=null? I.n : L.n||0) : (L.n||0);
+  out.recentAt=Math.max(L.recentAt||0, I.recentAt||0)||null;
+  if(I.sweepErr) out.sweepErr=I.sweepErr;
+  return out;
 }
 function mergeSync(rm){
   if(!rm || typeof rm!=='object') return;
