@@ -1866,7 +1866,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.42';
+const BUILD = 'v16.43';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2453,7 +2453,11 @@ async function refresh(){
        already uses for scheduled cancels and pauses. */
     try{ if(window._rvReconcileTiers){ window._rvReconcileTiers=false;
       const add=unobservedTierChanges(S.subs||[], S.invHist||{}, S.mrrEvents||[], Date.now());
-      if(add.length){ S.mrrEvents=(S.mrrEvents||[]).concat(add); if(S.mrrEvents.length>2000) S.mrrEvents=S.mrrEvents.slice(-2000); jset('rv_mrrevents', S.mrrEvents); } } }catch(e){ reportNonFatal('Tier reconcile', e); }
+      if(add.length){ S.mrrEvents=(S.mrrEvents||[]).concat(add); if(S.mrrEvents.length>2000) S.mrrEvents=S.mrrEvents.slice(-2000); jset('rv_mrrevents', S.mrrEvents);
+        /* v16.43: an event dated at a past proration charge is OLDER than the newest remote row, so the
+           newer-than-remote push would drop it (22 Sep 2026: 18 of 26 reached the database, all the
+           ones stamped 'now'; the 8 dated ones stayed on the runner). Force the key-diff push. */
+        S._mrrKeyDiff=true; } } }catch(e){ reportNonFatal('Tier reconcile', e); }
     /* keep the cash-collected card current between deep pulls: re-pull just this month's
        and last month's charges and overwrite those two buckets */
     try{
@@ -10788,7 +10792,11 @@ function unobservedTierChanges(subs, invHist, events, now){
     if((evBy[x.id]||[]).some(e=>Number(e.t)>last.t)) return;
     const lp=Number(x.latestPaidAt)||0;
     const t=(lp>last.t+3600000 && lp<=now)? lp : now;
-    out.push({t, id:x.id, cust:x.cust||null, from:Math.round(netPlanAmount(x, last.tier==='elite'?60:28)*100)/100, to:Math.round((Number(x.monthly)||0)*100)/100, src:'obs'});
+    const from=Math.round(netPlanAmount(x, last.tier==='elite'?60:28)*100)/100, to=Math.round((Number(x.monthly)||0)*100)/100;
+    /* v16.43: a tier label change with no money behind it (a discounted Elite netting the Pro
+       price, a legacy plan) is not a movement; booking it only adds a zero-delta row */
+    if(Math.abs(from-to)<0.5) return;
+    out.push({t, id:x.id, cust:x.cust||null, from, to, src:'obs'});
   });
   return out;
 }
