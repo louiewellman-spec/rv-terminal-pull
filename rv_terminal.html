@@ -1866,7 +1866,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.45';
+const BUILD = 'v16.46';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -13029,8 +13029,13 @@ async function pushSync(){
       if(bundle.bundleBytes>2*1024*1024) bundle.sizeWarning='bundle over the 2MB soft guard — review what grew (zIndex lists the ledgers)';
       body=JSON.stringify(bundle);
       try{ store.set('rv_pushsize', String(bLen(body))); }catch(e){}
+      /* v16.46: 120 s, not the 30 s default. 23 Sep 2026 every bridge PUT from GitHub's network hit
+         the 30 s abort (two different runner VMs, every tick from 12:54Z) while the identical 473 KB
+         body went up from a laptop in 2.4 s - the path from Azure to jsonbin's origin was simply
+         slow that day. Cloudflare gives the origin 100 s before it answers 522 itself, so 120 s is
+         the useful ceiling; run.js retries once more after 20 s if this still fails. */
       const r=await fetchTimed('https://api.jsonbin.io/v3/b/'+encodeURIComponent(S.settings.binId), {method:'PUT',
-        headers:{'Content-Type':'application/json','X-Master-Key':S.settings.binKey}, body});
+        headers:{'Content-Type':'application/json','X-Master-Key':S.settings.binKey}, body}, 120000);
       if(!r.ok) throw new Error('HTTP '+r.status);
       try{ store.set('rv_pushat', String(Date.now())); }catch(e){}
       pubAgeTick();
