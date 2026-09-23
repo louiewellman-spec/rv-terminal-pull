@@ -1866,7 +1866,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.44';
+const BUILD = 'v16.45';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10857,10 +10857,14 @@ function mrrSnapMap(){
 let _msm=null, _msmRef=null;
 function mrrOnDay(subsArr, dayEnd, now, liveVal){
   const n=(now==null? Date.now() : now);
-  if(dayEnd < n){ const v=mrrSnapMap()[dayKey(dayEnd)]; if(v!=null) return v; }
   /* v16.42: TODAY is the live headline, not a reconstruction of it — the Reports chart read
-     £24,082 under a header saying £24,378 for the same instant */
-  else if(liveVal!=null && isFinite(liveVal)) return liveVal;
+     £24,082 under a header saying £24,378 for the same instant.
+     v16.45: "today" is decided by CALENDAR DAY, not by dayEnd < now. The MRR £ modal captured
+     the clock once and mrrOnDay read it again a millisecond later, so today's point fell into
+     the snapshot branch and showed the day's stored snapshot (£24,378) under a header saying
+     £24,462 (23 Sep 2026). */
+  if(liveVal!=null && isFinite(liveVal) && dayKey(dayEnd)===dayKey(n)) return liveVal;
+  if(dayEnd < n){ const v=mrrSnapMap()[dayKey(dayEnd)]; if(v!=null) return v; }
   return mrrAt(subsArr, Math.min(n, dayEnd));
 }
 function mrrAt(subsArr, t){
