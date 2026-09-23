@@ -141,7 +141,17 @@ try{ vm.runInContext(script, ctx, {timeout:120000}); }catch(e){ console.error('b
        the bridge sat 45 min stale and nothing in the log said so. Supabase is the source of truth, so a
        bridge miss must not fail the tick; it must be VISIBLE. */
     log('publishing bridge'); out.bridge=await run('pushSync()');
-    if(out.bridge===false) log('::warning::bridge publish failed (jsonbin rejected the PUT) - Supabase is current, the bridge is stale until the next tick');
+    if(out.bridge===false){
+      /* say WHY (pushSync only writes the reason to the status line) and try once more after a
+         pause - 23 Sep 2026 the PUT failed from two different runner VMs while the same 473 KB
+         body went through from a laptop in 2.4 s, so a second attempt is cheap and often enough */
+      out.bridgeError=run("(document.getElementById('syncStatus')||{}).textContent||''");
+      log('::warning::bridge publish failed: '+out.bridgeError+' - retrying once in 20 s');
+      await new Promise(r=>setTimeout(r,20000));
+      out.bridge=await run('pushSync()');
+      if(out.bridge===false){ out.bridgeError=run("(document.getElementById('syncStatus')||{}).textContent||''"); log('::warning::bridge publish failed again: '+out.bridgeError+' - Supabase is current, the bridge is stale until the next tick'); }
+      else log('bridge published on the retry');
+    }
     out.weekly=run('(function(){ try{ const W=weeklyState(); return {week:W.weekStart, locked:!!(W.locked&&W.locked.lockedAt)}; }catch(e){ return {err:e.message}; } })()');
     out.ok=true;
   }catch(e){ out.ok=false; out.error=e.message; out.stack=String(e.stack||'').split('\n').slice(0,4).join(' | '); }
