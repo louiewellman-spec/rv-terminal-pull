@@ -136,7 +136,12 @@ try{ vm.runInContext(script, ctx, {timeout:120000}); }catch(e){ console.error('b
     /* SB_DRY=1: sign in + pull only. A dry run must NEVER upsert an old export over the live rows. */
     if(E.SB_DRY){ log('SB_DRY set — skipping sbPush()'); out.pushed='skipped (dry)'; }
     else { log('pushing to Supabase'); out.pushed=await run('sbPush()'); }
-    log('publishing bridge'); await run('pushSync()');
+    /* 23 Sep 2026: pushSync() swallows a failed jsonbin PUT (a Cloudflare 522 for over 40 min that
+       day) and returns false, and this line ignored the return - so three ticks printed ok:true while
+       the bridge sat 45 min stale and nothing in the log said so. Supabase is the source of truth, so a
+       bridge miss must not fail the tick; it must be VISIBLE. */
+    log('publishing bridge'); out.bridge=await run('pushSync()');
+    if(out.bridge===false) log('::warning::bridge publish failed (jsonbin rejected the PUT) - Supabase is current, the bridge is stale until the next tick');
     out.weekly=run('(function(){ try{ const W=weeklyState(); return {week:W.weekStart, locked:!!(W.locked&&W.locked.lockedAt)}; }catch(e){ return {err:e.message}; } })()');
     out.ok=true;
   }catch(e){ out.ok=false; out.error=e.message; out.stack=String(e.stack||'').split('\n').slice(0,4).join(' | '); }
