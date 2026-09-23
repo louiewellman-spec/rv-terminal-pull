@@ -1,0 +1,33 @@
+# One-off diagnostic (23 Sep 2026): from 12:54Z every bridge publish from the runner hit
+# HTTP 522 / a timeout at api.jsonbin.io while the identical bundle uploaded from a laptop
+# in 2.4 s. This re-PUTs the CURRENT record (content unchanged) twice from a GitHub runner,
+# plain and gzip-encoded, and prints the status and timing of each. No other side effects.
+name: bridge-probe
+on: { workflow_dispatch: {} }
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: time a plain and a gzip write of the current bridge record
+        env:
+          BIN_ID:  ${{ secrets.BIN_ID }}
+          BIN_KEY: ${{ secrets.BIN_KEY }}
+        run: |
+          set -u
+          curl -s -m 60 -o rec.json -w "GET  %{http_code} %{size_download}B in %{time_total}s\n" \
+            -H "X-Master-Key: $BIN_KEY" "https://api.jsonbin.io/v3/b/$BIN_ID/latest"
+          python3 -c "import json;d=json.load(open('rec.json'))['record'];open('body.json','w').write(json.dumps(d,separators=(',',':')))"
+          gzip -c -9 body.json > body.json.gz
+          ls -l body.json body.json.gz | awk '{print $5, $9}'
+          for i in 1 2; do
+            curl -s -m 130 -o /dev/null -w "PUT plain #$i %{http_code} in %{time_total}s\n" -X PUT \
+              -H "X-Master-Key: $BIN_KEY" -H "Content-Type: application/json" -H "X-Bin-Versioning: false" \
+              --data-binary @body.json "https://api.jsonbin.io/v3/b/$BIN_ID" || true
+            curl -s -m 130 -o /dev/null -w "PUT gzip  #$i %{http_code} in %{time_total}s\n" -X PUT \
+              -H "X-Master-Key: $BIN_KEY" -H "Content-Type: application/json" -H "Content-Encoding: gzip" -H "X-Bin-Versioning: false" \
+              --data-binary @body.json.gz "https://api.jsonbin.io/v3/b/$BIN_ID" || true
+          done
+          echo "--- small PUT to a nonexistent bin (route health, expects 404 fast) ---"
+          curl -s -m 60 -o /dev/null -w "PUT tiny %{http_code} in %{time_total}s\n" -X PUT -H "X-Master-Key: $BIN_KEY" \
+            -H "Content-Type: application/json" -d '{"probe":1}' "https://api.jsonbin.io/v3/b/000000000000000000000000" || true
+          echo "--- runner egress region ---"; curl -s -m 15 https://ipinfo.io/json || true; echo
