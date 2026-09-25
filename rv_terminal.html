@@ -966,7 +966,8 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
     <div class="sec">Welcome codes · the gate <span class="tag">POKEMON / DROPS / VINTED / STARTER · joins per day</span></div>
     <div class="card"><div class="chartbox"><canvas id="chLaneCodes"></canvas></div>
       <div class="empty" id="laneEmpty" style="display:none">No welcome-code checkouts yet — the moment someone hits <b>Get started</b> in a showcase channel and pays, their lane shows here (and feeds the churn &amp; value table below as it matures).</div>
-      <div class="sn" id="laneNote" style="margin-top:8px"></div></div>
+      <div class="sn" id="laneNote" style="margin-top:8px"></div>
+      <div style="overflow-x:auto;margin-top:12px"><table id="laneWeekTable"><thead></thead><tbody></tbody></table></div></div>
     <div class="sec">Joins by inviter <span class="tag">whose link brings the joins · daily</span></div>
     <div class="card"><div class="tfbtns" id="invJTf" style="margin-bottom:8px"><button data-d="7">7d</button><button data-d="14">14d</button><button data-d="30" class="on">30d</button><button data-d="60">60d</button></div>
       <div class="chartbox"><canvas id="chInvJoins"></canvas></div>
@@ -1713,6 +1714,21 @@ const fmtGBP = n => '£' + Math.round(n).toLocaleString('en-GB');
 const fmtGBP2 = n => new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP',minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(n)||0);
 const pct = n => isFinite(n) ? (Math.round(n*10)/10) + '%' : '—';
 const dayKey = ts => new Date(ts).toISOString().slice(0,10);
+/* v16.48: Monday-start week, keyed on the SAME UTC day basis as dayKey, so a join lands in the same
+   day whether it is counted by month or by week and the two grids reconcile exactly */
+const weekKey = ts => { const d=new Date(dayKey(ts)+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()-((d.getUTCDay()+6)%7)); return d.toISOString().slice(0,10); };
+/* joins per promo code per Monday week, last nWeeks weeks including this one; zero weeks left out.
+   Same rules as the bridge's joinsByMonth: affiliate-classed codes (the lane codes are), counted on
+   subscription created, stillActive = active or past_due now. */
+function codeJoinsByWeek(subsArr, now, nWeeks){
+  const cut=weekKey((now==null? Date.now() : now)-(nWeeks-1)*7*86400000), out={};
+  (subsArr||[]).forEach(x=>{
+    if(!x||!x.code||x.created==null||codeKind(x.code)!=='aff') return;
+    const wk=weekKey(x.created); if(wk<cut) return;
+    const k=String(x.code).toUpperCase(), o=out[k]||(out[k]={}), w=o[wk]||(o[wk]={joins:0,stillActive:0});
+    w.joins++; if(x.status==='active'||x.status==='past_due') w.stillActive++; });
+  return out;
+}
 const today = () => dayKey(Date.now());
 /* v16.27 — a Discord username as Stripe's checkout captured it can still carry the legacy
    "#NNNN" discriminator (typed by the member, or pasted from an old profile) even though
@@ -1866,7 +1882,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.47';
+const BUILD = 'v16.48';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -4643,6 +4659,9 @@ function analystDigest(){
     Object.values(affAgg).forEach(a=>{
       if(a.joinsAllTime<10){ a.joinsByMonth={}; return; }
       Object.keys(a.joinsByMonth).forEach(k=>{ if(k<mCut) delete a.joinsByMonth[k]; }); }); }
+  /* v16.48: the same cohorts by Monday week, last 12 weeks, same small-code rule as the month grid */
+  { const byWk=codeJoinsByWeek(subsArr, now, 12);
+    Object.keys(affAgg).forEach(k=>{ const a=affAgg[k]; a.joinsByWeek=a.joinsAllTime<10? {} : (byWk[k]||{}); }); }
   const first=monthly[0], last=monthly[monthly.length-1];
   const coh=(m.cohorts||[]).filter(c=>c.n>0);
   const mo1s=coh.map(c=>c.surv[0]).filter(v=>v!=null);
@@ -10123,6 +10142,17 @@ function drawAttribution(){
       ln.innerHTML='All time: '+tot+' — '+sum+' gate joins total. Which door people pay through = what they came for; churn and £ per lane build in the table below as these members age.';
     } else ln.innerHTML='';
   }
+  /* v16.48: lane codes by Monday week, last 12 weeks — the same numbers the bridge publishes as joinsByWeek */
+  { const lwt=document.getElementById('laneWeekTable');
+    if(lwt){ const now2=Date.now(), W=codeJoinsByWeek(liveSubsList(), now2, 12), CODES=['VINTED','STARTER','POKEMON','DROPS'];
+      const wks=[]; for(let i=11;i>=0;i--) wks.push(weekKey(now2-i*7*86400000));
+      const lab=k=>{ const d=new Date(k+'T00:00:00Z'); return d.getUTCDate()+' '+d.toLocaleString('en-GB',{month:'short',timeZone:'UTC'}); };
+      const cell=n=>'<td class="num" style="text-align:right'+(n? '' : ';color:var(--dim)')+'">'+(n||0)+'</td>';
+      lwt.querySelector('thead').innerHTML='<tr><th>w/c</th>'+wks.map(k=>'<th style="text-align:right">'+lab(k)+'</th>').join('')+'</tr>';
+      const rowOf=cd=>wks.map(k=>((W[cd]||{})[k]||{}).joins||0);
+      lwt.querySelector('tbody').innerHTML=CODES.map(cd=>'<tr><td><b>'+cd+'</b></td>'+rowOf(cd).map(cell).join('')+'</tr>').join('')
+        +'<tr><td class="sn">total</td>'+wks.map((k,i)=>cell(CODES.reduce((a,cd)=>a+rowOf(cd)[i],0))).join('')+'</tr>';
+    } }
   /* joins by inviter: whose invite link brings the daily joins (tiktok-ads read) */
   const IDy=(S.botLinks&&S.botLinks.invDays)||null;
   const ije=document.getElementById('invJoinsEmpty'); if(ije) ije.style.display=IDy?'none':'block';
