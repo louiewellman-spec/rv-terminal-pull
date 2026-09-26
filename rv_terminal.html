@@ -1942,7 +1942,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.53';
+const BUILD = 'v16.54';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10668,7 +10668,7 @@ document.getElementById('cardDraw').onclick = ()=>{
     +row('Predicted drawings', g(nd.total), '', true)
     +(nd.partners>1? row('Each', g(nd.each), '', true) : '')
     +'</tbody></table>'
-    +'<div class="note" style="margin-top:12px">'+bt+'Stripe is live. Revolut costs and balances refresh every few hours (last '+esc(nd.updated? new Date(nd.updated).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—')+'). Pace uses the last 28 days of Stripe and 30 days of costs. Drawings and HMRC payments never count as costs.</div>');
+    +'<div class="note" style="margin-top:12px">'+bt+'Backtested 26 Sep 2026 on all 8 draws since VAT started (19 Jun to 25 Sep): £583 out in total on £33,499 drawn (1.7%), a single draw typically within about £450. The misses are timing (costs paid between the Tuesday cut-off and the Friday, and the 14/28 Aug pair around the VAT catch-up), not the formula. Stripe is live. Revolut costs and balances refresh every few hours (last '+esc(nd.updated? new Date(nd.updated).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—')+'). Pace uses the last 28 days of Stripe and 30 days of costs. Drawings and HMRC payments never count as costs.</div>');
 };
 document.getElementById('cardDisp').onclick = ()=>{
   const dp=S.disputes||[];
