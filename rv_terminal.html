@@ -1034,6 +1034,10 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
           <div><div class="sn" style="margin-top:0">Joins · 30d</div><div class="big num gtx gtx-gold" id="afSelJoins">—</div></div>
           <div><div class="sn" style="margin-top:0">Still paying</div><div class="big num" id="afSelKeep">—</div><div class="sn" id="afSelKeepD"></div></div>
         </div>
+        <div class="sec" style="margin-top:16px">Sign-ups each week <span class="tag">paid joins on this code · Monday weeks</span></div>
+        <div class="tfbtns" id="afWkTf" style="margin:4px 0 6px"><button data-w="8">8w</button><button data-w="12" class="on">12w</button><button data-w="26">26w</button><button data-w="52">52w</button><button data-w="0">All</button></div>
+        <div class="chartbox" style="height:170px"><canvas id="chAfWeek"></canvas></div>
+        <div class="sn" id="afWkNote" style="margin-top:4px"></div>
         <div class="sec" style="margin-top:16px">Active subscribers <span class="tag" id="afSelTag"></span></div>
         <div class="scrollwrap" style="max-height:440px"><table id="afSubs"><thead></thead><tbody></tbody></table></div>
         <div class="sn" id="afSelPast" style="margin-top:10px"></div>
@@ -1882,7 +1886,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.50';
+const BUILD = 'v16.51';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -11288,6 +11292,8 @@ function affiliateBook(){
   });
   return Object.values(byCode).sort((a,b)=>b.active-a.active || b.mrr-a.mrr || b.all-a.all);
 }
+let affWkN=12;   /* v16.51: weeks shown in the per-code sign-ups chart (0 = all) */
+const weekKeyT = ts => Date.parse(weekKey(ts)+'T00:00:00Z');
 function drawAffiliatesPage(){
   const book=affiliateBook(), set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; }, setH=(id,v)=>{ const el=document.getElementById(id); if(el) el.innerHTML=v; };
   const withJoins=book.filter(a=>a.all>0), totActive=book.reduce((n,a)=>n+a.active,0), totMRR=book.reduce((n,a)=>n+a.mrr,0), totJ30=book.reduce((n,a)=>n+a.joins30,0);
@@ -11312,6 +11318,28 @@ function drawAffiliatesPage(){
   set('afSelActive', a.active); set('afSelMRR', fmtGBP(a.mrr)); set('afSelJoins', a.joins30);
   set('afSelKeep', a.all? Math.round(a.active/a.all*100)+'%' : '—'); set('afSelKeepD', a.active+' of '+a.all+' ever');
   set('afSelTag', a.active+' member'+(a.active===1?'':'s')+(a.pastDue? ' · '+a.pastDue+' past due':''));
+  /* v16.51: sign-ups per Monday week for the selected code, with a range picker */
+  { const tf=document.getElementById('afWkTf');
+    if(tf){ tf.querySelectorAll('button').forEach(bn=>{ bn.classList.toggle('on', Number(bn.dataset.w)===affWkN);
+      bn.onclick=()=>{ affWkN=Number(bn.dataset.w); drawAffiliatesPage(); }; }); }
+    const nowW=Date.now(), first=a.subs.reduce((m,x)=>x.created&&x.created<m? x.created : m, nowW);
+    const span=affWkN>0? affWkN : Math.max(1, Math.round((weekKeyT(nowW)-weekKeyT(first))/(7*D))+1);
+    const wks=[]; for(let i=span-1;i>=0;i--) wks.push(weekKey(nowW-i*7*D));
+    const cnt={}, keep={}; a.subs.forEach(x=>{ if(!x.created) return; const k=weekKey(x.created);
+      cnt[k]=(cnt[k]||0)+1; if(x.status==='active'||x.status==='past_due') keep[k]=(keep[k]||0)+1; });
+    const joins=wks.map(k=>cnt[k]||0), still=wks.map(k=>keep[k]||0), tot=joins.reduce((s,n)=>s+n,0);
+    const lab=k=>{ const d=new Date(k+'T00:00:00Z'); return d.getUTCDate()+' '+d.toLocaleString('en-GB',{month:'short',timeZone:'UTC'}); };
+    if(charts.chAfWeek) charts.chAfWeek.destroy();
+    const cv=document.getElementById('chAfWeek');
+    if(cv) charts.chAfWeek=new Chart(cv,{type:'bar',data:{labels:wks.map(lab),datasets:[{label:'sign-ups',data:joins,
+        backgroundColor:PAL.accent+'C0',borderRadius:3,maxBarThickness:28}]},
+      options:{...op,plugins:{...op.plugins,legend:{display:false},tooltip:{...TT,callbacks:{...TT.callbacks,
+        title:it=>'w/c '+it[0].label, label:c=>c.raw+' sign-up'+(c.raw===1?'':'s')+' · '+still[c.dataIndex]+' still paying'}}},
+        scales:{x:{grid:{display:false},ticks:{color:PAL.muted,autoSkip:true,maxTicksLimit:affWkN&&affWkN<=12? 12 : 10}},
+          y:{beginAtZero:true,grid:{color:rgbaOf(PAL.muted,.1)},ticks:{color:PAL.muted,precision:0}}}}});
+    setH('afWkNote', tot+' sign-up'+(tot===1?'':'s')+' in '+(affWkN>0? 'the last '+affWkN+' weeks' : 'all '+span+' weeks since the first')
+      +' · best week '+Math.max(0,...joins)+(joins.length? ' · this week so far '+joins[joins.length-1] : ''));
+  }
   const live=a.subs.filter(x=>x.status==='active'||x.status==='past_due').sort((x,y)=>(y.monthly||0)-(x.monthly||0) || (x.created||0)-(y.created||0));
   const th=document.querySelector('#afSubs thead'), tb=document.querySelector('#afSubs tbody');
   if(th&&tb){
