@@ -624,6 +624,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
       <div class="card clickable" id="cardCash"><h3>Cash collected · this month</h3><div class="big num" id="ovCash">—</div><div class="sn" id="ovCashD">run Pull all-time data in Settings</div></div>
       <div class="card clickable" id="cardRef"><h3>Refunds · this month</h3><div class="big num" id="ovRef">—</div><div class="sn" id="ovRefD"></div></div>
       <div class="card clickable" id="cardVAT"><h3>VAT estimate · since 1 Jun</h3><div class="big num gtx gtx-gold" id="ovVAT">—</div><div class="sn" id="ovVATD">run Pull all-time data in Settings</div></div>
+      <div class="card clickable" id="cardDraw"><h3>Next drawings</h3><div class="big num gtx gtx-green" id="ovDraw">—</div><div class="sn" id="ovDrawD">needs the Revolut feed</div></div>
       <div class="card clickable" id="cardDisp"><h3>Open disputes</h3><div class="big num" id="ovDisp">—</div><div class="sn" id="ovDispD"></div></div>
       <div class="card clickable" id="cardLTV"><h3>LTV · actual</h3><div class="big num" id="ovLTV">—</div><div class="sn" id="ovLTVD">what the average joiner has really paid · click for the EXPECTED trend</div></div>
       <div class="card clickable" id="cardEliteShare"><h3>Elite share of MRR</h3><div class="big num" id="fEliteShare">—</div><div class="sn" id="fEliteShareD"></div></div>
@@ -1771,6 +1772,45 @@ function vatEstimate(){
   return {start,rate,rows,gross,refunds,chargebacks,lostUndated,vatInclusiveSales,outputVat,inputVat,paid,outstanding:outputVat-inputVat-paid,
     complete:!!(cash&&cash.updated&&Number.isFinite(Number(cash.n))), updated:cash&&(cash.recentAt||cash.updated)};
 }
+/* v16.52: NEXT DRAWINGS. Louie's routine (26 Sep 2026): drawings every 2 weeks, the main account is
+   left on a £750 float, VAT is kept in its own Revolut pot, costs come out first. So the next draw is
+     cash above the float now − any gap between the VAT owed and the VAT pot
+     + the income that lands before the draw date − the VAT on that income − costs over those days.
+   Rates are the last 30 days of the READ-ONLY Revolut feed (what actually lands, after Stripe fees).
+   The draw is split between everyone who took one last time (the two equal transfers on one day). */
+const DRAW_FLOAT=750, DRAW_EVERY_D=14;
+function nextDrawings(profit, vat, now){
+  const n=(now==null? Date.now() : now), day=86400000;
+  if(!profit || !Array.isArray(profit.accounts) || !Array.isArray(profit.months) || !profit.months.length) return null;
+  const acc=profit.accounts.filter(a=>a&&a.currency==='GBP');
+  const pot=acc.filter(a=>/vat/i.test(a.name||'')).reduce((s,a)=>s+(Number(a.balance)||0),0);
+  const cash=acc.filter(a=>!/vat/i.test(a.name||'')).reduce((s,a)=>s+(Number(a.balance)||0),0);
+  const draws=(profit.recent||[]).filter(x=>x&&x.cat==='drawings'&&x.d);
+  const lastD=draws.reduce((m,x)=>x.d>m? x.d : m, '');
+  const partners=Math.max(1, draws.filter(x=>x.d===lastD).length);
+  const today=Date.parse(new Date(n).toISOString().slice(0,10)+'T00:00:00Z');
+  let next=lastD? Date.parse(lastD+'T00:00:00Z')+DRAW_EVERY_D*day : today;
+  while(next<today) next+=DRAW_EVERY_D*day;
+  const daysLeft=Math.round((next-today)/day);
+  /* last 30 days: this month so far + the tail of last month */
+  const ym=new Date(n).toISOString().slice(0,7), dom=new Date(n).getUTCDate();
+  const m0=profit.months.find(m=>m.month===ym)||{incomeGBP:0,costsGBP:0};
+  const prevYm=new Date(Date.UTC(new Date(n).getUTCFullYear(), new Date(n).getUTCMonth()-1, 1)).toISOString().slice(0,7);
+  const m1=profit.months.find(m=>m.month===prevYm)||null;
+  const prevDays=new Date(Date.UTC(new Date(n).getUTCFullYear(), new Date(n).getUTCMonth(), 0)).getUTCDate();
+  const tail=m1? Math.max(0, 30-dom)/prevDays : 0, span=m1? 30 : Math.max(1, dom);
+  const inc30=(Number(m0.incomeGBP)||0) + (m1? (Number(m1.incomeGBP)||0)*tail : 0);
+  const cost30=Math.abs(Number(m0.costsGBP)||0) + (m1? Math.abs(Number(m1.costsGBP)||0)*tail : 0);
+  const incDay=inc30/span, costDay=cost30/span;
+  const rate=(vat&&vat.rate!=null)? vat.rate : 20;
+  const owed=(vat&&vat.complete)? Math.max(0, vat.outstanding) : null;
+  const vatGap=owed==null? 0 : Math.max(0, owed-pot);
+  const incomeAhead=incDay*daysLeft, vatAhead=incomeAhead*rate/(100+rate), costsAhead=costDay*daysLeft;
+  const nowAvail=Math.max(0, cash-DRAW_FLOAT-vatGap);
+  const total=Math.max(0, cash-DRAW_FLOAT-vatGap+incomeAhead-vatAhead-costsAhead);
+  return {next, daysLeft, lastD, partners, cash, pot, owed, vatGap, incDay, costDay, incomeAhead, vatAhead, costsAhead,
+    nowAvail, total, each: total/partners, float: DRAW_FLOAT, updated: profit.updated||null};
+}
 const paidStartOf = x => (x&&x.trialEnd&&x.trialEnd>x.created)?x.trialEnd:x.created;
 /* This Stripe account is configured to count a subscriber only after the first
    successful payment. Keep that billing eligibility separate from paid access. */
@@ -1886,7 +1926,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.51';
+const BUILD = 'v16.52';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -4000,6 +4040,16 @@ function renderAll(){
     document.getElementById('ovVAT').textContent='—';
     document.getElementById('ovVATD').textContent='run Pull all-time data in Settings for a complete estimate';
   }
+  /* v16.52 next drawings */
+  { const el=document.getElementById('ovDraw'), dd=document.getElementById('ovDrawD');
+    const pr=(window._rvProfit)||(S.profitBin&&S.profitBin.rec)||null, nd=nextDrawings(pr, vat);
+    if(el&&dd){
+      if(!nd){ el.textContent='—'; dd.textContent='needs the Revolut feed'; }
+      else { const dt=new Date(nd.next).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'});
+        el.textContent=fmtGBP(Math.round(nd.total/10)*10);
+        dd.innerHTML=(nd.partners>1? fmtGBP(Math.round(nd.each/10)*10)+' each · ' : '')+dt+(nd.daysLeft? ' · in '+nd.daysLeft+' day'+(nd.daysLeft===1?'':'s') : ' · due today')
+          +' · '+fmtGBP(Math.round(nd.nowAvail))+' free today'+(nd.owed==null? ' · VAT not complete' : '');
+      } } }
   if(S.disputes){
     const open = S.disputes.filter(d=>d.status==='needs_response'||d.status==='warning_needs_response'||d.status==='under_review');
     document.getElementById('ovDisp').textContent = open.length;
@@ -10566,6 +10616,26 @@ function openVatModal(){
   }; });
 }
 document.getElementById('cardVAT').onclick = openVatModal;
+document.getElementById('cardDraw').onclick = ()=>{
+  const nd=nextDrawings((window._rvProfit)||(S.profitBin&&S.profitBin.rec)||null, vatEstimate());
+  if(!nd){ openModal('<h2>Next drawings</h2><div class="empty">Needs the Revolut feed. It refreshes every few hours from the runner.</div>'); return; }
+  const g=v=>fmtGBP(Math.round(v)), dt=new Date(nd.next).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
+  const row=(l,v,sign,b)=>'<tr><td'+(b?' style="font-weight:600;color:var(--text)"':'')+'>'+l+'</td><td class="num" style="text-align:right'+(b?';font-weight:600;color:var(--text)':'')+'">'+(sign||'')+v+'</td></tr>';
+  openModal('<h2>Next drawings · '+dt+'</h2>'
+    +'<div class="sn" style="margin:4px 0 12px">Every '+DRAW_EVERY_D+' days from the last draw on '+esc(nd.lastD||'—')+'. Split '+nd.partners+' way'+(nd.partners===1?'':'s')+', the same as last time.</div>'
+    +'<table style="width:100%"><tbody>'
+    +row('In the bank now (not counting the VAT pot)', g(nd.cash))
+    +row('Keep in the main account', g(nd.float), '− ')
+    +row('Top up the VAT pot to what is owed ('+(nd.owed==null?'VAT estimate incomplete':g(nd.owed)+' owed, '+g(nd.pot)+' saved')+')', g(nd.vatGap), '− ')
+    +row('Free to draw today', g(nd.nowAvail), '', true)
+    +row('Income landing in the next '+nd.daysLeft+' days (at '+g(nd.incDay)+' a day)', g(nd.incomeAhead), '+ ')
+    +row('VAT to set aside on that income', g(nd.vatAhead), '− ')
+    +row('Costs over those days (at '+g(nd.costDay)+' a day)', g(nd.costsAhead), '− ')
+    +row('Next drawings', g(nd.total), '', true)
+    +(nd.partners>1? row('Each', g(nd.each), '', true) : '')
+    +'</tbody></table>'
+    +'<div class="note" style="margin-top:12px">Rates are the last 30 days of what actually landed in Revolut and what went out as costs, so a slow or busy fortnight moves it. Drawings and HMRC payments are never counted as costs. Balances as of '+esc(nd.updated? new Date(nd.updated).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—')+'.</div>');
+};
 document.getElementById('cardDisp').onclick = ()=>{
   const dp=S.disputes||[];
   if(!dp.length){ openModal('<h2>Disputes</h2><div class="empty">None on record. Run Pull all-time data to fetch.</div>'); return; }
