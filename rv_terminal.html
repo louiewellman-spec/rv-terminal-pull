@@ -1146,14 +1146,20 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
       <div class="card"><h3>Paid within 1 hour</h3><div class="big num gtx gtx-green" id="lkH1">—</div><div class="sn" id="lkH1D">strike while they are hot</div></div>
       <div class="card"><h3>Paid within 24 hours</h3><div class="big num gtx gtx-cyan" id="lkH24">—</div><div class="sn" id="lkH24D">—</div></div>
     </div>
-    <div class="sec">Join → paid conversion <span class="tag">% of that day's discord joins · dots + 7-day average</span></div>
-    <div class="card"><div class="tfbtns" id="lkJCTf" style="margin-bottom:8px"><button data-d="14">14d</button><button data-d="30">30d</button><button data-d="60" class="on">60d</button></div>
+    <div class="sec">What's changed <span class="tag">per day · complete days up to yesterday · each period vs the one before it</span></div>
+    <div class="card"><div style="overflow-x:auto"><table id="lkChgTable"><thead></thead><tbody></tbody></table></div>
+      <div class="sn" id="lkChgNote" style="margin-top:8px"></div></div>
+    <div class="sec">Month by month <span class="tag">every paid join since the history starts · fast vs slower · 24h conversion line</span></div>
+    <div class="card"><div class="chartbox"><canvas id="chLurkMonthly"></canvas></div>
+      <div class="sn" id="lkMonNote" style="margin-top:8px"></div></div>
+    <div class="sec">Join → paid conversion <span class="tag">% of discord joins · daily up to 90d, weekly beyond · full history</span></div>
+    <div class="card"><div class="tfbtns" id="lkJCTf" style="margin-bottom:8px"><button data-d="14">14d</button><button data-d="30">30d</button><button data-d="60" class="on">60d</button><button data-d="90">90d</button><button data-d="182">6m</button><button data-d="365">1y</button><button data-d="0">All</button></div>
       <div class="chartbox"><canvas id="chJoinConv"></canvas></div>
       <div class="sn" id="lkJCNote" style="margin-top:8px"></div></div>
-    <div class="sec">Fast buyers per day <span class="tag">paid within 1h / 24h / 72h of joining · hard numbers · 14-day average line</span></div>
+    <div class="sec">Fast buyers per day <span class="tag">paid within 1h / 24h / 72h of joining · daily up to 90d, weekly beyond · full history</span></div>
     <div class="card"><div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:8px">
       <div class="tfbtns" id="lkH1Thr" style="margin:0"><button data-h="1" class="on">1h</button><button data-h="24">24h</button><button data-h="72">72h</button></div>
-      <div class="tfbtns" id="lkH1Tf" style="margin:0"><button data-d="14">14d</button><button data-d="30">30d</button><button data-d="60" class="on">60d</button></div></div>
+      <div class="tfbtns" id="lkH1Tf" style="margin:0"><button data-d="14">14d</button><button data-d="30">30d</button><button data-d="60" class="on">60d</button><button data-d="90">90d</button><button data-d="182">6m</button><button data-d="365">1y</button><button data-d="0">All</button></div></div>
       <div class="chartbox"><canvas id="chLurkH1D"></canvas></div>
       <div class="sn" id="lkH1DNote" style="margin-top:8px"></div></div>
     <div class="sec">The first 24 hours <span class="tag">equal hourly buckets · all matched buyers · 9-month window</span></div>
@@ -1961,7 +1967,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.55';
+const BUILD = 'v16.56';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -3460,6 +3466,29 @@ function compute(){
         arr.push({d:k.slice(5), n:rows.filter(r=>r.lagH<=th && dayKey(r.paidT)===k).length}); }
       hDaily[th]=arr; });
     const h1Daily=hDaily[1];   /* existing consumers (funnel strip, bridge) keep this name */
+    /* v16.56 the long view: one row per day for the WHOLE history, so the charts can go back
+       past 60 days. Inside the link window the sync ships (180d today) the numbers are the
+       terminal's own Stripe-anchored maths, identical to hDaily/joinConv. Before it, the sync's
+       hist arrays (same definitions, bot link time instead of the Stripe checkout). */
+    const long=[];
+    { const H=(S.botLinks&&S.botLinks.hist)||null;
+      const linkTs=bl.map(a=>Date.parse(a[0]+(String(a[0]).endsWith('Z')?'':'Z'))).filter(isFinite);
+      const ownFrom=dayKey(Math.min.apply(null, linkTs)+D);   /* first COMPLETE day of the shipped links */
+      const own={p1:{},p24:{},p72:{},c1:{},c24:{},pa:{}};
+      const inc=(m,k)=>{ m[k]=(m[k]||0)+1; };
+      linkTs.forEach(t=>inc(own.pa, dayKey(t)));
+      rows.forEach(r=>{ const pk=dayKey(r.paidT), jk=dayKey(r.joinT);
+        [1,24,72].forEach(th=>{ if(r.lagH<=th) inc(own['p'+th], pk); });
+        [1,24].forEach(th=>{ if(r.lagH<=th) inc(own['c'+th], jk); }); });
+      const t0=Date.parse(((H&&H.from)||ownFrom)+'T00:00:00Z'), tEnd=Date.parse(dayKey(now)+'T00:00:00Z');
+      for(let t=t0, i=0; t<=tEnd; t+=D, i++){ const k=dayKey(t), mine=k>=ownFrom;
+        const hv=key=> (H && Array.isArray(H[key]) && H[key][i]!=null)? H[key][i] : null;
+        const _dj=(S.botLinks&&S.botLinks.days)||null;
+        const joins=(_dj&&_dj[k]!=null)? _dj[k] : ((S.djoins&&S.djoins[k]&&S.djoins[k].j!=null)? S.djoins[k].j : hv('j'));
+        const g=key=> mine? (own[key][k]||0) : hv(key);
+        long.push({d:k, j:(joins!=null&&joins>=1)? joins : null, pa:g('pa'), p1:g('p1'), p24:g('p24'), p72:g('p72'),
+          c1:g('c1'), c24:g('c24'), own:mine}); }
+    }
     /* true join→paid conversion per day: buyers who joined day K and paid fast ÷ ALL
        discord joins that day (channel counts incl vanity; CSV day counts as fallback) */
     const dj=(S.botLinks&&S.botLinks.days)||null;
@@ -3539,7 +3568,7 @@ function compute(){
       return a.length>=5? {n:a.length, med:+(a[Math.floor(a.length/2)]).toFixed(1)} : {n:a.length, med:null}; };
     return { n:rows.length, linksN:bl.length, itN:Object.keys(iu).length, anomalies, anchoredN,
       med:lags[Math.floor(lags.length/2)], p1:pctIn(1), p6:pctIn(6), p24:pctIn(24), p72:pctIn(72), p168:pctIn(168),
-      hourly, daily, h1Daily, hDaily, joinConv, trend:lkTrend, invRows, invPaidDays, invTail, invTotal, invSpan,
+      hourly, daily, h1Daily, hDaily, joinConv, long, trend:lkTrend, invRows, invPaidDays, invTail, invTotal, invSpan,
       pro:tierStat('pro'), elite:tierStat('elite'),
       over24:rows.filter(r=>r.lagH>=24).length, over168:rows.filter(r=>r.lagH>168).length, over336:rows.filter(r=>r.lagH>336).length,
       byU, byCust, updated:S.botLinks.updated||null };
@@ -8869,58 +8898,139 @@ function drawLurkPage(){
     +(L.anchoredN? L.anchoredN+' of '+L.n+' matches are anchored to the Stripe subscription creation date (ground truth)'+(L.anomalies? ' and '+L.anomalies+' were excluded because the link and the subscription date disagreed':'')+'. ' : '')
     +'Matching grows as the sync covers more joiners'
     +(L.updated? ' · last synced '+String(L.updated).slice(0,16).replace('T',' ') : '')+'.');
-  /* hard daily numbers: fast buyers per day at the picked speed threshold (1h/24h/72h)
-     + 7-day average (avg runs on the full 60d so the line is honest at the window edge) */
-  const hdAll=(L.hDaily&&L.hDaily[lkH1ThrH])||L.h1Daily||[];
-  const hd=hdAll.slice(-lkH1TfD);
-  if(hd.length){
+  /* v16.56 — Louie: "i want long term data easily tracked and viewable". Both charts now read
+     L.long (the whole history, one row per day) instead of the 60-day arrays. Up to 90 days they
+     draw daily exactly as before; 6m / 1y / All group into Monday weeks so a year stays readable.
+     Averages always run on the full series, then get sliced, so the line is honest at the edge. */
+  const LG=L.long||[];
+  const lkFmtD=k=>{ const d=new Date(k+'T00:00:00Z'); return d.getUTCDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]+(k.slice(0,4)!==dayKey(Date.now()).slice(0,4)? ' '+k.slice(2,4):''); };
+  /* weeks: sums per Monday week; `days` < 7 = the week still running (or the first, partial one) */
+  const lkWeeks=(rowsIn)=>{ const m={}, order=[];
+    rowsIn.forEach(x=>{ const w=weekKey(Date.parse(x.d+'T12:00:00Z'));
+      if(!m[w]){ m[w]={w, days:0, j:0, jDays:0, pa:0, p1:0, p24:0, p72:0, c1:0, c24:0}; order.push(w); }
+      const o=m[w]; o.days++;
+      ['pa','p1','p24','p72'].forEach(f=>{ o[f]+=x[f]||0; });
+      if(x.j!=null){ o.j+=x.j; o.jDays++; o.c1+=x.c1||0; o.c24+=x.c24||0; } });
+    return order.map(w=>m[w]); };
+  const lkCut=(arr,n)=> n? arr.slice(-n) : arr;
+  const thKey='p'+lkH1ThrH;
+  if(LG.length){
     const thrTxt=lkH1ThrH===1? 'their first hour' : 'their first '+lkH1ThrH+' hours';
     const thrLab=lkH1ThrH===1? 'Hour-one buyers' : 'Within-'+lkH1ThrH+'h buyers';
-    /* 14-day average, not 7: at ~1.4 buyers/day a 7d window holds ~10 events and swings
-       ±30% on pure chance — the 14d line is the honest signal at current volumes */
-    const avg7All=hdAll.map((x,i)=>{ const sl=hdAll.slice(Math.max(0,i-13),i+1); return +(sl.reduce((a,b)=>a+b.n,0)/sl.length).toFixed(2); });
-    const avg7=avg7All.slice(-lkH1TfD);
-    chart('chLurkH1D',{type:'bar',data:{labels:hd.map(x=>x.d),datasets:[
-      {label:thrLab,data:hd.map(x=>x.n),backgroundColor:rgbaOf(PAL.good,.7),borderRadius:2,order:2},
-      {label:'14-day average',type:'line',data:avg7,borderColor:PAL.gold,backgroundColor:PAL.gold,borderWidth:2.5,pointRadius:0,order:1}]},
-      options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,
-        label:c=>c.datasetIndex===0? c.raw+' paid within '+thrTxt : '14-day avg: '+c.raw+'/day'}}},
-        scales:{x:{grid:{display:false},ticks:{color:tickCol,autoSkip:true,maxTicksLimit:10}},y:{beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol,stepSize:1}}}}});
-    const last7=hd.slice(-7).reduce((a,b)=>a+b.n,0), prev7=hd.slice(-14,-7).reduce((a,b)=>a+b.n,0);
-    const today=hd[hd.length-1], yest=hd[hd.length-2];
-    setH('lkH1DNote','<b>Today: '+today.n+'</b> · yesterday: '+(yest? yest.n:0)+' · <b>last 7 days: '+last7+' ('+(Math.round(last7/7*10)/10)+'/day)</b> vs '+prev7+' the 7 days before'
-      +(prev7? ' — '+(last7>=prev7? '+':'')+Math.round((last7-prev7)/Math.max(1,prev7)*100)+'%':'')
-      +'. Members who paid within '+thrTxt+' of joining the server'
-      +(lkH1ThrH===1? ' — the number the routing gate and welcome DM exist to grow.' : ' — the wider net: welcome flow plus the first days of content doing the convincing. Note the 24h/72h counts for the last day'+(lkH1ThrH===72?'s':'')+' are still filling as recent joiners age.'));
+    const weekly=!lkH1TfD || lkH1TfD>90;
+    if(!weekly){
+      /* 14-day average, not 7: at ~1.4 buyers/day a 7d window holds ~10 events and swings
+         ±30% on pure chance — the 14d line is the honest signal at current volumes */
+      const avgAll=LG.map((x,i)=>{ const sl=LG.slice(Math.max(0,i-13),i+1); return +(sl.reduce((a,b)=>a+(b[thKey]||0),0)/sl.length).toFixed(2); });
+      const hd=lkCut(LG,lkH1TfD), avg=lkCut(avgAll,lkH1TfD);
+      chart('chLurkH1D',{type:'bar',data:{labels:hd.map(x=>x.d.slice(5)),fullDates:hd.map(x=>x.d),rvMeta:'daily · 14-day average',datasets:[
+        {label:thrLab,data:hd.map(x=>x[thKey]||0),backgroundColor:rgbaOf(PAL.good,.7),borderRadius:2,order:2},
+        {label:'14-day average',type:'line',data:avg,borderColor:PAL.gold,backgroundColor:PAL.gold,borderWidth:2.5,pointRadius:0,order:1}]},
+        options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,
+          title:items=>lkFmtD(hd[items[0].dataIndex].d),
+          label:c=>c.datasetIndex===0? c.raw+' paid within '+thrTxt : '14-day avg: '+c.raw+'/day'}}},
+          scales:{x:{grid:{display:false},ticks:{color:tickCol,autoSkip:true,maxTicksLimit:10}},y:{beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol,stepSize:1}}}}});
+      const val=x=>x[thKey]||0;
+      const last7=LG.slice(-7).reduce((a,b)=>a+val(b),0), prev7=LG.slice(-14,-7).reduce((a,b)=>a+val(b),0);
+      const today=LG[LG.length-1], yest=LG[LG.length-2];
+      setH('lkH1DNote','<b>Today: '+val(today)+'</b> · yesterday: '+(yest? val(yest):0)+' · <b>last 7 days: '+last7+' ('+(Math.round(last7/7*10)/10)+'/day)</b> vs '+prev7+' the 7 days before'
+        +(prev7? ' — '+(last7>=prev7? '+':'')+Math.round((last7-prev7)/Math.max(1,prev7)*100)+'%':'')
+        +'. Members who paid within '+thrTxt+' of joining the server'
+        +(lkH1ThrH===1? ' — the number the routing gate and welcome DM exist to grow.' : ' — the wider net: welcome flow plus the first days of content doing the convincing. Note the 24h/72h counts for the last day'+(lkH1ThrH===72?'s':'')+' are still filling as recent joiners age.')
+        +' Pick 6m, 1y or All for the long view in weeks.');
+    } else {
+      const wkAll=lkWeeks(LG);
+      /* 4-week average of the weekly RATE (per-day × 7), so a part week neither drags nor inflates it */
+      const rate=o=> o.days? o[thKey]/o.days*7 : 0;
+      const avgAll=wkAll.map((o,i)=>{ const sl=wkAll.slice(Math.max(0,i-3),i+1);
+        const n=sl.reduce((a,b)=>a+b[thKey],0), d=sl.reduce((a,b)=>a+b.days,0); return d? +(n/d*7).toFixed(1) : 0; });
+      const nW=lkH1TfD? Math.ceil(lkH1TfD/7) : 0;
+      const wk=lkCut(wkAll,nW), avg=lkCut(avgAll,nW);
+      chart('chLurkH1D',{type:'bar',data:{labels:wk.map(o=>o.w.slice(5)),fullDates:wk.map(o=>'w/c '+o.w),rvMeta:'weekly · 4-week average',datasets:[
+        {label:thrLab+' per week',data:wk.map(o=>o[thKey]),backgroundColor:wk.map(o=>rgbaOf(PAL.good,o.days<7? .3 : .7)),borderRadius:2,order:2},
+        {label:'4-week average',type:'line',data:avg,borderColor:PAL.gold,backgroundColor:PAL.gold,borderWidth:2.5,pointRadius:0,order:1}]},
+        options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,
+          title:items=>{ const o=wk[items[0].dataIndex]; return 'week of '+lkFmtD(o.w)+(o.days<7? ' · '+o.days+' day'+(o.days===1?'':'s')+' so far':''); },
+          label:c=>{ const o=wk[c.dataIndex];
+            return c.datasetIndex===0? o[thKey]+' paid within '+thrTxt+' ('+(Math.round(o[thKey]/o.days*10)/10)+'/day)'
+              : '4-week avg: '+c.raw+'/week'; }}}},
+          scales:{x:{grid:{display:false},ticks:{color:tickCol,autoSkip:true,maxTicksLimit:12}},y:{beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol}}}}});
+      const full=wkAll.filter(o=>o.days===7);
+      const l4=full.slice(-4), p4=full.slice(-8,-4), yr=full.slice(-56,-52);
+      const sum=a=>a.reduce((x,o)=>x+o[thKey],0);
+      const best=wk.filter(o=>o.days===7).sort((a,b)=>b[thKey]-a[thKey])[0];
+      const cur=wkAll[wkAll.length-1];
+      setH('lkH1DNote','<b>Last 4 full weeks: '+sum(l4)+' ('+(Math.round(sum(l4)/4*10)/10)+'/week)</b>'
+        +(p4.length===4? ' vs '+sum(p4)+' the 4 weeks before'+(sum(p4)? ' — '+(sum(l4)>=sum(p4)?'+':'')+Math.round((sum(l4)-sum(p4))/sum(p4)*100)+'%':'') : '')
+        +(yr.length===4? ' · same 4 weeks a year ago: '+sum(yr) : '')
+        +(best? ' · best week in view: '+best[thKey]+' (w/c '+lkFmtD(best.w)+')' : '')
+        +(cur && cur.days<7? ' · this week so far: '+cur[thKey]+' in '+cur.days+' day'+(cur.days===1?'':'s')+' (faded bar)' : '')
+        +'. Each bar is one Monday-to-Sunday week of members who paid within '+thrTxt+' of joining. '
+        +'Older than ~6 months comes from the Discord sync&#39;s full history, dated by the bot link rather than the Stripe checkout, so it can sit a day off here and there; the weekly shape is the same.');
+    }
   }
-  /* join→paid conversion: daily dots + weighted 7-day average lines.
-     everything computed on the full 60d, then sliced to the picked window so the
-     avg lines stay honest at the left edge */
-  const jcAll=(L.joinConv||[]).filter(x=>x.joins!=null);
-  if(jcAll.length>=7){
-    const d24A=jcAll.map(x=>+(x.b24/x.joins*100).toFixed(2)), d1A=jcAll.map(x=>+(x.b1/x.joins*100).toFixed(2));
-    const avg=(i,getN)=>{ const sl=jcAll.slice(Math.max(0,i-6),i+1);
-      const n=sl.reduce((a,b)=>a+getN(b),0), dd=sl.reduce((a,b)=>a+b.joins,0);
+  /* join→paid conversion: daily dots + weighted 7-day average lines up to 90d; weekly beyond.
+     computed on the full history, then sliced, so the lines stay honest at the left edge */
+  const jcAll=LG.filter(x=>x.j!=null);
+  const jcWeekly=!lkJCTfD || lkJCTfD>90;
+  if(jcAll.length>=7 && !jcWeekly){
+    const today0=dayKey(Date.now()), yest0=dayKey(Date.now()-864e5);
+    const d24A=jcAll.map(x=>+((x.c24||0)/x.j*100).toFixed(2)), d1A=jcAll.map(x=>+((x.c1||0)/x.j*100).toFixed(2));
+    const avg=(i,f)=>{ const sl=jcAll.slice(Math.max(0,i-6),i+1);
+      const n=sl.reduce((a,b)=>a+(b[f]||0),0), dd=sl.reduce((a,b)=>a+b.j,0);
       return dd? +(n/dd*100).toFixed(2) : 0; };
-    const a24A=jcAll.map((x,i)=>avg(i,b=>b.b24)), a1A=jcAll.map((x,i)=>avg(i,b=>b.b1));
-    const jcCut=Math.max(0,jcAll.length-lkJCTfD);
+    const a24A=jcAll.map((x,i)=>avg(i,'c24')), a1A=jcAll.map((x,i)=>avg(i,'c1'));
+    /* slice by calendar days, not by rows: days without a join count are skipped */
+    const cutK=dayKey(Date.now()-(lkJCTfD-1)*864e5);
+    const jcCut=Math.max(0, jcAll.findIndex(x=>x.d>=cutK));
     const jc=jcAll.slice(jcCut), d24=d24A.slice(jcCut), d1=d1A.slice(jcCut), a24=a24A.slice(jcCut), a1=a1A.slice(jcCut);
-    chart('chJoinConv',{type:'line',data:{labels:jc.map(x=>x.d+(x.prov?' ·':'')),datasets:[
+    const prov=x=> x.d===today0 || x.d===yest0;
+    chart('chJoinConv',{type:'line',data:{labels:jc.map(x=>x.d.slice(5)+(prov(x)?' ·':'')),fullDates:jc.map(x=>x.d),rvMeta:'daily · weighted 7-day average',datasets:[
       {label:'24h · 7-day avg',data:a24,borderColor:PAL.cyan,backgroundColor:PAL.cyan,borderWidth:2.5,pointRadius:0},
       {label:'1h · 7-day avg',data:a1,borderColor:PAL.good,backgroundColor:PAL.good,borderWidth:2.5,pointRadius:0},
       {label:'24h · daily',data:d24,borderWidth:0,pointRadius:2,pointBackgroundColor:rgbaOf(PAL.cyan,.4),showLine:false},
       {label:'1h · daily',data:d1,borderWidth:0,pointRadius:2,pointBackgroundColor:rgbaOf(PAL.good,.4),showLine:false}]},
       options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,
+        title:items=>lkFmtD(jc[items[0].dataIndex].d),
         label:c=>{ const x=jc[c.dataIndex];
-          if(c.datasetIndex===2) return '24h daily: '+c.raw+'% ('+x.b24+' of '+x.joins+' joins)';
-          if(c.datasetIndex===3) return '1h daily: '+c.raw+'% ('+x.b1+' of '+x.joins+' joins)';
+          if(c.datasetIndex===2) return '24h daily: '+c.raw+'% ('+(x.c24||0)+' of '+x.j+' joins)';
+          if(c.datasetIndex===3) return '1h daily: '+c.raw+'% ('+(x.c1||0)+' of '+x.j+' joins)';
           return c.dataset.label+': '+c.raw+'%'; }}}},
         scales:{x:{grid:{display:false},ticks:{color:tickCol,autoSkip:true,maxTicksLimit:10}},
           y:{beginAtZero:true, max:Math.max(1.5, Math.ceil(Math.max.apply(null, a24.concat(a1))*1.25*2)/2),
              grid:{color:gridCol},ticks:{color:tickCol,callback:v=>v+'%'}}}}});
     setH('lkJCNote','Dots are single days — noisy by nature (one buyer on a 40-join day moves it 2.5 points; the odd extreme day sits above the top of the chart, hover still shows it). <b>Read the lines: 7-day averages, currently '
-      +a24[a24.length-1]+'% of joiners paying within 24h and '+a1[a1.length-1]+'% within the first hour.</b> Denominator is every Discord join that day (vanity included); the numerator only counts matched buyers (~80% of all), so the true rates run slightly higher — the TREND is the honest part. Days marked · are still settling.');
+      +a24[a24.length-1]+'% of joiners paying within 24h and '+a1[a1.length-1]+'% within the first hour.</b> Denominator is every Discord join that day (vanity included); the numerator only counts matched buyers (~80% of all), so the true rates run slightly higher — the TREND is the honest part. Days marked · are still settling. Pick 6m, 1y or All for the long view in weeks.');
+  } else if(jcAll.length>=7){
+    const wkAll=lkWeeks(jcAll).filter(o=>o.j>0);
+    const pc=(n,d)=> d? +(n/d*100).toFixed(2) : 0;
+    const roll=(i,f)=>{ const sl=wkAll.slice(Math.max(0,i-3),i+1); return pc(sl.reduce((a,b)=>a+b[f],0), sl.reduce((a,b)=>a+b.j,0)); };
+    const a24A=wkAll.map((o,i)=>roll(i,'c24')), a1A=wkAll.map((o,i)=>roll(i,'c1'));
+    const nW=lkJCTfD? Math.ceil(lkJCTfD/7) : 0;
+    const wk=lkCut(wkAll,nW), a24=lkCut(a24A,nW), a1=lkCut(a1A,nW);
+    chart('chJoinConv',{type:'line',data:{labels:wk.map(o=>o.w.slice(5)+(o.days<7?' ·':'')),fullDates:wk.map(o=>'w/c '+o.w),rvMeta:'weekly · weighted 4-week average',datasets:[
+      {label:'24h · 4-week avg',data:a24,borderColor:PAL.cyan,backgroundColor:PAL.cyan,borderWidth:2.5,pointRadius:0},
+      {label:'1h · 4-week avg',data:a1,borderColor:PAL.good,backgroundColor:PAL.good,borderWidth:2.5,pointRadius:0},
+      {label:'24h · weekly',data:wk.map(o=>pc(o.c24,o.j)),borderWidth:0,pointRadius:2.5,pointBackgroundColor:rgbaOf(PAL.cyan,.45),showLine:false},
+      {label:'1h · weekly',data:wk.map(o=>pc(o.c1,o.j)),borderWidth:0,pointRadius:2.5,pointBackgroundColor:rgbaOf(PAL.good,.45),showLine:false}]},
+      options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,
+        title:items=>{ const o=wk[items[0].dataIndex]; return 'week of '+lkFmtD(o.w)+(o.days<7? ' · so far':''); },
+        label:c=>{ const o=wk[c.dataIndex];
+          if(c.datasetIndex===2) return '24h: '+c.raw+'% ('+o.c24+' of '+o.j+' joins)';
+          if(c.datasetIndex===3) return '1h: '+c.raw+'% ('+o.c1+' of '+o.j+' joins)';
+          return c.dataset.label+': '+c.raw+'%'; }}}},
+        scales:{x:{grid:{display:false},ticks:{color:tickCol,autoSkip:true,maxTicksLimit:12}},
+          y:{beginAtZero:true, max:Math.max(1.5, Math.ceil(Math.max.apply(null, a24.concat(a1))*1.3*2)/2),
+             grid:{color:gridCol},ticks:{color:tickCol,callback:v=>v+'%'}}}}});
+    const full=wkAll.filter(o=>o.days===7), l4=full.slice(-4), p4=full.slice(-8,-4);
+    const r=(a,f)=>pc(a.reduce((x,o)=>x+o[f],0), a.reduce((x,o)=>x+o.j,0));
+    setH('lkJCNote','Each dot is one Monday-to-Sunday week: buyers who joined that week and paid within 24h (cyan) or 1h (green), over every Discord join that week. '
+      +'<b>Last 4 full weeks: '+r(l4,'c24')+'% within 24h, '+r(l4,'c1')+'% within the hour</b>'
+      +(p4.length===4? ' vs '+r(p4,'c24')+'% and '+r(p4,'c1')+'% the 4 weeks before' : '')
+      +'. Weekly smooths out the single-day noise, so a real step change in onboarding shows up as the line moving and staying moved.');
   } else setH('lkJCNote','Needs daily join counts — they arrive with the next sync run (or drag an Invite Tracker CSV as a fallback).');
+  lkDrawChanges(LG);
+  lkDrawMonthly(LG);
   /* the tail: days 2–14, equal daily buckets */
   if(L.daily) chart('chLurkTail',{type:'bar',data:{labels:L.daily.map((_,i)=>'day '+(i+2)),datasets:[
     {label:'Paid on this day',data:L.daily,backgroundColor:rgbaOf(PAL.accent,.6),borderRadius:3}]},
@@ -8951,6 +9061,100 @@ function drawLurkPage(){
       +'<td class="num">'+r.n+'</td><td class="num">'+Math.round(r.fast/r.n*100)+'%</td></tr>').join('');
   }
   setH('lkInvNote', invRows.length? 'Only members who went on to PAY count here — this is invite quality, not invite volume. Pair it with the affiliate churn table on Attribution before renewing anyone.' : '');
+}
+/* v16.56 "What's changed": every funnel number as a per-day rate over complete days (today is
+   left out, it is always part-done), each period against the one before it, plus the same 30
+   days a year earlier so seasonality is visible. Pure over L.long. */
+function lkChangeRows(LG, now){
+  const D=864e5, yK=dayKey(now-D);
+  const idx=LG.findIndex(x=>x.d===yK); if(idx<0) return null;
+  const win=(end,n)=> end-n+1<0? null : LG.slice(end-n+1, end+1);
+  const per=(rows,f)=>{ if(!rows||!rows.length) return null;
+    if(f==='j'){ const r=rows.filter(x=>x.j!=null); return r.length? r.reduce((a,x)=>a+x.j,0)/r.length : null; }
+    if(f==='c1'||f==='c24'){ const r=rows.filter(x=>x.j!=null); const d=r.reduce((a,x)=>a+x.j,0); return d? r.reduce((a,x)=>a+(x[f]||0),0)/d*100 : null; }
+    if(f==='fast'){ const pa=rows.reduce((a,x)=>a+(x.pa||0),0); return pa? rows.reduce((a,x)=>a+(x.p24||0),0)/pa*100 : null; }
+    return rows.reduce((a,x)=>a+(x[f]||0),0)/rows.length; };
+  const METRICS=[
+    {f:'j', label:'Discord joins', unit:'/day', dp:0},
+    {f:'pa', label:'Paid joins (all)', unit:'/day', dp:1},
+    {f:'p1', label:'Paid within 1h of joining', unit:'/day', dp:1},
+    {f:'p24', label:'Paid within 24h', unit:'/day', dp:1},
+    {f:'p72', label:'Paid within 72h', unit:'/day', dp:1},
+    {f:'c1', label:'Joiners paying within 1h', unit:'%', dp:2},
+    {f:'c24', label:'Joiners paying within 24h', unit:'%', dp:2},
+    {f:'fast', label:'Buyers who paid inside 24h', unit:'%', dp:0}];
+  const yearAgo=LG.findIndex(x=>x.d===dayKey(now-D-364*D));   /* 52 weeks back, same weekdays */
+  return METRICS.map(m=>{
+    const cell=n=>{ const cur=per(win(idx,n),m.f), prev=per(win(idx-n,n),m.f);
+      return {cur, prev, pct:(cur!=null&&prev)? (cur-prev)/prev*100 : null}; };
+    const ya=yearAgo>=29? per(win(yearAgo,30),m.f) : null;
+    const c30=cell(30);
+    return {m, d7:cell(7), d30:c30, d90:cell(90), ya, yaPct:(c30.cur!=null&&ya)? (c30.cur-ya)/ya*100 : null};
+  });
+}
+function lkDrawChanges(LG){
+  const th=document.querySelector('#lkChgTable thead'), tb=document.querySelector('#lkChgTable tbody'), note=document.getElementById('lkChgNote');
+  if(!th||!tb) return;
+  const rows=LG.length? lkChangeRows(LG, Date.now()) : null;
+  if(!rows){ th.innerHTML=''; tb.innerHTML=''; if(note) note.textContent='Fills once the Discord sync has run.'; return; }
+  const fmt=(v,m)=> v==null? '—' : (m.unit==='%'? v.toFixed(m.dp)+'%' : (m.dp? (Math.round(v*10)/10).toFixed(1) : Math.round(v))+m.unit);
+  const chg=p=>{ if(p==null) return '<span style="color:var(--dim)">no data</span>';
+    const col=p>=5? 'var(--good)' : p<=-5? 'var(--bad)' : 'var(--muted)';
+    return '<span style="color:'+col+';font-weight:600">'+(p>=0?'▲ +':'▼ ')+Math.round(p)+'%</span>'; };
+  const cell=(c,m,lab)=> '<td class="num" title="'+lab+': '+fmt(c.prev,m)+'"><div style="color:var(--text);font-weight:600">'+fmt(c.cur,m)+'</div>'
+    +'<div style="font-size:11px;color:var(--muted)">vs '+fmt(c.prev,m)+' · '+chg(c.pct)+'</div></td>';
+  th.innerHTML='<tr><th>Metric</th><th>Last 7 days</th><th>Last 30 days</th><th>Last 90 days</th><th>Same 30 days a year ago</th></tr>';
+  tb.innerHTML=rows.map(r=>'<tr><td style="color:var(--text)">'+r.m.label+'</td>'
+    +cell(r.d7,r.m,'the 7 days before')+cell(r.d30,r.m,'the 30 days before')+cell(r.d90,r.m,'the 90 days before')
+    +'<td class="num"><div style="color:var(--text);font-weight:600">'+fmt(r.ya,r.m)+'</div>'
+    +'<div style="font-size:11px;color:var(--muted)">'+(r.ya!=null? 'now '+chg(r.yaPct) : 'history too short')+'</div></td></tr>').join('');
+  if(note) note.innerHTML='Every number is a daily average (or a rate) so the periods compare fairly. <b>Under each one: the period before it and the change</b>, green up, red down, grey inside ±5%. '
+    +'The last column puts the last 30 days next to the same 30 days a year earlier, to separate a real change from the time of year. '
+    +'7-day figures are small numbers (a couple of buyers is ±30%), so trust the 30 and 90 day columns for direction. The 24h and 72h counts for yesterday are still filling.';
+}
+/* v16.56 month by month: every paid join in the history, split by how fast they paid, with the
+   24h join→paid rate on the right axis. The running month is faded and projected in the note. */
+function lkMonthRows(LG){
+  const m={}, order=[];
+  LG.forEach(x=>{ const k=x.d.slice(0,7);
+    if(!m[k]){ m[k]={k, days:0, pa:0, p24:0, j:0, jDays:0, c24:0}; order.push(k); }
+    const o=m[k]; o.days++; o.pa+=x.pa||0; o.p24+=x.p24||0;
+    if(x.j!=null){ o.j+=x.j; o.jDays++; o.c24+=x.c24||0; } });
+  return order.map(k=>{ const o=m[k], y=+k.slice(0,4), mo=+k.slice(5,7);
+    o.dim=new Date(Date.UTC(y,mo,0)).getUTCDate(); o.part=o.days<o.dim; return o; });
+}
+function lkDrawMonthly(LG){
+  const note=document.getElementById('lkMonNote');
+  const mr=lkMonthRows(LG);
+  if(mr.length<2){ if(note) note.textContent='Needs a couple of months of history.'; return; }
+  const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const lab=o=> MN[+o.k.slice(5,7)-1]+' '+o.k.slice(2,4)+(o.part?' ·':'');
+  const conv=o=> o.j? +(o.c24/o.j*100).toFixed(2) : null;
+  chart('chLurkMonthly',{type:'bar',data:{labels:mr.map(lab),fullDates:mr.map(o=>o.k),rvMeta:'monthly · full history',datasets:[
+    {label:'Paid within 24h of joining',data:mr.map(o=>o.p24),backgroundColor:mr.map(o=>rgbaOf(PAL.good,o.part? .35:.75)),borderRadius:2,stack:'p',order:2},
+    {label:'Paid later',data:mr.map(o=>Math.max(0,o.pa-o.p24)),backgroundColor:mr.map(o=>rgbaOf(PAL.accent,o.part? .2:.45)),borderRadius:2,stack:'p',order:2},
+    {label:'Joiners paying within 24h (%)',type:'line',yAxisID:'y1',data:mr.map(conv),borderColor:PAL.gold,backgroundColor:PAL.gold,borderWidth:2.5,pointRadius:3,
+     pointBackgroundColor:mr.map(o=>o.part? rgbaOf(PAL.gold,.35) : PAL.gold),order:1}]},
+    options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,
+      title:items=>{ const o=mr[items[0].dataIndex]; return MN[+o.k.slice(5,7)-1]+' '+o.k.slice(0,4)+(o.part? ' · '+o.days+' of '+o.dim+' days':''); },
+      label:c=>{ const o=mr[c.dataIndex];
+        if(c.datasetIndex===0) return o.p24+' paid within 24h ('+(o.pa? Math.round(o.p24/o.pa*100):0)+'% of buyers)';
+        if(c.datasetIndex===1) return Math.max(0,o.pa-o.p24)+' paid later (or join not tracked)';
+        return c.raw==null? 'no join counts' : c.raw+'% of '+o.j.toLocaleString('en-GB')+' joiners paid within 24h'; },
+      afterBody:items=>{ const o=mr[items[0].dataIndex]; return o.pa+' paid joins in total · '+(Math.round(o.pa/o.days*10)/10)+'/day'; }}}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{color:tickCol}},
+        y:{stacked:true,beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol},title:{display:true,text:'paid joins',color:tickCol}},
+        y1:{position:'right',beginAtZero:true,grid:{display:false},ticks:{color:tickCol,callback:v=>v+'%'}}}}});
+  const cur=mr[mr.length-1], full=mr.filter(o=>!o.part);
+  const best=full.slice().sort((a,b)=>b.pa-a.pa)[0];
+  const lastYr=mr.find(o=>o.k===(+cur.k.slice(0,4)-1)+cur.k.slice(4));
+  const pace=cur.part? Math.round(cur.pa/cur.days*cur.dim) : null;
+  const MNf=o=>MN[+o.k.slice(5,7)-1]+' '+o.k.slice(0,4);
+  if(note) note.innerHTML='Every paid join the Discord bot has logged since '+MNf(mr[0])+', one bar per month: <b>green paid within 24 hours of joining, blue took longer</b> (or joined before tracking could see it). Gold line, right axis: of everyone who joined that month, the share who paid inside 24 hours. '
+    +(cur.part? '<b>'+MNf(cur)+' so far: '+cur.pa+' paid joins in '+cur.days+' days, on pace for about '+pace+'.</b> ' : '')
+    +(lastYr? 'Same month last year: '+lastYr.pa+'. ' : '')
+    +(best? 'Best full month: '+MNf(best)+' with '+best.pa+'. ' : '')
+    +'This counts paid joins the bot linked to a Discord account, so it runs a little under Stripe&#39;s new-subscriber count; use it for the shape over time.';
 }
 const _lkGo=document.getElementById('lkGo');
 if(_lkGo) _lkGo.onclick=()=>{
@@ -13321,7 +13525,14 @@ function blNormalize(rec){
   const success=Array.isArray(rec.success)? rec.success.map(a=> Array.isArray(a) && typeof a[0]==='number'
     ? {t:a[0]*60000, id:String(a[1]||''), rewarded:a[2]===1, tag:(a[3]==null? -1 : a[3]), via:a[4]||'', ack:a[5]||'', applied:a[6]===1, by:(a[7]>=0 && staff[a[7]])||'', amt:(a[8]||0)/100}
     : a).filter(x=>x && x.id) : [];
-  return {v:rec.v||2, updated:rec.updated||'', links, days:rec.days||null, invDays:rec.invDays||null, staff, success};
+  /* v16.56: the sync ships `hist`, a full-history daily series (from Jul 2025), instead of the
+     120-day `days` join map. Rebuild that map from hist.j for the same 120 days, so every
+     existing reader of days sees exactly what it saw before. */
+  const hist=(rec.hist && rec.hist.from && Array.isArray(rec.hist.j))? rec.hist : null;
+  let days=rec.days||null;
+  if(!days && hist){ days={}; const t0=Date.parse(hist.from+'T00:00:00Z'), cut=dayKey(Date.now()-120*864e5);
+    hist.j.forEach((n,i)=>{ const k=dayKey(t0+i*864e5); if(k>=cut && n) days[k]=n; }); }   /* old map had no zero days */
+  return {v:rec.v||2, updated:rec.updated||'', links, days, hist, invDays:rec.invDays||null, staff, success};
 }
 /* Union of two cash stores. Buckets: incoming wins per key (it is the fresher sweep); keys the
    incoming side lacks are kept. Metadata: the newer all-time pull (`updated`) keeps its `n`;
