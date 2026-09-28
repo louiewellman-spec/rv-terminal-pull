@@ -1967,7 +1967,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.57';
+const BUILD = 'v16.58';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -9078,9 +9078,10 @@ function lkChangeRows(LG, now){
     {f:'pa', label:'Paid joins (all)', unit:'/day', dp:1},
     {f:'p1', label:'Paid within 1h of joining', unit:'/day', dp:1},
     {f:'p24', label:'Paid within 24h', unit:'/day', dp:1},
-    {f:'p72', label:'Paid within 72h', unit:'/day', dp:1},
-    {f:'c1', label:'Joiners paying within 1h', unit:'%', dp:2},
-    {f:'c24', label:'Joiners paying within 24h', unit:'%', dp:2}];
+    {f:'p72', label:'Paid within 72h', unit:'/day', dp:1}
+    /* v16.58: the "Joiners paying within 1h/24h" % rows came out (Louie: keep the counts);
+       the % view lives on in the Join → paid conversion chart below */
+    ];
   const yearAgo=LG.findIndex(x=>x.d===dayKey(now-D-364*D));   /* 52 weeks back, same weekdays */
   return METRICS.map(m=>{
     const cell=n=>{ const cur=per(win(idx,n),m.f), prev=per(win(idx-n,n),m.f);
