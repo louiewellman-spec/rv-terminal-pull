@@ -1973,7 +1973,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.59';
+const BUILD = 'v16.60';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -11865,9 +11865,7 @@ const PJ_BUCKET='rv-projects', PJ_FILE_MAX=10*1024*1024;
 function pjSize(n){ n=Number(n)||0; return n>=1048576? (n/1048576).toFixed(1)+' MB' : n>=1024? Math.round(n/1024)+' KB' : n+' B'; }
 function pjSafeName(n){ return String(n||'file').replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,80); }
 async function pjStorage(path, opt){
-  const b=sbState(), tok=await sbToken();
-  const h=Object.assign({'apikey':b.anon, 'Authorization':'Bearer '+tok}, (opt&&opt.headers)||{});
-  const r=await fetchTimed(SB_URL+'/storage/v1/'+path, Object.assign({}, opt||{}, {headers:h}));
+  const r=await sbAuthedFetch(SB_URL+'/storage/v1/'+path, opt||{});
   if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('HTTP '+r.status+' '+t.slice(0,160)); }
   const t=await r.text(); return t? JSON.parse(t) : null;
 }
@@ -13162,21 +13160,49 @@ async function sbAuth(body){
   b.uid=(j.user&&j.user.id)||b.uid; b.email=(j.user&&j.user.email)||b.email;
   sbSave(); return j;
 }
+/* v16.60 — 30 Sep 2026: "Cloud save failed: HTTP 401 PGRST303 JWT expired". Every open terminal tab
+   holds its own copy of the session in memory, and Supabase ROTATES the refresh token on every
+   refresh, so once one tab (or the laptop waking from sleep) moves the session on, the others are
+   holding a dead token. Before refreshing, adopt the newest session any tab has saved; on a 401,
+   recover (newest saved session → refresh → remembered login) and retry the request once. */
+function sbAdoptSaved(){
+  const b=sbState(), saved=jget('rv_sb', null);
+  if(saved && saved.access_token && saved.access_token!==b.access_token && (saved.expires||0)>(b.expires||0)){
+    ['access_token','refresh_token','expires','uid','email'].forEach(k=>{ if(saved[k]!=null) b[k]=saved[k]; });
+    return true; }
+  return false;
+}
+async function sbRecover(){
+  const b=sbState();
+  if(sbAdoptSaved() && Date.now()<(b.expires||0)) return;
+  try{ if(!b.refresh_token) throw new Error('no refresh token');
+    await sbAuth({grant:'refresh_token', payload:{refresh_token:b.refresh_token}}); }
+  catch(e){
+    if(b.remember && b.email && b.pw){ await sbAuth({grant:'password', payload:{email:b.email, password:b.pw}}); return; }
+    throw new Error('session expired — sign in again');
+  }
+}
 async function sbToken(){
   const b=sbState();
   if(!b.anon) throw new Error('paste the anon key first');
   if(!b.access_token) throw new Error('sign in first');
-  if(Date.now()>=(b.expires||0)){
-    if(!b.refresh_token) throw new Error('session expired — sign in again');
-    await sbAuth({grant:'refresh_token', payload:{refresh_token:b.refresh_token}});
-  }
+  if(Date.now()>=(b.expires||0)) await sbRecover();
   return b.access_token;
 }
+/* every authenticated call goes through here: one retry after a 401, with a recovered session */
+async function sbAuthedFetch(url, init, ms){
+  for(let attempt=0; ; attempt++){
+    const b=sbState(), tok=await sbToken();
+    const h=Object.assign({}, (init&&init.headers)||{}, {'apikey':b.anon, 'Authorization':'Bearer '+tok});
+    const r=await fetchTimed(url, Object.assign({}, init||{}, {headers:h}), ms);
+    if(r.status!==401 || attempt>0) return r;
+    await sbRecover();
+  }
+}
 async function sbRest(path, {method='GET', body=null, prefer=null}={}){
-  const b=sbState(), tok=await sbToken();
-  const h={'apikey':b.anon, 'Authorization':'Bearer '+tok, 'Content-Type':'application/json'};
+  const h={'Content-Type':'application/json'};
   if(prefer) h['Prefer']=prefer;
-  const r=await fetchTimed(SB_URL+'/rest/v1/'+path, {method, headers:h, body: body? JSON.stringify(body):undefined});
+  const r=await sbAuthedFetch(SB_URL+'/rest/v1/'+path, {method, headers:h, body: body? JSON.stringify(body):undefined});
   if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('HTTP '+r.status+' '+t.slice(0,180)); }
   const t=await r.text(); return t? JSON.parse(t) : null;
 }
@@ -13289,9 +13315,8 @@ async function sbPage(table, select, extra, maxRows){
   /* PostgREST caps a response at 1000 rows: walk Range windows until a short page */
   const out=[]; for(let from=0; ; from+=1000){
     if(maxRows && out.length>=maxRows) break;
-    const b=sbState(), tok=await sbToken();
-    const r=await fetchTimed(SB_URL+'/rest/v1/'+table+'?select='+(select||'*')+(extra? '&'+extra:''),
-      {headers:{'apikey':b.anon,'Authorization':'Bearer '+tok,'Range-Unit':'items','Range':from+'-'+(from+999)}}, 60000);
+    const r=await sbAuthedFetch(SB_URL+'/rest/v1/'+table+'?select='+(select||'*')+(extra? '&'+extra:''),
+      {headers:{'Range-Unit':'items','Range':from+'-'+(from+999)}}, 60000);
     if(r.status===416) break;
     if(!r.ok) throw new Error(table+' HTTP '+r.status);
     const rows=await r.json(); out.push.apply(out, rows); if(rows.length<1000) break; }
@@ -13403,9 +13428,7 @@ async function sbNightlyState(){
   catch(e){ return {armed:false, last:null, error:e.message}; }
 }
 async function sbCount(table){
-  const b=sbState(), tok=await sbToken();
-  const r=await fetchTimed(SB_URL+'/rest/v1/'+table+'?select=*&limit=1', {headers:{'apikey':b.anon,
-    'Authorization':'Bearer '+tok, 'Prefer':'count=exact', 'Range':'0-0'}});
+  const r=await sbAuthedFetch(SB_URL+'/rest/v1/'+table+'?select=*&limit=1', {headers:{'Prefer':'count=exact', 'Range':'0-0'}});
   const cr=r.headers.get('content-range')||'';   /* '0-0/12345' */
   const m=/\/(\d+)$/.exec(cr); return m? +m[1] : (r.ok? 0 : -1);
 }
@@ -13416,6 +13439,7 @@ async function sbAutoSync(opts){
   const b=sbState(); if(!b.anon) return null;
   const force=!!(opts&&opts.force);
   try{
+    sbAdoptSaved();
     if((!b.access_token || Date.now()>=(b.expires||0)) && b.refresh_token){
       try{ await sbAuth({grant:'refresh_token', payload:{refresh_token:b.refresh_token}}); }catch(e){ b.access_token=null; }
     }
