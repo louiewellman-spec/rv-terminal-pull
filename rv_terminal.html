@@ -513,6 +513,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
 .rpq-say b{color:var(--text)}
 .rpq-bar{height:6px;border-radius:99px;background:var(--cold-soft);margin-top:12px;position:relative;overflow:hidden;max-width:980px}
 .rpq-bar i{position:absolute;left:0;top:0;bottom:0;border-radius:99px;background:var(--accent)}
+#rpQTable tr.rpq-row{cursor:pointer} #rpQTable tr.rpq-row:hover td{background:var(--cold-soft)} #rpQTable tr.rpq-row.sel td{background:var(--cold-soft)} #rpQTable tr.rpq-row.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
 #rpQTable td.num .sub{display:block;font-size:11px;color:var(--muted);font-weight:400}
 @media (max-width:900px){ .rpq-grid{grid-template-columns:minmax(0,1fr)} .rpq-tiles{grid-template-columns:minmax(0,1fr) minmax(0,1fr)} }
 </style>
@@ -699,6 +700,7 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
     </div>
     <div id="rpPaneQuarters" hidden>
       <div class="card" id="rpQVerdict" style="margin-bottom:12px"></div>
+      <div class="tfbtns" id="rpQPick" style="margin:0 0 12px;flex-wrap:wrap;align-items:center"></div>
       <div class="rpq-grid">
         <div class="card"><div class="row" style="justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><h3 id="rpQChartH">MRR · last quarter and this one</h3><span class="tag">solid = actual MRR · dashed = the bar each quarter was set</span></div><div style="height:300px;margin-top:8px"><canvas id="chQuarterPath"></canvas></div></div>
         <div id="rpQTiles" class="rpq-tiles"></div>
@@ -1987,7 +1989,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.61';
+const BUILD = 'v16.62';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -7889,13 +7891,29 @@ function qActuals(qk, now){
     acts:coachActs(t0,end).length, cxl:coachCancels(t0,end).length,
     cash:(cashN && cashN===monthsBegun)? Math.round(cash) : null};
 }
+let rpQSel=null;   /* null = the live quarter; else a past quarter key like 2026-Q2 */
+function rpQPickSet(qk){
+  rpQSel=qk||null;
+  try{ history.replaceState(null,'','#reports'+(rpQSel? '?q='+rpQSel.replace('-','') : '')); }catch(e){}
+  try{ rpQuarters(rpState()); }catch(e){ reportNonFatal('Reports quarters',e); }
+  try{ const v=document.getElementById('rpQVerdict'); if(v && v.getBoundingClientRect().top<0) v.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){}
+}
 function rpQuarters(st){
   const el=document.getElementById('rpPaneQuarters'); if(!el) return;
   const F=S.forecasts||{}, now=st.realNow||Date.now(), subs=liveSubsList();
   const fmtNet=v=> v==null? '—' : (v<0?'−£':'+£')+Math.abs(Math.round(v)).toLocaleString('en-GB');
   const fmtPct=v=> v==null? '' : (v>=0?'+':'−')+Math.abs(Math.round(v*10)/10)+'%';
   const dayFmt=t=> new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
-  const curK=qOf(mkOf(now)), prevK=qPrevK(curK), nextK=qNextK(curK);
+  const liveK=qOf(mkOf(now)), nextK=qNextK(liveK);
+  /* v16.62 — Louie: "need to be able to click and see past quarters graphs". The whole pane (verdict,
+     chart, tiles) follows a FOCUS quarter: the live one by default, or any past quarter picked from the
+     chips or the table. curK/prevK below mean "the focus quarter" and "the one before it". */
+  const firstPaid=subs.filter(hasFirstPayment).reduce((a,x)=>Math.min(a,stripeStartOf(x)),Infinity);
+  const qs=[]; { let k=liveK; for(let i=0;i<8;i++){ if(!isFinite(firstPaid) || qSpan(k).t1<=firstPaid) break; qs.push(k); k=qPrevK(k); } }
+  /* only drop a picked quarter once the data is in: the first paint runs before the subs load,
+     and a deep link (#reports?q=2026Q2) must survive it */
+  if(rpQSel && qs.length && (rpQSel===liveK || !qs.includes(rpQSel))) rpQSel=null;
+  const curK=(rpQSel && qs.includes(rpQSel))? rpQSel : liveK, prevK=qPrevK(curK), isLive=curK===liveK;
   const cur=qActuals(curK, now), prev=qActuals(prevK, now);
   const lockOf=qk=>{ const l=F['Q:'+qk]; return (l&&l.mrrEnd!=null)? l : null; };
   const L=lockOf(curK), LP=lockOf(prevK);
@@ -7905,11 +7923,20 @@ function rpQuarters(st){
     if(rg){ if(v>rg[1]) return 1; if(v<rg[0]) return -1; return 0; } return v>=l.mrrEnd? 1 : -1; };
   const lateTxt=l=> (l&&l.lateBy>3)? 'worked out '+l.lateBy+' days late (on '+dayFmt(l.computedAt)+') from data before the quarter began' : 'set on the first day from data before the quarter began';
 
+  try{ const pk=document.getElementById('rpQPick'); if(pk){
+    pk.innerHTML='<span class="sn" style="margin-right:4px">See a quarter</span>'+qs.slice().reverse().map(qk=>'<button class="tfbtn'+(qk===curK?' on':'')+'" data-q="'+qk+'">'+qLabel(qk)+(qk===liveK?' · now':'')+'</button>').join('');
+    pk.querySelectorAll('[data-q]').forEach(b2=> b2.onclick=()=>rpQPickSet(b2.dataset.q)); } }catch(e){}
   /* ---------- 1. the verdict ---------- */
   try{ const vEl=document.getElementById('rpQVerdict'); if(vEl){
     const tooEarly=cur.frac<0.08;
     let pill='<span class="pill cold">no bar set yet</span>', say='';
-    if(L){
+    if(!isLive){
+      pill=L? (grade(L,cur)===1? '<span class="pill good">beat its bar by '+fmtGBP(cur.mrrEnd-L.mrrEnd)+'</span>' : grade(L,cur)===-1? '<span class="pill bad">missed its bar by '+fmtGBP(L.mrrEnd-cur.mrrEnd)+'</span>' : '<span class="pill mid">inside its range</span>')
+        : '<span class="pill cold">no bar was set</span>';
+      say=qLabel(curK)+' ran '+dayFmt(cur.t0)+' to '+dayFmt(cur.t1-1)+'. MRR went from <b>'+fmtGBP(cur.mrrStart)+'</b> to <b>'+fmtGBP(cur.mrrEnd)+'</b>, '+(cur.net>=0?'up ':'down ')+'<b>'+fmtGBP(Math.abs(cur.net))+'</b> ('+fmtPct(cur.pct)+'), '
+        +'with <b>'+rpN(cur.acts)+'</b> new subscribers and <b>'+rpN(cur.cxl)+'</b> lost'+(cur.cash!=null? ' and <b>'+fmtGBP(cur.cash)+'</b> collected' : '')+'. '
+        +(L? 'Its bar was '+fmtGBP(L.mrrEnd)+((L.range&&L.range.mrrEnd)? ' (likely '+fmtGBP(L.range.mrrEnd[0])+' to '+fmtGBP(L.range.mrrEnd[1])+')' : '')+', '+lateTxt(L)+'. ' : 'Quarter bars began with Q3 2026, so this one has actuals only. ');
+    } else if(L){
       const exp=barAt(L,cur,cur.frac), gap=cur.mrrEnd-exp, need=L.mrrEnd-cur.mrrEnd;
       const monthsLeft=Math.max(1, (cur.t1-now)/(30.4*D));
       pill= tooEarly? '<span class="pill cold">day '+cur.day+' · too early to call</span>'
@@ -7921,23 +7948,26 @@ function rpQuarters(st){
         +(tooEarly? 'It is day '+cur.day+' of '+cur.days+', so there is nothing to judge yet. ' : 'On a straight line from the start it should be '+fmtGBP(exp)+' today. ');
     } else say='No bar is set for '+qLabel(curK)+' yet. It is worked out from the data before the quarter began and appears on the next refresh. ';
     if(prev.mrrStart){
-      say+='<br>'+qLabel(prevK)+' finished at <b>'+fmtGBP(prev.mrrEnd)+'</b>, '+(prev.net>=0?'up ':'down ')+'<b>'+fmtGBP(Math.abs(prev.net))+'</b> ('+fmtPct(prev.pct)+') on the '+fmtGBP(prev.mrrStart)+' it started at'
+      say+=(isLive? '<br>' : '<br>Before it, ')+qLabel(prevK)+' finished at <b>'+fmtGBP(prev.mrrEnd)+'</b>, '+(prev.net>=0?'up ':'down ')+'<b>'+fmtGBP(Math.abs(prev.net))+'</b> ('+fmtPct(prev.pct)+') on the '+fmtGBP(prev.mrrStart)+' it started at'
         +(LP? ', against a bar of '+fmtGBP(LP.mrrEnd)+': '+(prev.mrrEnd>=LP.mrrEnd? '<b style="color:var(--good)">beat by '+fmtGBP(prev.mrrEnd-LP.mrrEnd)+'</b>' : '<b style="color:var(--bad)">missed by '+fmtGBP(LP.mrrEnd-prev.mrrEnd)+'</b>') : '')+'.';
     }
     const stat=(k,v,sub)=>'<div class="rpq-stat"><div class="k">'+k+'</div><div class="v">'+v+'</div>'+(sub? '<div class="s">'+sub+'</div>':'')+'</div>';
     vEl.innerHTML='<div class="row" style="gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">'+qLabel(curK)+'</h3>'+pill
-      +'<span class="sn">day '+cur.day+' of '+cur.days+' · '+dayFmt(cur.t0)+' to '+dayFmt(cur.t1-1)+'</span></div>'
+      +'<span class="sn">'+(isLive? 'day '+cur.day+' of '+cur.days+' · ' : 'finished · ')+dayFmt(cur.t0)+' to '+dayFmt(cur.t1-1)+'</span>'
+      +(isLive? '' : '<button class="btn sm" id="rpQBack" style="margin-left:auto">← Back to '+qLabel(liveK)+'</button>')+'</div>'
       +'<div class="rpq-stats">'
-      +stat('MRR now', fmtGBP(cur.mrrEnd), fmtNet(cur.net)+' this quarter')
+      +stat(isLive? 'MRR now' : 'MRR at the end', fmtGBP(cur.mrrEnd), fmtNet(cur.net)+(isLive? ' this quarter' : ' over the quarter'))
       +stat('Started the quarter', fmtGBP(cur.mrrStart), dayFmt(cur.t0))
-      +stat('The bar', L? fmtGBP(L.mrrEnd) : '—', L? 'by '+dayFmt(cur.t1-1) : 'not set yet')
+      +stat('The bar', L? fmtGBP(L.mrrEnd) : '—', L? 'by '+dayFmt(cur.t1-1) : (isLive? 'not set yet' : 'none for this quarter'))
       +stat(qLabel(prevK), fmtGBP(prev.mrrEnd), fmtNet(prev.net)+' · '+fmtPct(prev.pct))
       +'</div>'
       +'<div class="rpq-bar" title="how far through the quarter we are"><i style="width:'+Math.round(cur.frac*100)+'%"></i></div>'
       +'<div class="rpq-say">'+say+'</div>';
+    const bk=document.getElementById('rpQBack'); if(bk) bk.onclick=()=>rpQPickSet(null);
   } }catch(e){ reportNonFatal('Quarters verdict', e); }
 
   /* ---------- 2. the chart: daily MRR across last quarter and this one, each with its bar ---------- */
+  try{ const hq=document.getElementById('rpQChartH'); if(hq) hq.textContent='MRR · '+qLabel(curK)+(isLive? ' so far' : '')+' and '+qLabel(prevK)+' before it'; }catch(e){}
   try{ const cv=document.getElementById('chQuarterPath'); if(cv && typeof chart==='function'){
     const t0=prev.t0, t1=cur.t1, n=Math.round((t1-t0)/D), live=(lastM&&isFinite(lastM.mrr))? lastM.mrr : null;
     const labels=[], fulls=[], act=[], barP=[], barC=[], lo=[], hi=[];
@@ -7985,7 +8015,19 @@ function rpQuarters(st){
         +'<div class="row" style="gap:8px;align-items:baseline;flex-wrap:wrap"><span class="big num">'+(val==null?'—':fmt(val))+'</span>'+pill+'</div>'
         +'<div class="sn" style="line-height:1.5">'+lines.filter(Boolean).join('<br>')+'</div></div>'; };
     const per=v=> cur.frac>0? v/cur.frac : null;
-    tEl.innerHTML=tile('New subscribers', cur.acts, rpN, per(cur.acts), L&&L.activations, 1, prev.acts)
+    if(!isLive){
+      /* a finished quarter: its final numbers, against the quarter before it */
+      const fin=(label,val,pv,fmt,dir,barV,fmtD)=>{
+        const ch=(val!=null&&pv!=null)? val-pv : null, good=ch==null? null : (dir>0? ch>=0 : ch<=0);
+        const chTxt=ch==null? '' : '<span class="pill '+(ch===0?'cold':good?'good':'bad')+'">'+(ch>0?'+':ch<0?'−':'')+(fmtD||fmt)(Math.abs(ch))+' vs '+qLabel(prevK)+'</span>';
+        return '<div class="card" style="display:flex;flex-direction:column;gap:4px"><h3>'+label+'</h3>'
+          +'<div class="row" style="gap:8px;align-items:baseline;flex-wrap:wrap"><span class="big num">'+(val==null?'—':fmt(val))+'</span>'+chTxt+'</div>'
+          +'<div class="sn" style="line-height:1.5">'+qLabel(prevK)+': '+(pv==null?'—':fmt(pv))+(barV!=null? '<br>bar for the quarter '+fmt(barV) : '')+'</div></div>'; };
+      tEl.innerHTML=fin('New subscribers', cur.acts, prev.mrrStart? prev.acts : null, rpN, 1, L&&L.activations)
+        +fin('Subscribers lost', cur.cxl, prev.mrrStart? prev.cxl : null, rpN, -1, L&&L.cancels)
+        +fin('Net MRR', cur.net, prev.mrrStart? prev.net : null, fmtNet, 1, L&&L.netMRR, fmtGBP)
+        +fin('Cash collected', cur.cash, prev.cash, fmtGBP, 1, L&&L.cash);
+    } else tEl.innerHTML=tile('New subscribers', cur.acts, rpN, per(cur.acts), L&&L.activations, 1, prev.acts)
       +tile('Subscribers lost', cur.cxl, rpN, per(cur.cxl), L&&L.cancels, -1, prev.cxl)
       +tile('Net MRR', cur.net, fmtNet, per(cur.net), L&&L.netMRR, 1, prev.net)
       +tile('Cash collected', cur.cash, fmtGBP, cur.cash!=null? per(cur.cash) : null, L&&L.cash, 1, prev.cash);
@@ -7993,8 +8035,6 @@ function rpQuarters(st){
 
   /* ---------- 4. every quarter, one row each, newest first ---------- */
   try{ const tb=document.getElementById('rpQTable'); if(tb){
-    const firstPaid=subs.filter(hasFirstPayment).reduce((a,x)=>Math.min(a,stripeStartOf(x)),Infinity);
-    const qs=[]; let k=curK; for(let i=0;i<8;i++){ if(!isFinite(firstPaid) || qSpan(k).t1<=firstPaid) break; qs.push(k); k=qPrevK(k); }
     const rows=qs.map(qk=>{ const a=qk===curK? cur : qk===prevK? prev : qActuals(qk, now), l=lockOf(qk);
       const started=a.t0>=firstPaid;
       let barCell='<td class="num" style="color:var(--dim)">—</td>', res='<td></td>';
@@ -8004,7 +8044,8 @@ function rpQuarters(st){
         else { const gap=a.mrrEnd-barAt(l,a,a.frac);
           res='<td>'+(a.frac<0.08? '<span class="pill cold">just started</span>' : gap>=0? '<span class="pill good">'+fmtNet(gap)+' ahead</span>' : '<span class="pill bad">'+fmtNet(gap)+' behind</span>')+'</td>'; } }
       const status=a.done? '' : ' <span class="pill cold">day '+a.day+' of '+a.days+'</span>';
-      return '<tr><td style="color:var(--text);font-weight:600;white-space:nowrap">'+qLabel(qk)+status+'</td>'
+      const sel=qk===curK;
+      return '<tr class="clickable rpq-row'+(sel?' sel':'')+'" data-q="'+qk+'" title="'+(sel? 'showing this quarter above' : 'show '+qLabel(qk)+' above')+'"><td style="color:var(--text);font-weight:600;white-space:nowrap">'+(sel?'<span style="color:var(--accent)">● </span>':'')+qLabel(qk)+status+'</td>'
         +'<td class="num">'+(started? fmtGBP(a.mrrStart) : '<span style="color:var(--dim)">—</span>')+'</td>'
         +'<td class="num" style="color:var(--text);font-weight:600">'+fmtGBP(a.mrrEnd)+(a.done?'':'<span class="sub">so far</span>')+'</td>'
         +'<td class="num" style="color:'+(a.net>=0?'var(--good)':'var(--bad)')+'">'+(started? fmtNet(a.net)+'<span class="sub">'+fmtPct(a.pct)+'</span>' : '—')+'</td>'
@@ -8017,10 +8058,11 @@ function rpQuarters(st){
         +((nq.range&&nq.range.mrrEnd)? ' (likely '+fmtGBP(nq.range.mrrEnd[0])+' to '+fmtGBP(nq.range.mrrEnd[1])+')' : '')
         +' · '+rpN(nq.activations)+' new · '+rpN(nq.cancels)+' lost'+(nq.cash!=null? ' · cash '+fmtGBP(nq.cash) : '')
         +'. A rough early read from the last three months; its real bar is set on '+dayFmt(qSpan(nextK).t0)+'.</div>'; } }catch(e){}
-    tb.innerHTML='<div class="card"><div class="row" style="justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px"><h3>Quarter by quarter</h3><span class="sn">actuals straight from Stripe · the bar is what each quarter was set at its start</span></div>'
+    tb.innerHTML='<div class="card"><div class="row" style="justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px"><h3>Quarter by quarter</h3><span class="sn">click a quarter to see its chart above · actuals straight from Stripe</span></div>'
       +'<div style="overflow-x:auto"><table><thead><tr><th>Quarter</th><th>MRR at start</th><th>MRR at end</th><th>Growth</th><th>New subscribers</th><th>Subscribers lost</th><th>Cash</th><th>The bar</th><th>Result</th></tr></thead><tbody>'
       +rows.join('')+'</tbody></table></div>'
-      +'<div class="sn" style="margin-top:8px">Growth is MRR at the end minus MRR at the start. Quarters before the bars began show actuals only. Cash fills in once Pull all-time data has run.</div>'+nextTxt+'</div>';
+      +'<div class="sn" style="margin-top:8px">Click any row to load that quarter into the chart and tiles. Growth is MRR at the end minus MRR at the start. Quarters before the bars began show actuals only. Cash fills in once Pull all-time data has run.</div>'+nextTxt+'</div>';
+    tb.querySelectorAll('tr[data-q]').forEach(r=> r.onclick=()=>rpQPickSet(r.dataset.q===liveK? null : r.dataset.q));
   } }catch(e){ reportNonFatal('Quarters table', e); }
 
   /* ---------- 5. how to read it ---------- */
@@ -13889,7 +13931,9 @@ function pubAgeTick(){
   el.style.color= mn>120? PAL.bad : '';
 }
 setInterval(pubAgeTick, 60000); pubAgeTick();
-const initialView=location.hash.slice(1);
+const _hashParts=location.hash.slice(1).split('?'), initialView=_hashParts[0];
+/* v16.62 deep link: #reports?q=2026Q2 opens Reports › Quarters on that quarter */
+try{ const qm=/(?:^|&)q=(\d{4})-?Q([1-4])/i.exec(_hashParts[1]||''); if(qm){ rpQSel=qm[1]+'-Q'+qm[2]; rpPane='quarters'; } }catch(e){}
 if(!S.settings.key) switchView('settings');
 else if(titles[initialView]) switchView(initialView);
 else enhanceInteractive(document);
