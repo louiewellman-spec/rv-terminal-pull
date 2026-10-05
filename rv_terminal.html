@@ -1739,6 +1739,7 @@ if(!Array.isArray(S.emailLog) || !S.emailSup){
 S.expCamp = jget('rv_expcamp', null);
 S.profitBin = jget('rv_profitbin', null);   /* v15.84: shared by the runner */
 S.emailFlags = jget('rv_emailflags', null);
+S.deskApplied = jget('rv_deskapplied', {});   /* v16.63: send batches from the morning email routine already logged */
 S.projects = jget('rv_projects', null);   /* v15.92: projects, notes, timelines — synced */
 if(!S.expCamp || typeof S.expCamp.stamps!=='object') S.expCamp={stamps:{}};
 if(typeof S.expCamp.upTypes!=='object' || !S.expCamp.upTypes) S.expCamp.upTypes={};
@@ -1989,7 +1990,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.62';
+const BUILD = 'v16.63';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -12385,7 +12386,7 @@ async function syncBundle(){
     /* v15.18: ONE read. roster, botlinks, profit and the win-back dataset ride z with the full ledgers. */
     let roster=[], members=[]; try{ roster=rosterRows()||[]; members=roster.filter(r=>r.campaignTag); }catch(e){}
     let profit=null; try{ profit=await fetchProfitBin(); if(profit){ profit=Object.assign({}, profit); delete profit._at; } }catch(e){}
-    let winback=null; try{ await fetchEmailFlags(false); winback=winbackBuild(); }catch(e){}
+    let winback=null; try{ await fetchEmailFlags(false); try{ emailDeskImport((S.emailFlags&&S.emailFlags.deskSent)||[]); }catch(e2){ reportNonFatal('Email desk import', e2); } winback=winbackBuild(); }catch(e){}
     z=await zPack({v:4, mrrEvents:S.mrrEvents||[], snapshots:S.snapshots||[], djoins:mergeDjoinLedgers(S.djoins||{},botDjoins), recoveryLog:recLog, churnLog, rejoinsRecent,
       roster, members, botlinks:S.botLinks||null, profit, winback});
   }catch(e){}
@@ -12493,6 +12494,7 @@ async function syncBundle(){
       notes:{churnLog:'every cancel in the last 396 days, uncapped', roster:'every active/past_due/pending_cancel member; members = the stamped subset (was the roster bin)', botlinks:'mirror of the bot-links bin', profit:'mirror of the profit bin', winback:'{people, rollup}: every person with a paid stint and no live sub, one row per email, PII on purpose; definitions in rollup.definitions'},
       note:'full history lives here; the FULL roster + stamped members live in their OWN bin — see record.rosterBin. Plain snapshots are the last 45 days, plain mrrEvents intentionally empty, recovery.log rides here — decode z for the history'} : null,
     expCamp:S.expCamp||null,
+    emailDesk:(function(){ try{ return emailDeskBuild(); }catch(e){ return {error:String(e&&e.message||e)}; } })(),
     /* v15.32: the email log and never-email lists RIDE THE SYNC BUNDLE (v15.19 had put them in the export file only,
        so no other device — and no Supabase push from the bundle — ever received a single send) */
     emailLog:S.emailLog||[], emailSup:S.emailSup||null,
@@ -12511,7 +12513,7 @@ async function fetchEmailFlags(force){
   if(!force && S.emailFlags && Date.now()-(S.emailFlags.at||0)<60*60*1000) return S.emailFlags;
   try{ const r=await fetchTimed('https://api.jsonbin.io/v3/b/'+EMAILFLAGS_BIN+'/latest',{headers:{'X-Master-Key':S.settings.binKey}});
     if(!r.ok) throw new Error('HTTP '+r.status); const j=await r.json(); const rec=(j&&j.record)||{};
-    S.emailFlags={at:Date.now(), updated:rec.updated||null, emails:rec.emails||{}}; jset('rv_emailflags', S.emailFlags); }
+    S.emailFlags={at:Date.now(), updated:rec.updated||null, emails:rec.emails||{}, deskSent:Array.isArray(rec.deskSent)? rec.deskSent : []}; jset('rv_emailflags', S.emailFlags); }
   catch(e){ S.emailFlags=S.emailFlags||{at:Date.now(), updated:null, emails:null, error:String(e&&e.message||e)}; }
   return S.emailFlags;
 }
@@ -12907,6 +12909,44 @@ function emailAllQueues(){
   });
 
   return out;
+}
+/* v16.63 — Louie, 5 Oct 2026: "a routine that lives on my claude that every morning runs an emails to send
+   thing ... mostly bcc in as little emails as possible". The terminal keeps the RULES (who is eligible:
+   gaps, STOP, bounces, control group, recovery ladder, Elite bands); the morning routine on his Mac reads
+   this desk from the sync bundle, decides what goes today and packs it into the fewest BCC emails.
+   When he says "sent", the routine pushes the batches into the email-flags bin as deskSent and
+   emailDeskImport() logs them through each queue's OWN apply() (so Elite stamps, the Pro/Elite recovery
+   split and the 60/14-day gaps behave exactly as if he had pressed the button here). */
+function emailDeskBuild(){
+  const Q=emailAllQueues();
+  return {v:1, at:new Date().toISOString(), bccMax:EMAIL_BCC_MAX, errors:Q.errors||[],
+    queues:Q.map(q=>({key:q.key, label:q.label, family:q.family||'', group:q.group||'', type:q.type||'', tag:q.tag||'',
+      template:q.template||'', blurb:q.blurb||'', waiting:q.waiting||0, waitingNote:q.waitingNote||'',
+      blockedN:(q.blocked||[]).length,
+      ready:(q.ready||[]).map(r=>({email:String(r.email||'').toLowerCase(), name:r.name||null, tier:r.tier||null, meta:r.meta||''}))}))
+      .filter(q=>q.ready.length || q.waiting || q.blockedN)};
+}
+function emailDeskImport(batches){
+  if(!Array.isArray(batches) || !batches.length) return 0;
+  S.deskApplied=S.deskApplied||{};
+  const todo=batches.filter(b=>b && b.id && !S.deskApplied[b.id] && b.tag && Array.isArray(b.emails) && b.emails.length);
+  if(!todo.length) return 0;
+  let Q=[]; try{ Q=emailAllQueues(); }catch(e){ Q=[]; }
+  let n=0;
+  todo.forEach(b=>{
+    const want=new Set(b.emails.map(e=>String(e||'').trim().toLowerCase()).filter(Boolean));
+    const q=Q.find(x=>x.key===b.key && x.tag===b.tag);
+    if(q && typeof q.apply==='function'){
+      const rows=(q.ready||[]).filter(r=>want.has(String(r.email||'').toLowerCase()));
+      if(rows.length){ q.apply(rows); rows.forEach(r=>want.delete(String(r.email||'').toLowerCase())); }
+    }
+    /* anyone the queue no longer lists (it moved on since the morning) is still logged, under the same tag */
+    if(want.size) emailMarkSent([...want], b.tag, b.type||'offer', b.date||undefined);
+    S.deskApplied[b.id]={at:Date.now(), n:b.emails.length, key:b.key||null};
+    n+=b.emails.length;
+  });
+  jset('rv_deskapplied', S.deskApplied); try{ scheduleSync(); }catch(e){}
+  return n;
 }
 function emailMarkSent(emails, campaign, type, whenKey){
   const d=whenKey||dayKey(Date.now()), L=emailLogRows(); let n=0;
