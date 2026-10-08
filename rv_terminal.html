@@ -2002,7 +2002,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.65';
+const BUILD = 'v16.66';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -9981,7 +9981,9 @@ function collectionRows(invHist, recovery, now, gran, rangeDays){
   const firstCase=cases.reduce((a,c)=> (c&&c.opened&&(!c.kind||c.kind==='pd'))? Math.min(a,c.opened) : a, Infinity);
   return Object.values(B).sort((a,b)=>a.k<b.k?-1:1).map(b=>Object.assign(b,{
     final: b.due? b.paid/b.due*100 : null,
-    first: (b.due+b.pending && isFinite(firstCase) && b.k>=keyOf(firstCase))? Math.max(0, 100-b.failed/(b.due+b.pending)*100) : null,
+    /* only buckets that START on or after the first tracked failure: Aug 2026 began on the 1st but cases from the 22nd,
+       so its 12 failures against a whole month of bills read as 98% first-try */
+    first: (b.due+b.pending && isFinite(firstCase) && (gran==='m'? b.k+'-01' : b.k)>=dayKey(firstCase))? Math.max(0, 100-b.failed/(b.due+b.pending)*100) : null,
     rec: (b.recPaid+b.recLost)? b.recPaid/(b.recPaid+b.recLost)*100 : null }));
 }
 let colGran='w', colTfD=90, colTrend='avg'; const colLines={final:true, first:true, rec:false};
