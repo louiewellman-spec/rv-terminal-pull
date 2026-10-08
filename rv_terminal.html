@@ -1206,6 +1206,18 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
       <div class="card"><h3>Recovered · 30d</h3><div class="big num gtx gtx-green" id="rcSaved">—</div><div class="sn" id="rcSavedD">—</div></div>
       <div class="card"><h3>Save rate</h3><div class="big num" id="rcRate">—</div><div class="sn" id="rcRateD">—</div></div>
     </div>
+    <div class="sec">Collection rate <span class="tag">of the bills that came due, how many were paid · first try · won back</span></div>
+    <div class="card">
+      <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <div class="tfbtns" id="colGran" style="margin:0"><button data-g="d">Day</button><button data-g="w" class="on">Week</button><button data-g="m">Month</button></div>
+        <div class="tfbtns" id="colTf" style="margin:0"><button data-d="30">30d</button><button data-d="90" class="on">90d</button><button data-d="182">6m</button><button data-d="365">1y</button><button data-d="0">All</button></div>
+        <div class="tfbtns" id="colLines" style="margin:0"><button data-l="final" class="on">Collected</button><button data-l="first" class="on">First try</button><button data-l="rec">Won back</button></div>
+        <div class="tfbtns" id="colTrend" style="margin:0"><button data-t="avg" class="on">Rolling avg</button><button data-t="lin">Trend line</button><button data-t="none">Raw</button></div>
+      </div>
+      <div id="colStats" class="rpq-stats" style="margin:4px 0 10px"></div>
+      <div class="chartbox tall"><canvas id="chCollect"></canvas></div>
+      <div class="sn" id="colNote" style="margin-top:8px"></div>
+    </div>
     <div class="sec">Open cases <span class="tag">DM them · mark it · watch them come back</span></div>
     <div class="card">
       <div class="sn" style="margin-bottom:10px"><b>Stripe retrying</b> = dunning is still having a go, a DM speeds it up. <b>Stalled</b> = Stripe has given up retrying — your DM is the only lever left before the sub cancels. Click a name or email to copy it. Press <b>+ DM sent</b> when you message them, then log their answer: <b>offer</b> / <b>paid</b> / <b>cancelled</b>. Unanswered rows re-flag <b>follow-up due</b> after 24h and jump to the top; marked paid/cancelled rows drop to the bottom.</div>
@@ -1990,7 +2002,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.64';
+const BUILD = 'v16.65';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -4197,7 +4209,7 @@ const PAGE_DRAWS={
   expansion:[()=>{ twCount(); drawExpEmails(); drawUpgrades(); drawCheckins(); }, ()=>drawExpansionPage()],
   rewards:[()=>drawRewardsPage()],
   reports:[()=>drawReportsPage()],
-  recovery:[()=>drawRecoveryPage()],
+  recovery:[()=>drawRecoveryPage(), ()=>{ try{ colBind(); drawCollection(); }catch(e){ reportNonFatal('Collection chart', e); } }],
   resigns:[()=>drawResignsPage()],
   changes:[()=>drawChangesPage()],
   lurk:[()=>drawLurkPage()],
@@ -4844,6 +4856,8 @@ function analystDigest(){
           ((m.cancelsDetail)||[]).filter(r=>r.created>=cut).forEach(r=>{ agg[r.tier==='elite'?'elite':'pro'][r.reason==='payment failed'?'paymentFailed':'voluntary']++; });
           agg.note='subscription-level counts; the customer-level churned figure above can differ slightly'; return agg; })()},
       netMrrMovementLast30dGBP:m.mrrMove },
+    collectionMonthly:(function(){ try{ return collectionRows(S.invHist||{}, S.recovery||{}, now, 'm', 400).map(x=>({month:x.k, billsDue:x.due, paid:x.paid, pending:x.pending, failed:x.failed,
+      collectedPct:x.final==null?null:Math.round(x.final*10)/10, firstTryPct:x.first==null?null:Math.round(x.first*10)/10, wonBackPct:x.rec==null?null:Math.round(x.rec*10)/10, collectedGBP:Math.round(x.gbp)})); }catch(e){ return null; } })(),
     recoveryReconciliation30d:(function(){ const cut=now-30*D, log=(S.recovery&&S.recovery.log)||[];
       return { stripePaymentFailedChurns30d:(m.pdCancelled||[]).length,
         trackerLostCases30d: log.filter(l=>!l.seed && l.outcome==='lost' && l.closed>cut).length,
@@ -9937,6 +9951,107 @@ function drawExpansionPage(){
     : 'The pitch list fills with live Pro members whenever they enter the peak window.';
 }
 /* ---------- failed-payment recovery ---------- */
+/* v16.65 — Louie, 8 Oct 2026: "a chart showing collection rates ... per month, per week, per day and
+   different trend lines". Three rates, all counted on the bill's own date:
+     collected  = bills paid in the end ÷ bills that came due (invoice history, ~18 months). A bill
+                  still open and under 21 days old is Stripe still retrying: "pending", left out.
+     first try  = 1 − failed payments (recovery cases opened) ÷ bills due. Cases only exist from 22 Aug 2026.
+     won back   = failed payments that ended paid ÷ those that have ended (paid or lost).
+   £0 bills (free months, 100% codes) are not collections and are left out. Pure: covered by collection_test.js. */
+const COL_PENDING_D=21;
+function collectionRows(invHist, recovery, now, gran, rangeDays){
+  const D=864e5, from=rangeDays? now-rangeDays*D : -Infinity;
+  const keyOf=t=> gran==='m'? dayKey(t).slice(0,7) : gran==='w'? weekKey(t) : dayKey(t);
+  const B={}, get=k=>B[k]||(B[k]={k, due:0, paid:0, pending:0, gbp:0, failed:0, recPaid:0, recLost:0, recOpen:0});
+  Object.values(invHist||{}).forEach(arr=>(arr||[]).forEach(r=>{
+    if(!r) return; const t=r[0]*60000; if(!(t>=from && t<=now)) return;
+    const st=r[2], amt=Number(r[1])||0;
+    if(st==='p' && amt<=0.005) return;                      /* free month / 100% code: nothing to collect */
+    const b=get(keyOf(t));
+    if(st==='p'){ b.due++; b.paid++; b.gbp+=amt; }
+    else if(st==='o' && now-t<COL_PENDING_D*D) b.pending++;
+    else b.due++; }));
+  const rc=recovery||{}, cases=[].concat(Object.values(rc.cases||{}), rc.log||[]);
+  const seen={};
+  cases.forEach(c=>{ if(!c || !c.opened || (c.kind && c.kind!=='pd') || c.seed) return;
+    const id=(c.cust||c.email||'')+'|'+c.opened; if(seen[id]) return; seen[id]=1;
+    if(!(c.opened>=from && c.opened<=now)) return;
+    const b=get(keyOf(c.opened)); b.failed++;
+    if(c.outcome==='paid') b.recPaid++; else if(c.outcome==='lost') b.recLost++; else b.recOpen++; });
+  const firstCase=cases.reduce((a,c)=> (c&&c.opened&&(!c.kind||c.kind==='pd'))? Math.min(a,c.opened) : a, Infinity);
+  return Object.values(B).sort((a,b)=>a.k<b.k?-1:1).map(b=>Object.assign(b,{
+    final: b.due? b.paid/b.due*100 : null,
+    first: (b.due+b.pending && isFinite(firstCase) && b.k>=keyOf(firstCase))? Math.max(0, 100-b.failed/(b.due+b.pending)*100) : null,
+    rec: (b.recPaid+b.recLost)? b.recPaid/(b.recPaid+b.recLost)*100 : null }));
+}
+let colGran='w', colTfD=90, colTrend='avg'; const colLines={final:true, first:true, rec:false};
+function colBind(){
+  const one=(id,attr,set)=>document.querySelectorAll('#'+id+' button').forEach(b=> b.onclick=()=>{ set(b.dataset[attr]);
+    document.querySelectorAll('#'+id+' button').forEach(x=>x.classList.toggle('on',x===b)); drawCollection(); });
+  one('colGran','g',v=>{ colGran=v; }); one('colTf','d',v=>{ colTfD=Number(v); }); one('colTrend','t',v=>{ colTrend=v; });
+  document.querySelectorAll('#colLines button').forEach(b=> b.onclick=()=>{ colLines[b.dataset.l]=!colLines[b.dataset.l];
+    b.classList.toggle('on', colLines[b.dataset.l]); drawCollection(); });
+}
+function drawCollection(){
+  const cv=document.getElementById('chCollect'); if(!cv) return;
+  const now=Date.now(), R=collectionRows(S.invHist||{}, S.recovery||{}, now, colGran, colTfD);
+  const note=document.getElementById('colNote'), stats=document.getElementById('colStats');
+  if(!R.length){ if(note) note.textContent='Needs the invoice history: it fills after the next Stripe pull (Pull all-time fills the full 18 months).'; return; }
+  const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const lab=k=> colGran==='m'? MN[+k.slice(5,7)-1]+' '+k.slice(2,4) : (+k.slice(8,10))+' '+MN[+k.slice(5,7)-1];
+  const curK=colGran==='m'? dayKey(now).slice(0,7) : colGran==='w'? weekKey(now) : dayKey(now);
+  /* trend: rolling average weighted by bills (7 days, 4 weeks or 3 months), or a least-squares line */
+  const win=colGran==='d'? 7 : colGran==='w'? 4 : 3;
+  const roll=(f,num,den)=>R.map((x,i)=>{ const sl=R.slice(Math.max(0,i-win+1),i+1).filter(y=>y[f]!=null);
+    const n=sl.reduce((a,y)=>a+num(y),0), d=sl.reduce((a,y)=>a+den(y),0); return d? +(n/d*100).toFixed(1) : null; });
+  const lin=f=>{ const pts=R.map((x,i)=>[i,x[f]]).filter(p=>p[1]!=null); if(pts.length<3) return R.map(()=>null);
+    const n=pts.length, mx=pts.reduce((a,p)=>a+p[0],0)/n, my=pts.reduce((a,p)=>a+p[1],0)/n;
+    let sxy=0,sxx=0; pts.forEach(p=>{ sxy+=(p[0]-mx)*(p[1]-my); sxx+=(p[0]-mx)*(p[0]-mx); });
+    const b=sxx? sxy/sxx : 0; return R.map((x,i)=> +(my+b*(i-mx)).toFixed(1)); };
+  const SER={
+    final:{label:'Collected', col:PAL.good, num:y=>y.paid, den:y=>y.due},
+    first:{label:'First try', col:PAL.cyan, num:y=>(y.due+y.pending)-y.failed, den:y=>y.due+y.pending},
+    rec:{label:'Won back', col:PAL.gold, num:y=>y.recPaid, den:y=>y.recPaid+y.recLost} };
+  const ds=[{label:'Bills due', type:'bar', yAxisID:'y1', data:R.map(x=>x.due+x.pending),
+    backgroundColor:R.map(x=>rgbaOf(PAL.accent, x.k===curK? .12 : .22)), borderRadius:2, order:5}];
+  Object.keys(SER).forEach(f=>{ if(!colLines[f]) return; const s=SER[f];
+    const raw=R.map(x=>x[f]==null? null : +x[f].toFixed(1));
+    ds.push({label:s.label, data:raw, borderColor:rgbaOf(s.col, colTrend==='none'? 1 : .4), backgroundColor:s.col,
+      borderWidth:colTrend==='none'? 2.25 : 1, pointRadius:colGran==='d'? 1.5 : 3, pointBackgroundColor:rgbaOf(s.col,.55), showLine:colTrend==='none', spanGaps:true, order:2});
+    if(colTrend==='avg') ds.push({label:s.label+' · '+(colGran==='d'?'7-day':colGran==='w'?'4-week':'3-month')+' avg', data:roll(f,s.num,s.den),
+      borderColor:s.col, borderWidth:2.5, pointRadius:0, tension:.3, spanGaps:true, order:1});
+    if(colTrend==='lin') ds.push({label:s.label+' · trend', data:lin(f), borderColor:s.col, borderDash:[6,4], borderWidth:2, pointRadius:0, order:1}); });
+  const pcts=ds.filter(d=>d.yAxisID!=='y1').flatMap(d=>d.data).filter(v=>v!=null);
+  const lo=pcts.length? Math.max(0, Math.floor((Math.min.apply(null,pcts)-5)/5)*5) : 0;
+  chart('chCollect',{type:'line',data:{labels:R.map(x=>lab(x.k)+(x.k===curK?' ·':'')),fullDates:R.map(x=>x.k),
+    rvMeta:(colGran==='d'?'daily':colGran==='w'?'weekly':'monthly')+' · by bill date',datasets:ds},
+    options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,
+      title:items=>{ const x=R[items[0].dataIndex]; return (colGran==='w'?'week of ':'')+lab(x.k)+(x.k===curK?' (so far)':''); },
+      label:c=>{ const x=R[c.dataIndex]; if(c.raw==null) return null;
+        if(c.dataset.yAxisID==='y1') return ' '+(x.due+x.pending)+' bills due'+(x.pending? ' ('+x.pending+' Stripe still retrying)':'')+' · '+fmtGBP(x.gbp)+' collected';
+        if(c.dataset.label==='Collected') return ' collected '+c.raw+'% ('+x.paid+' of '+x.due+')';
+        if(c.dataset.label==='First try') return ' first try '+c.raw+'% ('+x.failed+' failed)';
+        if(c.dataset.label==='Won back') return ' won back '+c.raw+'% ('+x.recPaid+' of '+(x.recPaid+x.recLost)+(x.recOpen? ', '+x.recOpen+' still open':'')+')';
+        return ' '+c.dataset.label+': '+c.raw+'%'; }}}},
+      scales:{x:{grid:{display:false},ticks:{color:tickCol,autoSkip:true,maxTicksLimit:12}},
+        y:{min:lo,max:100,grid:{color:gridCol},ticks:{color:tickCol,callback:v=>v+'%'}},
+        y1:{position:'right',beginAtZero:true,grid:{display:false},ticks:{color:tickCol,precision:0},title:{display:true,text:'bills',color:tickCol}}}}});
+  /* headline: last 30 days vs the 30 before, at day grain so the windows are exact */
+  const W=d0=>{ const r=collectionRows(S.invHist||{}, S.recovery||{}, now-d0*864e5, 'm', 30);
+    const t={due:0,paid:0,pending:0,failed:0,recPaid:0,recLost:0,gbp:0}; r.forEach(x=>Object.keys(t).forEach(k=>t[k]+=x[k])); return t; };
+  const a=W(0), b=W(30), pc=(n,d)=> d? n/d*100 : null, f1=v=> v==null? '—' : (Math.round(v*10)/10)+'%';
+  const chg=(x,y)=> (x==null||y==null)? '' : ' <span style="color:'+(x-y>=0.5?'var(--good)':x-y<=-0.5?'var(--bad)':'var(--muted)')+'">'+(x-y>=0?'+':'')+(Math.round((x-y)*10)/10)+' pts</span>';
+  const st=(k,v,sub)=>'<div class="rpq-stat"><div class="k">'+k+'</div><div class="v">'+v+'</div><div class="s">'+sub+'</div></div>';
+  const fa=pc(a.paid,a.due), fb=pc(b.paid,b.due), ta=a.due+a.pending? 100-a.failed/(a.due+a.pending)*100 : null, tb=b.due+b.pending? 100-b.failed/(b.due+b.pending)*100 : null;
+  const ra=pc(a.recPaid,a.recPaid+a.recLost), rb=pc(b.recPaid,b.recPaid+b.recLost);
+  if(stats) stats.innerHTML=st('Collected · 30d', f1(fa), a.paid+' of '+a.due+' bills'+chg(fa,fb))
+    +st('First try · 30d', f1(ta), a.failed+' failed'+chg(ta,tb))
+    +st('Won back · 30d', f1(ra), a.recPaid+' of '+(a.recPaid+a.recLost)+' settled'+chg(ra,rb))
+    +st('Collected £ · 30d', fmtGBP(a.gbp), a.pending? a.pending+' bills still retrying' : 'nothing pending');
+  if(note) note.innerHTML='<b>Collected</b> (green) = of the bills that came due, the share paid in the end. <b>First try</b> (cyan) = the share that went through without failing; failed payments are only tracked from 22 Aug 2026, so it starts there. <b>Won back</b> (gold) = of the failed payments that have finished, the share that ended paid. '
+    +'Bars are bills due on the right axis. Bills Stripe is still retrying (under '+COL_PENDING_D+' days old) are left out of Collected until they settle, so the newest '+(colGran==='m'?'month':colGran==='w'?'weeks':'days')+' firm up over time; the running '+(colGran==='m'?'month':colGran==='w'?'week':'day')+' is faded and marked ·. Free months and 100% codes are not counted. '
+    +'Changes under the tiles compare the last 30 days with the 30 before.';
+}
 function rcState(){ if(!S.recovery||typeof S.recovery!=='object') S.recovery={cases:{},log:[]};
   S.recovery.cases=S.recovery.cases||{}; S.recovery.log=S.recovery.log||[]; return S.recovery; }
 /* v16.12: ONE rule for bringing a cloud recovery case in, used by BOTH sync paths.
