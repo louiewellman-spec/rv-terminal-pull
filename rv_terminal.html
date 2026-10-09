@@ -1847,7 +1847,7 @@ function nextDrawings(profit, vat, cashByDay, now){
   const startK=iso(start), cutK=iso(cutoff), upto=iso(Math.min(today, cutoff));
   const rate=(vat&&vat.rate!=null)? vat.rate : 20, vf=rate/(100+rate);
   const W=drawWindow(profit, cashByDay, startK, upto, vf);
-  const sales=W.sales, fees=W.fees, costsSoFar=W.costs, vatSoFar=W.vat, actual=W.net;
+  const sales=W.sales, fees=W.fees, costsSoFar=W.costs, vatSoFar=W.vat;
   /* rates: the last 28 complete Stripe days, and Revolut costs over the last 30 days */
   let s28=0, f28=0, d28=0; for(let i=1;i<=28;i++){ const k=iso(today-i*day), d=cashByDay[k]; if(!d) continue; d28++;
     s28+=(Number(d.paid)||0)-(Number(d.refunded)||0); f28+=Number(d.fee)||0; }
@@ -1871,19 +1871,36 @@ function nextDrawings(profit, vat, cashByDay, now){
   const remDays=Math.max(0, Math.round((cutoff-today)/day));      /* window days after today */
   const doneDays=Math.max(0, Math.round((Math.min(today,cutoff)-start)/day)) + (today<=cutoff? 0 : 1);
   const hour=(today<=cutoff)? Math.min(1, Math.max(0, (n-today)/day)) : 0;
-  const dueAhead=remDays? subsDue(iso(today+day), cutK) : [];
-  const costsAhead=subsList? dueAhead.reduce((s,x)=>s+x.amt,0)+varDay*remDays : costDay*remDays;
-  const dueSoFar=subsList? subsDue(startK, iso(Math.min(today,cutoff))) : [];
-  const elapsedF=doneDays+hour;
-  const expCostsSoFar=subsList? dueSoFar.reduce((s,x)=>s+x.amt,0)+varDay*elapsedF : costDay*elapsedF;
-  const expectedSoFar=Math.max(0, salesNetDay*elapsedF-expCostsSoFar);
-  const netDay=salesNetDay-(subsList? varDay : costDay);   /* per-day pace excluding scheduled subscriptions */
+  /* v16.67 — Louie, 9 Oct 2026 (draw day): "this thing isn't working properly at all". It said £3,770 with
+     £8,693 of payouts sitting in the inbound account. Two faults: (1) it ALSO topped the VAT pot up towards
+     the whole estimated VAT owed (£1,753 that day) on top of this window's VAT, and Louie says the pot is
+     right; (2) the £750 float was checked against inbound + main together, so a low main never showed.
+     Now it is his own rule, worked in money he can see:
+       draw = the window's Stripe payouts − that window's VAT (into the pot) − whatever tops MAIN back to £750.
+     Costs already paid are in the main balance, so they are counted once, through the float top-up.
+     Before the Friday payout lands the payouts and the main balance are projected; on draw day, once it
+     has landed, it is the inbound balance itself. */
+  const mainAcc=acc.filter(a=>/main/i.test(a.name||'') && !/vat/i.test(a.name||''));
+  const inAcc=acc.filter(a=>/inbound|payment/i.test(a.name||'') && !/vat/i.test(a.name||''));
+  const mainBal=mainAcc.length? mainAcc.reduce((s2,a)=>s2+(Number(a.balance)||0),0) : bank;
+  const inboundBal=inAcc.reduce((s2,a)=>s2+(Number(a.balance)||0),0);
+  const daysToDraw=Math.max(0, Math.round((next-today)/day));
+  const dueAhead=daysToDraw? subsDue(iso(today+day), iso(next)) : [];
+  const costsAhead=subsList? dueAhead.reduce((s2,x)=>s2+x.amt,0)+varDay*daysToDraw : costDay*daysToDraw;
+  const vatWin=vatSoFar+remDays*salesDay*vf;
+  const payoutLanded=today>=next && (profit.recent||[]).some(x=>x&&x.cat==='revenue_stripe'&&x.d===iso(next));
+  const stripeNet=sales-fees+remDays*(salesDay-feeDay);           /* what the window's payouts should come to */
+  const payouts=payoutLanded? inboundBal : stripeNet;
+  const mainAtDraw=mainBal-(payoutLanded? 0 : costsAhead);
+  const floatGap=Math.max(0, DRAW_FLOAT-mainAtDraw);
+  const total=Math.max(0, payouts-vatWin-floatGap);
+  /* the bar: this window's Stripe money after fees and VAT, against the usual pace */
+  const actual=sales-fees-vatSoFar, elapsedF=doneDays+hour, expectedSoFar=Math.max(0, salesNetDay*elapsedF);
   const owed=(vat&&vat.complete)? Math.max(0, vat.outstanding) : null;
-  const vatGap=owed==null? 0 : Math.max(0, owed-pot-vatSoFar);   /* this draw sets its own window's VAT aside already */
-  const floatGap=Math.max(0, DRAW_FLOAT-bank);
-  const total=Math.max(0, actual+remDays*salesNetDay-costsAhead-vatGap-floatGap);
-  return {next, cutoff, start, daysLeft:Math.round((next-today)/day), lastD, partners, bank, pot, owed, vatGap, floatGap,
-    sales, fees, vatSoFar, costsSoFar, actual, salesDay, feeDay, costDay, netDay, remDays, doneDays, expectedSoFar,
+  const vatShort=owed==null? 0 : Math.max(0, owed-pot-vatWin);       /* shown as information only, never deducted */
+  return {next, cutoff, start, daysLeft:daysToDraw, lastD, partners, bank, pot, owed, vatShort, floatGap,
+    mode: payoutLanded? 'bank' : 'forecast', inboundBal, mainBal, mainAtDraw, payouts, stripeNet, vatWin,
+    sales, fees, vatSoFar, costsSoFar, actual, salesDay, feeDay, costDay, remDays, doneDays, expectedSoFar,
     salesNetDay, varDay, dueAhead, costsAhead, subsKnown: subsList? subsList.length : 0,
     total, each: total/partners, float: DRAW_FLOAT, updated: profit.updated||null, costsFrom: oldest};
 }
@@ -2002,7 +2019,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.66';
+const BUILD = 'v16.67';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -4157,7 +4174,7 @@ function renderAll(){
       if(!nd){ el.textContent='—'; dd.textContent='needs the Revolut feed and the cash ledger'; }
       else { const fd=t=>new Date(t).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'});
         el.textContent=fmtGBP(Math.round(nd.total/10)*10);
-        dd.innerHTML='predicted · '+(nd.partners>1? fmtGBP(Math.round(nd.each/10)*10)+' each · ' : '')+fd(nd.next)
+        dd.innerHTML=(nd.mode==='bank'? 'ready to draw' : 'predicted')+' · '+(nd.partners>1? fmtGBP(Math.round(nd.each/10)*10)+' each · ' : '')+fd(nd.next)
           +(nd.daysLeft? ' · in '+nd.daysLeft+' day'+(nd.daysLeft===1?'':'s') : ' · today')+' · Stripe cut-off '+fd(nd.cutoff);
         const bar=document.getElementById('ovDrawBar');
         if(bar){ const act=Math.max(0,nd.actual), exp=nd.expectedSoFar, top=Math.max(nd.total, act, 1);
@@ -4165,8 +4182,10 @@ function renderAll(){
           bar.innerHTML='<div style="position:relative;height:8px;border-radius:999px;background:'+rgbaOf(PAL.muted,.15)+'">'
             +'<div style="position:absolute;left:0;top:0;bottom:0;width:'+pa.toFixed(1)+'%;border-radius:999px;background:'+(ahead? PAL.good : PAL.gold)+'"></div>'
             +'<div title="expected by now" style="position:absolute;top:-3px;bottom:-3px;left:calc('+pe.toFixed(1)+'% - 1px);width:2px;background:'+PAL.text+'"></div></div>'
-            +'<div class="sn" style="margin-top:6px">actual so far <b style="color:var(--text)">'+fmtGBP(Math.round(nd.actual))+'</b> · expected by now '+fmtGBP(Math.round(exp))
-            +' · '+(ahead? '<span style="color:var(--good)">ahead</span>' : '<span style="color:var(--gold)">behind</span>')+' · day '+Math.min(DRAW_EVERY_D, nd.doneDays+1)+' of '+DRAW_EVERY_D+'</div>';
+            +'<div class="sn" style="margin-top:6px">'+(nd.mode==='bank'
+              ? 'in the bank: <b style="color:var(--text)">'+fmtGBP(Math.round(nd.inboundBal))+'</b> of payouts · '+fmtGBP(Math.round(nd.vatWin))+' VAT to the pot'+(nd.floatGap? ' · '+fmtGBP(Math.round(nd.floatGap))+' to top main up to £'+nd.float : '')
+              : 'Stripe so far after fees and VAT <b style="color:var(--text)">'+fmtGBP(Math.round(nd.actual))+'</b> · usual pace '+fmtGBP(Math.round(exp))
+                +' · '+(ahead? '<span style="color:var(--good)">ahead</span>' : '<span style="color:var(--gold)">behind</span>')+' · day '+Math.min(DRAW_EVERY_D, nd.doneDays+1)+' of '+DRAW_EVERY_D)+'</div>';
         }
       } } }
   if(S.disputes){
@@ -11188,31 +11207,26 @@ document.getElementById('cardDraw').onclick = ()=>{
   const g=v=>fmtGBP(Math.round(v)), fd=t=>new Date(t).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'});
   const row=(l,v,sign,b)=>'<tr><td'+(b?' style="font-weight:600;color:var(--text)"':'')+'>'+l+'</td><td class="num" style="text-align:right'+(b?';font-weight:600;color:var(--text)':'')+'">'+(sign||'')+v+'</td></tr>';
   const upto=Math.min(Date.parse(ukDayKey(Date.now())+'T00:00:00Z'), nd.cutoff);
-  /* backtest the rule on the last draw, if the Revolut feed reaches back far enough */
-  let bt=''; try{ const lastT=Date.parse(nd.lastD+'T00:00:00Z'), cut=lastT-DRAW_CUTOFF_BACK_D*86400000, st=cut-(DRAW_EVERY_D-1)*86400000;
-    const pr=(window._rvProfit)||(S.profitBin&&S.profitBin.rec), r0=vatEstimate().rate, stK=new Date(st).toISOString().slice(0,10);
-    const was=drawWindow(pr, S.cash&&S.cash.byDay, stK, new Date(cut).toISOString().slice(0,10), r0/(100+r0));
-    const took=(pr.recent||[]).filter(x=>x.cat==='drawings'&&x.d===nd.lastD).reduce((s,x)=>s-x.amt,0);
-    if(nd.costsFrom<=stK) bt='Checked on the last draw ('+fd(lastT)+'): this rule gives '+g(was.net)+', you took '+g(took)+'. '; }catch(e){}
+  const B=nd.mode==='bank';
   openModal('<h2>Next drawings · '+fd(nd.next)+'</h2>'
-    +'<div class="sn" style="margin:4px 0 12px">Every other Friday. This draw covers Stripe money from '+fd(nd.start)+' to the cut-off on '+fd(nd.cutoff)+', split '+nd.partners+' way'+(nd.partners===1?'':'s')+' like last time.</div>'
+    +'<div class="sn" style="margin:4px 0 12px">Every other Friday. This draw is the Stripe payouts for sales from '+fd(nd.start)+' to the cut-off on '+fd(nd.cutoff)+', split '+nd.partners+' way'+(nd.partners===1?'':'s')+' like last time. '
+    +(B? 'Today’s payout has landed, so this is the real money in the inbound account.' : 'Until Friday’s payout lands this is a forecast.')+'</div>'
     +'<table style="width:100%"><tbody>'
-    +row('Stripe sales '+fd(nd.start)+' → '+fd(upto)+' (after refunds)', g(nd.sales), '+ ')
-    +row('Stripe fees', g(nd.fees), '− ')
-    +row('VAT on those sales, into the VAT pot', g(nd.vatSoFar), '− ')
-    +row('Costs paid from Revolut in the same days', g(nd.costsSoFar), '− ')
-    +row('Actual so far', g(nd.actual), '', true)
-    +row('Expected by now at the usual pace', g(nd.expectedSoFar))
-    +row('Rest of the window: '+nd.remDays+' day'+(nd.remDays===1?'':'s')+' of Stripe at '+g(nd.salesNetDay)+' a day after fees and VAT', g(nd.remDays*nd.salesNetDay), '+ ')
-    +(nd.subsKnown? row('Subscriptions due before the cut-off'+(nd.dueAhead.length? ': '+nd.dueAhead.map(x=>esc(x.name.charAt(0).toUpperCase()+x.name.slice(1))+' '+fd(Date.parse(x.d+'T00:00:00Z')).replace(/^\w+ /,'')+' '+g(x.amt)).join(', ') : ' (none)'), g(nd.dueAhead.reduce((a,x)=>a+x.amt,0)), '− ')
-      + row('Other spend (ads, affiliate payouts, one-offs) at '+g(nd.varDay)+' a day', g(nd.varDay*nd.remDays), '− ')
-      : row('Costs at '+g(nd.costDay)+' a day', g(nd.costDay*nd.remDays), '− '))
-    +(nd.vatGap? row('Top up the VAT pot ('+g(nd.owed)+' owed, '+g(nd.pot)+' saved)', g(nd.vatGap), '− ') : '')
-    +(nd.floatGap? row('Top the main account back up to '+g(nd.float), g(nd.floatGap), '− ') : '')
-    +row('Predicted drawings', g(nd.total), '', true)
+    +(B? row('Stripe payouts in the inbound account', g(nd.inboundBal), '+ ')
+       : row('Stripe sales '+fd(nd.start)+' → '+fd(upto)+' (after refunds)', g(nd.sales), '+ ')
+        +row('Stripe fees', g(nd.fees), '− ')
+        +(nd.remDays? row('Rest of the window: '+nd.remDays+' day'+(nd.remDays===1?'':'s')+' at '+g(nd.salesDay-nd.feeDay)+' a day after fees', g(nd.remDays*(nd.salesDay-nd.feeDay)), '+ ') : '')
+        +row('Payouts this draw should come to', g(nd.stripeNet), '', true))
+    +row('VAT on this window’s sales, into the VAT pot', g(nd.vatWin), '− ')
+    +row('Main account now', g(nd.mainBal))
+    +(B? '' : row('Costs before the draw'+(nd.dueAhead.length? ' ('+nd.dueAhead.map(x=>esc(x.name.charAt(0).toUpperCase()+x.name.slice(1))+' '+g(x.amt)).join(', ')+' + other spend)' : ' (other spend at '+g(nd.varDay)+' a day)'), g(nd.costsAhead), '− '))
+    +row('Top main back up to '+g(nd.float)+(nd.floatGap? '' : ' (already there)'), g(nd.floatGap), '− ')
+    +row(B? 'Drawings' : 'Predicted drawings', g(nd.total), '', true)
     +(nd.partners>1? row('Each', g(nd.each), '', true) : '')
     +'</tbody></table>'
-    +'<div class="note" style="margin-top:12px">'+bt+'Costs: '+(nd.subsKnown? nd.subsKnown+' monthly subscriptions are placed on the day they come out (learned from the Revolut history), everything else at the recent daily rate. ' : '')+'Backtested 26 Sep 2026 on all 8 draws since VAT started (19 Jun to 25 Sep): £583 out in total on £33,499 drawn (1.7%), a single draw typically within about £450. The misses are timing (costs paid between the Tuesday cut-off and the Friday, and the 14/28 Aug pair around the VAT catch-up), not the formula. Stripe is live. Revolut costs and balances refresh every few hours (last '+esc(nd.updated? new Date(nd.updated).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—')+'). Pace uses the last 28 days of Stripe and 30 days of costs. Drawings and HMRC payments never count as costs.</div>');
+    +'<div class="note" style="margin-top:12px">Your rule: the payouts for the window, less that window’s VAT into the pot, less whatever puts the main account back to '+g(nd.float)+'. Costs you have already paid show up in the main balance, so they are counted once, there. '
+    +'VAT pot now '+g(nd.pot)+(nd.owed!=null? '; the terminal estimates '+g(nd.owed)+' owed since 1 Jun, but it counts no VAT you can claim back on costs, so treat that as a ceiling and check it with your accountant before a return. It is never taken off the drawings.' : '.')
+    +' Revolut balances refresh every few hours (last '+esc(nd.updated? new Date(nd.updated).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '—')+'). Pace uses the last 28 days of Stripe.</div>');
 };
 document.getElementById('cardDisp').onclick = ()=>{
   const dp=S.disputes||[];
