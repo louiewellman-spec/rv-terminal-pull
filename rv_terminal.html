@@ -1207,12 +1207,12 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
       <div class="card"><h3>Recovered · 30d</h3><div class="big num gtx gtx-green" id="rcSaved">—</div><div class="sn" id="rcSavedD">—</div></div>
       <div class="card"><h3>Save rate</h3><div class="big num" id="rcRate">—</div><div class="sn" id="rcRateD">—</div></div>
     </div>
-    <div class="sec">Collection rate <span class="tag">of the bills that came due, how many were paid · first try · won back</span></div>
+    <div class="sec">Collection rate <span class="tag">of every bill that came due: paid first time · paid in the end · failed then paid</span></div>
     <div class="card">
       <div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:8px">
         <div class="tfbtns" id="colGran" style="margin:0"><button data-g="d">Day</button><button data-g="w" class="on">Week</button><button data-g="m">Month</button></div>
         <div class="tfbtns" id="colTf" style="margin:0"><button data-d="30">30d</button><button data-d="90" class="on">90d</button><button data-d="182">6m</button><button data-d="365">1y</button><button data-d="0">All</button></div>
-        <div class="tfbtns" id="colLines" style="margin:0"><button data-l="final" class="on">Collected</button><button data-l="first" class="on">First try</button><button data-l="rec">Won back</button></div>
+        <div class="tfbtns" id="colLines" style="margin:0"><button data-l="final" class="on">Paid in the end</button><button data-l="first" class="on">Paid first time</button><button data-l="rec">Failed, then paid</button></div>
         <div class="tfbtns" id="colTrend" style="margin:0"><button data-t="avg" class="on">Rolling avg</button><button data-t="lin">Trend line</button><button data-t="none">Raw</button></div>
       </div>
       <div id="colStats" class="rpq-stats" style="margin:4px 0 10px"></div>
@@ -2029,7 +2029,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.69';
+const BUILD = 'v16.70';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -9987,7 +9987,7 @@ function drawExpansionPage(){
      first try  = 1 − failed payments (recovery cases opened) ÷ bills due. Cases only exist from 22 Aug 2026.
      won back   = failed payments that ended paid ÷ those that have ended (paid or lost).
    £0 bills (free months, 100% codes) are not collections and are left out. Pure: covered by collection_test.js. */
-const COL_PENDING_D=21;
+const COL_PENDING_D=21, COL_TRACK_FROM='2026-08-22';
 function collectionRows(invHist, recovery, now, gran, rangeDays){
   const D=864e5, from=rangeDays? now-rangeDays*D : -Infinity;
   const keyOf=t=> gran==='m'? dayKey(t).slice(0,7) : gran==='w'? weekKey(t) : dayKey(t);
@@ -10008,12 +10008,22 @@ function collectionRows(invHist, recovery, now, gran, rangeDays){
     const b=get(keyOf(c.opened)); b.failed++;
     if(c.outcome==='paid') b.recPaid++; else if(c.outcome==='lost') b.recLost++; else b.recOpen++; });
   const firstCase=cases.reduce((a,c)=> (c&&c.opened&&(!c.kind||c.kind==='pd'))? Math.min(a,c.opened) : a, Infinity);
-  return Object.values(B).sort((a,b)=>a.k<b.k?-1:1).map(b=>Object.assign(b,{
-    final: b.due? b.paid/b.due*100 : null,
+  /* v16.70 — Louie, 15 Oct: "make sure these are being tracked properly". Two biases fixed:
+     · a bucket under 21 days old still has failed bills Stripe is retrying, which are left out, so its
+       "paid in the end" read ~100%. Paid-in-the-end and won-back are only given once a bucket has SETTLED
+       (its last day is 21+ days ago); the raw counts stay for the tooltip.
+     · "first try" counts failed payments, which are only tracked from 22 Aug 2026; an odd older case made
+       June to August read 100%. It now starts on 22 Aug at the earliest. */
+  const trackFrom=(isFinite(firstCase) && dayKey(firstCase)>COL_TRACK_FROM)? dayKey(firstCase) : COL_TRACK_FROM;
+  const endOf=k=>{ const t=Date.parse((gran==='m'? k+'-01' : k)+'T00:00:00Z'), d=new Date(t);
+    return gran==='m'? Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 1) : t+(gran==='w'? 7 : 1)*D; };
+  return Object.values(B).sort((a,b)=>a.k<b.k?-1:1).map(b=>{ const settled=endOf(b.k)<=now-COL_PENDING_D*D; return Object.assign(b,{
+    settled,
+    final: (b.due && settled)? b.paid/b.due*100 : null,
     /* only buckets that START on or after the first tracked failure: Aug 2026 began on the 1st but cases from the 22nd,
        so its 12 failures against a whole month of bills read as 98% first-try */
-    first: (b.due+b.pending && isFinite(firstCase) && (gran==='m'? b.k+'-01' : b.k)>=dayKey(firstCase))? Math.max(0, 100-b.failed/(b.due+b.pending)*100) : null,
-    rec: (b.recPaid+b.recLost)? b.recPaid/(b.recPaid+b.recLost)*100 : null }));
+    first: (b.due+b.pending && (gran==='m'? b.k+'-01' : b.k)>=trackFrom)? Math.max(0, 100-b.failed/(b.due+b.pending)*100) : null,
+    rec: ((b.recPaid+b.recLost) && settled)? b.recPaid/(b.recPaid+b.recLost)*100 : null }); });
 }
 let colGran='w', colTfD=90, colTrend='avg'; const colLines={final:true, first:true, rec:false};
 function colBind(){
@@ -10040,9 +10050,9 @@ function drawCollection(){
     let sxy=0,sxx=0; pts.forEach(p=>{ sxy+=(p[0]-mx)*(p[1]-my); sxx+=(p[0]-mx)*(p[0]-mx); });
     const b=sxx? sxy/sxx : 0; return R.map((x,i)=> +(my+b*(i-mx)).toFixed(1)); };
   const SER={
-    final:{label:'Collected', col:PAL.good, num:y=>y.paid, den:y=>y.due},
-    first:{label:'First try', col:PAL.cyan, num:y=>(y.due+y.pending)-y.failed, den:y=>y.due+y.pending},
-    rec:{label:'Won back', col:PAL.gold, num:y=>y.recPaid, den:y=>y.recPaid+y.recLost} };
+    final:{label:'Paid in the end', col:PAL.good, num:y=>y.settled? y.paid : 0, den:y=>y.settled? y.due : 0},
+    first:{label:'Paid first time', col:PAL.cyan, num:y=>(y.due+y.pending)-y.failed, den:y=>y.due+y.pending},
+    rec:{label:'Failed, then paid', col:PAL.gold, num:y=>y.settled? y.recPaid : 0, den:y=>y.settled? y.recPaid+y.recLost : 0} };
   const ds=[{label:'Bills due', type:'bar', yAxisID:'y1', data:R.map(x=>x.due+x.pending),
     backgroundColor:R.map(x=>rgbaOf(PAL.accent, x.k===curK? .12 : .22)), borderRadius:2, order:5}];
   Object.keys(SER).forEach(f=>{ if(!colLines[f]) return; const s=SER[f];
@@ -10059,29 +10069,36 @@ function drawCollection(){
     options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,
       title:items=>{ const x=R[items[0].dataIndex]; return (colGran==='w'?'week of ':'')+lab(x.k)+(x.k===curK?' (so far)':''); },
       label:c=>{ const x=R[c.dataIndex]; if(c.raw==null) return null;
-        if(c.dataset.yAxisID==='y1') return ' '+(x.due+x.pending)+' bills due'+(x.pending? ' ('+x.pending+' Stripe still retrying)':'')+' · '+fmtGBP(x.gbp)+' collected';
-        if(c.dataset.label==='Collected') return ' collected '+c.raw+'% ('+x.paid+' of '+x.due+')';
-        if(c.dataset.label==='First try') return ' first try '+c.raw+'% ('+x.failed+' failed)';
-        if(c.dataset.label==='Won back') return ' won back '+c.raw+'% ('+x.recPaid+' of '+(x.recPaid+x.recLost)+(x.recOpen? ', '+x.recOpen+' still open':'')+')';
+        if(c.dataset.yAxisID==='y1') return ' '+(x.due+x.pending)+' bills due · '+fmtGBP(x.gbp)+' collected'+(x.settled? '' : ' · too recent for "paid in the end" (Stripe still retrying)');
+        if(c.dataset.label==='Paid in the end') return ' paid in the end: '+c.raw+'% ('+x.paid+' of '+x.due+' bills)';
+        if(c.dataset.label==='Paid first time') return ' paid first time: '+c.raw+'% ('+x.failed+' failed first time)';
+        if(c.dataset.label==='Failed, then paid') return ' failed, then paid: '+c.raw+'% ('+x.recPaid+' of '+(x.recPaid+x.recLost)+')';
         return ' '+c.dataset.label+': '+c.raw+'%'; }}}},
       scales:{x:{grid:{display:false},ticks:{color:tickCol,autoSkip:true,maxTicksLimit:12}},
         y:{min:lo,max:100,grid:{color:gridCol},ticks:{color:tickCol,callback:v=>v+'%'}},
         y1:{position:'right',beginAtZero:true,grid:{display:false},ticks:{color:tickCol,precision:0},title:{display:true,text:'bills',color:tickCol}}}}});
-  /* headline: last 30 days vs the 30 before, at day grain so the windows are exact */
-  const W=d0=>{ const r=collectionRows(S.invHist||{}, S.recovery||{}, now-d0*864e5, 'm', 30);
+  /* headline, in plain words. "Paid in the end" and "failed, then paid" use bills 21 to 51 days old, the
+     newest 30 days that have fully settled; "paid first time" uses the last 30 days (a failure is known on the day). */
+  const W=(endAgo,len)=>{ const r=collectionRows(S.invHist||{}, S.recovery||{}, now-endAgo*864e5, 'm', len||30);
     const t={due:0,paid:0,pending:0,failed:0,recPaid:0,recLost:0,gbp:0}; r.forEach(x=>Object.keys(t).forEach(k=>t[k]+=x[k])); return t; };
-  const a=W(0), b=W(30), pc=(n,d)=> d? n/d*100 : null, f1=v=> v==null? '—' : (Math.round(v*10)/10)+'%';
-  const chg=(x,y)=> (x==null||y==null)? '' : ' <span style="color:'+(x-y>=0.5?'var(--good)':x-y<=-0.5?'var(--bad)':'var(--muted)')+'">'+(x-y>=0?'+':'')+(Math.round((x-y)*10)/10)+' pts</span>';
+  const S1=W(COL_PENDING_D), S0=W(COL_PENDING_D+30), F1=W(0), F0=W(30);
+  const pc=(n,d)=> d? n/d*100 : null, f0=v=> v==null? '—' : Math.round(v)+'%';
+  const chg=(x,y)=> (x==null||y==null)? '' : ' <span style="color:'+(x-y>=0.5?'var(--good)':x-y<=-0.5?'var(--bad)':'var(--muted)')+'">'+(x-y>=0?'up ':'down ')+Math.abs(Math.round(x-y))+' pts on the month before</span>';
   const st=(k,v,sub)=>'<div class="rpq-stat"><div class="k">'+k+'</div><div class="v">'+v+'</div><div class="s">'+sub+'</div></div>';
-  const fa=pc(a.paid,a.due), fb=pc(b.paid,b.due), ta=a.due+a.pending? 100-a.failed/(a.due+a.pending)*100 : null, tb=b.due+b.pending? 100-b.failed/(b.due+b.pending)*100 : null;
-  const ra=pc(a.recPaid,a.recPaid+a.recLost), rb=pc(b.recPaid,b.recPaid+b.recLost);
-  if(stats) stats.innerHTML=st('Collected · 30d', f1(fa), a.paid+' of '+a.due+' bills'+chg(fa,fb))
-    +st('First try · 30d', f1(ta), a.failed+' failed'+chg(ta,tb))
-    +st('Won back · 30d', f1(ra), a.recPaid+' of '+(a.recPaid+a.recLost)+' settled'+chg(ra,rb))
-    +st('Collected £ · 30d', fmtGBP(a.gbp), a.pending? a.pending+' bills still retrying' : 'nothing pending');
-  if(note) note.innerHTML='<b>Collected</b> (green) = of the bills that came due, the share paid in the end. <b>First try</b> (cyan) = the share that went through without failing; failed payments are only tracked from 22 Aug 2026, so it starts there. <b>Won back</b> (gold) = of the failed payments that have finished, the share that ended paid. '
-    +'Bars are bills due on the right axis. Bills Stripe is still retrying (under '+COL_PENDING_D+' days old) are left out of Collected until they settle, so the newest '+(colGran==='m'?'month':colGran==='w'?'weeks':'days')+' firm up over time; the running '+(colGran==='m'?'month':colGran==='w'?'week':'day')+' is faded and marked ·. Free months and 100% codes are not counted. '
-    +'Changes under the tiles compare the last 30 days with the 30 before.';
+  const fd=t=>new Date(t).toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'});
+  const pe=pc(S1.paid,S1.due), pe0=pc(S0.paid,S0.due);
+  const ft=(F1.due+F1.pending)? 100-F1.failed/(F1.due+F1.pending)*100 : null, ft0=(F0.due+F0.pending)? 100-F0.failed/(F0.due+F0.pending)*100 : null;
+  const wb=pc(S1.recPaid,S1.recPaid+S1.recLost), wb0=pc(S0.recPaid,S0.recPaid+S0.recLost);
+  if(stats) stats.innerHTML=st('Paid first time', f0(ft), (ft==null? 'not enough data yet' : Math.round(100-ft)+' in every 100 payments fail first time')+chg(ft,ft0))
+    +st('Failed, then paid', f0(wb), (wb==null? 'none settled yet' : S1.recPaid+' of '+(S1.recPaid+S1.recLost)+' failed payments came back')+chg(wb,wb0))
+    +st('Paid in the end', f0(pe), (pe==null? 'not enough data yet' : S1.paid+' of '+S1.due+' bills')+chg(pe,pe0))
+    +st('Collected · 30 days', fmtGBP(F1.gbp), F1.pending? F1.pending+' bills Stripe is still retrying' : 'nothing still retrying');
+  if(note) note.innerHTML='<b>How to read it.</b> Every renewal is a bill. '
+    +'<b>Paid first time</b> (cyan): the card went through straight away. Failed payments are only tracked from 22 Aug 2026, so this line starts there. '
+    +'<b>Failed, then paid</b> (gold, switch it on above): of the bills that failed, how many the retries and chasing got paid. '
+    +'<b>Paid in the end</b> (green): everything that was eventually paid, whether first time or after failing. '
+    +'Stripe keeps retrying a failed card for about 3 weeks, so the last 3 weeks are not shown for green and gold yet: those days would look perfect only because the failures are still open. '
+    +'The tiles for those two use bills from '+fd(now-(COL_PENDING_D+30)*864e5)+' to '+fd(now-COL_PENDING_D*864e5)+', which have fully settled. Free months and 100% codes are not counted. Bars are bills due (right axis).';
 }
 function rcState(){ if(!S.recovery||typeof S.recovery!=='object') S.recovery={cases:{},log:[]};
   S.recovery.cases=S.recovery.cases||{}; S.recovery.log=S.recovery.log||[]; return S.recovery; }
