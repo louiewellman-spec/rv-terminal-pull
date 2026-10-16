@@ -1770,7 +1770,7 @@ const weekKey = ts => { const d=new Date(dayKey(ts)+'T00:00:00Z'); d.setUTCDate(
 function codeJoinsByWeek(subsArr, now, nWeeks){
   const cut=weekKey((now==null? Date.now() : now)-(nWeeks-1)*7*86400000), out={};
   (subsArr||[]).forEach(x=>{
-    if(!x||!x.code||x.created==null||codeKind(x.code)!=='aff') return;
+    if(!x||!x.code||x.created==null||!codeTracked(x.code)) return;
     const wk=weekKey(x.created); if(wk<cut) return;
     const k=String(x.code).toUpperCase(), o=out[k]||(out[k]={}), w=o[wk]||(o[wk]={joins:0,stillActive:0});
     w.joins++; if(x.status==='active'||x.status==='past_due') w.stillActive++; });
@@ -2029,7 +2029,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.71';
+const BUILD = 'v16.72';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2038,7 +2038,14 @@ function ownCodesSet(){
   const extra = String((S.settings&&S.settings.ownCodes)||'').split(',').map(x=>x.trim().toUpperCase().replace(/[^A-Z0-9]/g,'')).filter(Boolean);
   return new Set([...OWN_CODES_DEFAULT, ...extra]);
 }
-const codeKind = c => !c ? null : (ownCodesSet().has(String(c).toUpperCase().replace(/[^A-Z0-9]/g,'')) ? 'own' : 'aff');
+/* v16.72 — Louie, 16 Oct: the lane codes are ours ("its our own one yh"). They were classed 'aff', so a
+   POKEMON or DROPS join vanished from the source charts and counted as an "affiliate" channel. They are
+   'own' now; the places that track codes one by one (Affiliates page, lane-code weekly table, the bridge's
+   affiliateCodes) still include them through codeTracked(), so those views are unchanged. */
+const LANE_CODES_OWN=['POKEMON','CARDS','DROPS','VINTED','STARTER'];
+const isLaneCode = c => !!c && LANE_CODES_OWN.includes(String(c).toUpperCase().replace(/[^A-Z0-9]/g,''));
+const codeKind = c => !c ? null : ((isLaneCode(c) || ownCodesSet().has(String(c).toUpperCase().replace(/[^A-Z0-9]/g,''))) ? 'own' : 'aff');
+const codeTracked = c => !!c && (codeKind(c)==='aff' || isLaneCode(c));
 /* ---------- CODE TYPES: member refer-a-friend vs staff affiliate vs promo/campaign.
    Stripe gives no way to tell them apart — all 97 codes are just strings — so the
    discriminator is: does the code uniquely match ONE member's own name? Person-named
@@ -4847,7 +4854,7 @@ function analystDigest(){
     if((x.sub&&aSet.has(x.sub))||(x.cust&&aSet.has(x.cust))){ affN++; return; }
     if(x.src) att[x.src]=(att[x.src]||0)+1; });
   const affAgg={};
-  subsArr.forEach(x=>{ if(codeKind(x.code)!=='aff') return; const k=String(x.code).toUpperCase();
+  subsArr.forEach(x=>{ if(!codeTracked(x.code)) return; const k=String(x.code).toUpperCase();
     const a=affAgg[k]||(affAgg[k]={type:codeTypeOf(k), joinsAllTime:0,stillActive:0,mrrNowGBP:0,joinsByMonth:{}}); a.joinsAllTime++;
     const live=(x.status==='active'||x.status==='past_due');
     if(live){ a.stillActive++; a.mrrNowGBP+=Math.round(x.monthly); }
@@ -11993,7 +12000,7 @@ function affiliateBook(){
   /* every affiliate-coded subscriber, grouped by code. Active = paying or past due now. */
   const now=Date.now(), byCode={};
   liveSubsList().forEach(x=>{
-    if(codeKind(x.code)!=='aff') return;
+    if(!codeTracked(x.code)) return;
     const k=String(x.code).toUpperCase();
     const a=byCode[k]||(byCode[k]={code:k, subs:[], active:0, pastDue:0, mrr:0, joins30:0, all:0, churned:0});
     const live=(x.status==='active'||x.status==='past_due');
