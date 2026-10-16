@@ -998,9 +998,9 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
     <div class="sec">Members by source <span class="tag">paid checkouts · all time pulled</span></div>
     <div class="card"><div class="chartbox tall"><canvas id="chAttr"></canvas></div><div class="empty" id="attrEmpty" style="display:none">No source data yet. The checkout dropdown fills this automatically from here on.</div>
     <div class="sn" style="margin-top:8px">Each source bar shows organic joins in its own colour, with any <b>affiliate-coded joins that picked that source</b> stacked on top as a lighter fade of the same colour — hover for the organic / affiliate / total breakdown. The cards above and the over-time chart below stay organic-only; the per-code affiliate detail is in the chart and table below.</div></div>
-    <div class="sec">Joins by source over time <span class="tag">monthly · top sources</span></div>
+    <div class="sec">Joins by source over time <span class="tag" id="atTimeTag">every source · same joins as the New joins table</span></div>
     <div class="card"><div class="chartbox tall"><canvas id="chAttrTime"></canvas></div>
-    <div class="sn">Only checkouts where the dropdown was answered. Run Pull all-time data in Settings to sweep older sessions.</div></div>
+    <div class="sn" id="atTimeNote" style="margin-top:8px"></div></div>
     <div class="sec">Churn rate by acquisition channel <span class="tag">chart = steady 90-day monthly rate · 30d snapshot in the table · channels under 30 members muted</span></div>
     <div class="card"><div class="chartbox tall"><canvas id="chChanChurn"></canvas></div>
     <div class="empty" id="chanChurnEmpty" style="display:none">Not enough attributed members yet to compare channels. Run Pull all-time data in Settings to sweep older sessions.</div>
@@ -2029,7 +2029,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.70';
+const BUILD = 'v16.71';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -10627,26 +10627,48 @@ function drawAttribution(){
           footer:items=>'Total: '+items.reduce((a,b)=>a+b.raw,0)}}},
       scales:{x:{stacked:true,grid:{color:gridCol},ticks:{color:tickCol},beginAtZero:true},
               y:{stacked:true,grid:{display:false},ticks:{color:PAL.text}}}}});
-  /* over time: weekly for short ranges, monthly otherwise */
+  /* over time. v16.71 — Louie, 16 Oct: "source isn't matching up". This chart counted checkout SESSIONS
+     with affiliate-coded joins removed, drew only the top 4 sources and dated a join by when the checkout
+     opened, so it never agreed with the New joins table (4 "AI Chatbot" on 15 Oct in the table, 2 here;
+     TikTok and Reddit missing). It now uses the SAME rows as that table (lastM.joinsAll): every paid join
+     with a dropdown answer, affiliate codes included, dated by the join, every source drawn (smallest
+     ones folded into "Other"). Trial sign-ups that never paid are left out, as on the Members-by-source bars. */
+  const JR=(lastM&&lastM.joinsAll||[]).filter(j=>inR(j.created) && !j.trialNP && j.src);
+  const srcN={}; JR.forEach(j=>{ srcN[j.src]=(srcN[j.src]||0)+1; });
+  const srcOrder=Object.keys(srcN).sort((a,b)=>srcN[b]-srcN[a]);
+  const shown=srcOrder.slice(0,7), other=new Set(srcOrder.slice(7));
+  const keyOf=src=> other.has(src)? '_other' : src;
   const buckets=[];
   const rngD = attrRange.t0? Math.ceil((attrRange.t1-attrRange.t0)/D) : 9999;
-  if(rngD<=98){
+  const weekly=rngD<=98;
+  if(weekly){
     const monA=mondayOf(Math.min(now, attrRange.t1));
     const wks=Math.ceil((Math.min(now,attrRange.t1)-mondayOf(attrRange.t0))/(7*D))+1;
-    for(let w=wks-1;w>=0;w--){ const start=monA-w*7*D, end=Math.min(start+7*D, now+1), b={};
-      attributed.forEach(x=>{ if(x.created>=start&&x.created<end){ b[x.src]=(b[x.src]||0)+1; } });
-      buckets.push({label:new Date(start).toLocaleDateString('en-GB',{day:'numeric',month:'short'}), b}); }
+    for(let w=wks-1;w>=0;w--){ const start=monA-w*7*D, end=Math.min(start+7*D, now+1), b={}; let tot=0;
+      JR.forEach(j=>{ if(j.created>=start&&j.created<end){ const k=keyOf(j.src); b[k]=(b[k]||0)+1; tot++; } });
+      buckets.push({label:new Date(start).toLocaleDateString('en-GB',{day:'numeric',month:'short'}), full:'week of '+new Date(start).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+(end>now? ' (so far)':''), b, tot}); }
   } else {
     const mos = rngD<=200? 6 : 12;
     for(let mo=mos-1;mo>=0;mo--){ const dt=new Date(); dt.setUTCDate(1); dt.setUTCMonth(dt.getUTCMonth()-mo);
-      const k=dt.toISOString().slice(0,7), b={};
-      attributed.forEach(x=>{ if(new Date(x.created).toISOString().slice(0,7)===k){ b[x.src]=(b[x.src]||0)+1; } });
-      buckets.push({label:dt.toLocaleDateString('en-GB',{month:'short',year:'2-digit'}), b}); }
+      const k=dt.toISOString().slice(0,7), b={}; let tot=0;
+      JR.forEach(j=>{ if(new Date(j.created).toISOString().slice(0,7)===k){ const kk=keyOf(j.src); b[kk]=(b[kk]||0)+1; tot++; } });
+      buckets.push({label:dt.toLocaleDateString('en-GB',{month:'short',year:'2-digit'}), full:dt.toLocaleDateString('en-GB',{month:'long',year:'numeric'})+(mo===0? ' (so far)':''), b, tot}); }
   }
-  const topSrc=keys.slice(0,4);
+  const lines=shown.concat(other.size? ['_other'] : []);
+  const lineCols=[PAL.accent,PAL.orange,PAL.good,PAL.bad,PAL.violet,PAL.cyan,PAL.gold,PAL.muted];
+  const atTag=document.getElementById('atTimeTag'); if(atTag) atTag.textContent=(weekly? 'weekly' : 'monthly')+' · every source · same joins as the New joins table';
   if(charts.chAttrTime) charts.chAttrTime.destroy();
-  charts.chAttrTime=new Chart(document.getElementById('chAttrTime'),{type:'line',data:{labels:buckets.map(x=>x.label),datasets:topSrc.map((k,i)=>({label:srcLabel(k),data:buckets.map(x=>x.b[k]||0),borderColor:srcCols[i%srcCols.length],backgroundColor:srcCols[i%srcCols.length],tension:.3,pointRadius:3,borderWidth:2.5}))},
-    options:{...op,scales:{x:{grid:{color:gridCol},ticks:{color:tickCol}},y:{grid:{color:gridCol},ticks:{color:tickCol},beginAtZero:true}}}});
+  charts.chAttrTime=new Chart(document.getElementById('chAttrTime'),{type:'line',data:{labels:buckets.map(x=>x.label),fullDates:buckets.map(x=>x.full),
+    rvMeta:(weekly?'weekly':'monthly')+' · paid joins by source',
+    datasets:lines.map((k,i)=>({label:k==='_other'? 'Other ('+[...other].map(srcLabel).join(', ')+')' : srcLabel(k),data:buckets.map(x=>x.b[k]||0),
+      borderColor:lineCols[i%lineCols.length],backgroundColor:lineCols[i%lineCols.length],tension:.3,pointRadius:3,borderWidth:2.5}))},
+    options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,
+      title:items=>buckets[items[0].dataIndex].full,
+      footer:items=>buckets[items[0].dataIndex].tot+' paid joins with a source'}}},
+      scales:{x:{grid:{color:gridCol},ticks:{color:tickCol}},y:{grid:{color:gridCol},ticks:{color:tickCol,precision:0},beginAtZero:true}}}});
+  const atNote=document.getElementById('atTimeNote');
+  if(atNote) atNote.innerHTML='Counts the same paid joins as the <b>New joins</b> table, by the day they joined, affiliate codes included: '+JR.length+' in this range with a source answer. '
+    +'Weeks run Monday to Sunday and the latest one is still filling. Trial sign-ups that never paid are left out. Joins from before the checkout dropdown existed have no source, so they are not on this chart.';
   /* affiliate codes table, range-aware */
   const affAgg={};
   liveSubsList().forEach(x=>{
