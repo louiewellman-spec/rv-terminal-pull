@@ -2029,7 +2029,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.72';
+const BUILD = 'v16.73';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2046,6 +2046,10 @@ const LANE_CODES_OWN=['POKEMON','CARDS','DROPS','VINTED','STARTER'];
 const isLaneCode = c => !!c && LANE_CODES_OWN.includes(String(c).toUpperCase().replace(/[^A-Z0-9]/g,''));
 const codeKind = c => !c ? null : ((isLaneCode(c) || ownCodesSet().has(String(c).toUpperCase().replace(/[^A-Z0-9]/g,''))) ? 'own' : 'aff');
 const codeTracked = c => !!c && (codeKind(c)==='aff' || isLaneCode(c));
+/* v16.73 — older payment links' dropdown said just "Google" (value `google`); it means the same as
+   `website` ("Google Search / Website"). Merged when READ, never rewritten in storage or Stripe.
+   `googlead` (Google Ad) stays its own source. */
+const srcNorm = v => { if(!v) return v; return String(v).toLowerCase().trim()==='google'? 'website' : v; };
 /* ---------- CODE TYPES: member refer-a-friend vs staff affiliate vs promo/campaign.
    Stripe gives no way to tell them apart — all 97 codes are just strings — so the
    discriminator is: does the code uniquely match ONE member's own name? Person-named
@@ -2707,7 +2711,7 @@ function compute(){
   /* Source and promotion code are first-touch. Session history is stored newest-first,
      so attribution must explicitly walk oldest-first. */
   (S.sessions||[]).slice().sort((a,b)=>a.created-b.created).forEach(x=>{
-    if(x.paid && x.src){ if(x.sub && !srcBySub[x.sub]) srcBySub[x.sub]=x.src; if(x.cust && !srcByCust[x.cust]) srcByCust[x.cust]=x.src; }
+    if(x.paid && x.src){ const sv=srcNorm(x.src); if(x.sub && !srcBySub[x.sub]) srcBySub[x.sub]=sv; if(x.cust && !srcByCust[x.cust]) srcByCust[x.cust]=sv; }
     if(x.paid && x.pc){ if(x.sub && !pcBySub[x.sub]) pcBySub[x.sub]=x.pc; if(x.cust && !pcByCust[x.cust]) pcByCust[x.cust]=x.pc; }
   });
   /* Display handles prefer the most recently supplied value. */
@@ -3691,7 +3695,7 @@ function compute(){
   const attr={};
   const paidSess = (S.sessions||[]).filter(x=>x.paid);
   const attributed = paidSess.filter(x=>x.src || isAffSess(x));
-  const srcOf = x => isAffSess(x) ? 'affiliate' : x.src;
+  const srcOf = x => isAffSess(x) ? 'affiliate' : srcNorm(x.src);
   attributed.forEach(x=>{ const k=srcOf(x); attr[k]=(attr[k]||0)+1; });
   const attrCov = paidSess.length? attributed.length/paidSess.length*100 : 0;
   const attrSince = attributed.length? Math.min(...attributed.map(x=>x.created)) : null;
@@ -4852,7 +4856,7 @@ function analystDigest(){
   const att={}; let affN=0, paidN=0;
   (S.sessions||[]).forEach(x=>{ if(!x.paid) return; paidN++;
     if((x.sub&&aSet.has(x.sub))||(x.cust&&aSet.has(x.cust))){ affN++; return; }
-    if(x.src) att[x.src]=(att[x.src]||0)+1; });
+    if(x.src){ const sv=srcNorm(x.src); att[sv]=(att[sv]||0)+1; } });
   const affAgg={};
   subsArr.forEach(x=>{ if(!codeTracked(x.code)) return; const k=String(x.code).toUpperCase();
     const a=affAgg[k]||(affAgg[k]={type:codeTypeOf(k), joinsAllTime:0,stillActive:0,mrrNowGBP:0,joinsByMonth:{}}); a.joinsAllTime++;
@@ -10600,7 +10604,7 @@ function drawAttribution(){
   /* affiliate-coded members are excluded from attribution entirely, the table below is their home */
   const paid=(S.sessions||[]).filter(x=>x.paid&&inR(x.created)&&!isAff(x));
   const attributed=paid.filter(x=>x.src);
-  const attr={}; attributed.forEach(x=>{ attr[x.src]=(attr[x.src]||0)+1; });
+  const attr={}; attributed.forEach(x=>{ const sv=srcNorm(x.src); attr[sv]=(attr[sv]||0)+1; });
   const keys=Object.keys(attr).sort((a,b)=>attr[b]-attr[a]);
   const atTot=keys.reduce((a,k)=>a+attr[k],0);
   document.getElementById('atTotal').textContent=atTot;
@@ -10614,7 +10618,7 @@ function drawAttribution(){
      stacked on top of the organic segment as a lighter fade of that source's own colour,
      so each source reads organic + affiliate = total */
   const affSrc={};
-  (S.sessions||[]).forEach(x=>{ if(x.paid&&inR(x.created)&&isAff(x)&&x.src){ affSrc[x.src]=(affSrc[x.src]||0)+1; } });
+  (S.sessions||[]).forEach(x=>{ if(x.paid&&inR(x.created)&&isAff(x)&&x.src){ const sv=srcNorm(x.src); affSrc[sv]=(affSrc[sv]||0)+1; } });
   const srcKeys=Array.from(new Set([...keys, ...Object.keys(affSrc)]))
     .sort((a,b)=>((attr[b]||0)+(affSrc[b]||0))-((attr[a]||0)+(affSrc[a]||0)));
   const orgData=srcKeys.map(k=>attr[k]||0), affData=srcKeys.map(k=>affSrc[k]||0);
@@ -13284,7 +13288,7 @@ function winbackOffer(p, touch){
   return {offer:'q50', arm: t<=180? '3-6m':'6m+'};
 }
 const SRC_LABELS={tiktok:'TikTok', tiktokad:'TikTok Ad', instagram:'Instagram', website:'Google Search / Website',
-  googlead:'Google Ad', google:'Google', reddit:'Reddit', friends:'Friend / Word of Mouth', friend:'Friend / Word of Mouth',
+  googlead:'Google Ad', google:'Google Search / Website', reddit:'Reddit', friends:'Friend / Word of Mouth', friend:'Friend / Word of Mouth',
   aichatbot:'AI Chatbot', chatgpt:'AI Chatbot', youtube:'YouTube', other:'Other'};
 const srcLabel=v=>{ if(!v) return null; const k=String(v).toLowerCase().trim(); return SRC_LABELS[k] || (k.charAt(0).toUpperCase()+k.slice(1)); };
 const EMAIL_BCC_MAX=20;   /* Louie's mail client: 20 recipients per BCC */
