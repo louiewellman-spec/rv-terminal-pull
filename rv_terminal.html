@@ -1156,6 +1156,22 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
   </section>
 
   <!-- LURK GAP -->
+  <section class="view" id="v-countries">
+    <div class="grid c4">
+      <div class="card"><h3>Countries</h3><div class="big num" id="ctN">—</div><div class="sn" id="ctND">with paying members</div></div>
+      <div class="card"><h3>UK share of MRR</h3><div class="big num gtx gtx-blue" id="ctUK">—</div><div class="sn" id="ctUKD">—</div></div>
+      <div class="card"><h3>Outside the UK</h3><div class="big num gtx gtx-gold" id="ctAbroad">—</div><div class="sn" id="ctAbroadD">—</div></div>
+      <div class="card"><h3>Country known</h3><div class="big num" id="ctCov">—</div><div class="sn" id="ctCovD">—</div></div>
+    </div>
+    <div class="sec">By country <span class="tag">paying members now · MRR change · joins · churn, last 30 days</span></div>
+    <div class="card"><div style="overflow-x:auto"><table id="ctTable"><thead></thead><tbody></tbody></table></div>
+      <div class="sn" id="ctNote" style="margin-top:8px"></div></div>
+    <div class="sec">MRR by country <span class="tag">month-end MRR · biggest countries + the rest</span></div>
+    <div class="card"><div class="chartbox tall"><canvas id="chCtMrr"></canvas></div></div>
+    <div class="sec">New members by country <span class="tag">first-time paying members per month</span></div>
+    <div class="card"><div class="chartbox"><canvas id="chCtJoins"></canvas></div></div>
+  </section>
+
   <section class="view" id="v-lurk">
     <div class="grid c4">
       <div class="card"><h3>Matched members</h3><div class="big num" id="lkN">—</div><div class="sn" id="lkND">joined AND paid inside the tracked window</div></div>
@@ -1752,6 +1768,7 @@ if(!Array.isArray(S.emailLog) || !S.emailSup){
 S.expCamp = jget('rv_expcamp', null);
 S.profitBin = jget('rv_profitbin', null);   /* v15.84: shared by the runner */
 S.emailFlags = jget('rv_emailflags', null);
+S.ccByCust = jget('rv_ccbycust', {});   /* v16.74: card / billing country per customer, from charges */
 S.deskApplied = jget('rv_deskapplied', {});   /* v16.63: send batches from the morning email routine already logged */
 S.projects = jget('rv_projects', null);   /* v15.92: projects, notes, timelines — synced */
 if(!S.expCamp || typeof S.expCamp.stamps!=='object') S.expCamp={stamps:{}};
@@ -2029,7 +2046,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.73';
+const BUILD = 'v16.74';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2049,6 +2066,32 @@ const codeTracked = c => !!c && (codeKind(c)==='aff' || isLaneCode(c));
 /* v16.73 — older payment links' dropdown said just "Google" (value `google`); it means the same as
    `website` ("Google Search / Website"). Merged when READ, never rewritten in storage or Stripe.
    `googlead` (Google Ad) stays its own source. */
+/* v16.74 — Louie, 20 Oct 2026: "make a country page ... growth per country, mrr growth, churn rate per country".
+   A member's country, most trusted first: the address on their Stripe customer, the billing country they
+   typed at checkout, then the country that issued their card. Nothing is written back to Stripe. */
+function harvestChargeCountries(chs){
+  if(!Array.isArray(chs)) return 0; S.ccByCust=S.ccByCust||{}; let n=0;
+  chs.forEach(c=>{ const cust=typeof c.customer==='string'? c.customer : (c.customer&&c.customer.id); if(!cust) return;
+    const cc=(c.billing_details&&c.billing_details.address&&c.billing_details.address.country)
+      || (c.payment_method_details&&c.payment_method_details.card&&c.payment_method_details.card.country) || null;
+    if(cc && S.ccByCust[cust]!==cc){ S.ccByCust[cust]=cc; n++; } });
+  if(n) jset('rv_ccbycust', S.ccByCust);
+  return n;
+}
+let _ccSess=null, _ccSessKey='';
+function countryOf(x){
+  if(!x) return null;
+  if(x.ccy) return String(x.ccy).toUpperCase();
+  const key=((S.sessions||[]).length)+':'+(((S.sessions||[])[0]||{}).created||0);
+  if(!_ccSess || _ccSessKey!==key){ const bs={}, bc={};
+    (S.sessions||[]).slice().sort((a,b)=>a.created-b.created).forEach(z=>{ if(!z||!z.cc) return;
+      if(z.sub && !bs[z.sub]) bs[z.sub]=z.cc; if(z.cust && !bc[z.cust]) bc[z.cust]=z.cc; });
+    _ccSess={bs,bc}; _ccSessKey=key; }
+  const v=_ccSess.bs[x.id] || (x.cust && _ccSess.bc[x.cust]) || (x.cust && S.ccByCust && S.ccByCust[x.cust]) || null;
+  return v? String(v).toUpperCase() : null;
+}
+const countryName = cc => { if(!cc) return 'Unknown'; try{ return new Intl.DisplayNames(['en-GB'],{type:'region'}).of(cc)||cc; }catch(e){ return cc; } };
+const countryFlag = cc => (cc && /^[A-Z]{2}$/.test(cc))? String.fromCodePoint(...[...cc].map(ch=>0x1F1E6+ch.charCodeAt(0)-65)) : '🏳';
 const srcNorm = v => { if(!v) return v; return String(v).toLowerCase().trim()==='google'? 'website' : v; };
 /* ---------- CODE TYPES: member refer-a-friend vs staff affiliate vs promo/campaign.
    Stripe gives no way to tell them apart — all 97 codes are just strings — so the
@@ -2345,6 +2388,7 @@ function slimSub(s){
     cpe: s.current_period_end ? s.current_period_end*1000 : null,
     cname: custObj ? (custObj.name||null) : null,
     cemail: custObj ? (custObj.email||null) : null,
+    ccy: (custObj && custObj.address && custObj.address.country) || null,   /* v16.74 country page */
     pdSince: s.status==='past_due' && s.current_period_end ? s.current_period_end*1000 : null,
     cust: typeof s.customer==='string' ? s.customer : (s.customer && s.customer.id) || null,
     /* canceled_at is the REQUEST time for end-of-period cancellations, not the
@@ -2493,6 +2537,7 @@ function slimSession(cs){
   }catch(e){}
   return {created:cs.created*1000, paid:cs.payment_status==='paid', src, duser, pc,
     em:(cs.customer_details&&cs.customer_details.email)||cs.customer_email||null,
+    cc:(cs.customer_details&&cs.customer_details.address&&cs.customer_details.address.country)||null,
     amt:cs.amount_total!=null? Math.round(cs.amount_total*(((cs.currency||'gbp')==='eur')?EURGBP:1))/100 : null,
     sub: typeof cs.subscription==='string' ? cs.subscription : (cs.subscription && cs.subscription.id) || null,
     cust: typeof cs.customer==='string' ? cs.customer : (cs.customer && cs.customer.id) || null};
@@ -2651,6 +2696,7 @@ async function refresh(){
            (midnight-to-1am UK, a busy slot for Discord sign-up anchors) sat on the wrong
            day. Measured 22 Sep 2026: yesterday read £537 here vs £583.18 on Stripe, and
            the gap was exactly the £46 paid in the 23h-UTC hour of the day before. */
+        try{ harvestChargeCountries(rch); }catch(e){}
         rch.forEach(c=>{ const dk2=ukDayKey(c.created*1000), k=dk2.slice(0,7);
           const b=bm[k]||(bm[k]={paid:0,refunded:0,fee:0});
           const b2=bd[dk2]||(bd[dk2]={paid:0,refunded:0,fee:0});
@@ -4253,10 +4299,11 @@ const PAGE_DRAWS={
   resigns:[()=>drawResignsPage()],
   changes:[()=>drawChangesPage()],
   lurk:[()=>drawLurkPage()],
+  countries:[()=>drawCountries()],
   profit:[()=>{ void drawProfitPage(); }],
   emails:[()=>drawEmailsPage()]
 };
-const PAGE_LABEL={rewards:'Rewards',command:'Command',revenue:'Revenue',growth:'Growth',attribution:'Attribution',affiliates:'Affiliates',projects:'Projects',credits:'Credits',cancels:'Cancels',trials:'Trials',retention:'Retention',expansion:'Expansion',reports:'Reports',recovery:'Recovery',resigns:'Resign-ups',changes:'Pro revamp',lurk:'Lurk gap',profit:'Profit',emails:'Emails'};
+const PAGE_LABEL={rewards:'Rewards',command:'Command',revenue:'Revenue',growth:'Growth',attribution:'Attribution',affiliates:'Affiliates',projects:'Projects',credits:'Credits',cancels:'Cancels',trials:'Trials',retention:'Retention',expansion:'Expansion',reports:'Reports',recovery:'Recovery',resigns:'Resign-ups',changes:'Pro revamp',lurk:'Lurk gap',countries:'Countries',profit:'Profit',emails:'Emails'};
 const pageDirty={};
 function currentView(){ const el=document.querySelector('.view.on'); return el&&el.id? el.id.slice(2) : 'command'; }
 function paintPage(v, m){
@@ -4417,6 +4464,7 @@ async function deepPull(){
     await fetchFx();
     status('Deep pull · charge history (can take a minute)…');
     const ch = await stripeAll('/v1/charges', {'expand[]':['data.balance_transaction']}, 1000, 'charges');
+    try{ harvestChargeCountries(ch); }catch(e){}
     const byMonth = {};
     ch.forEach(c=>{
       const k = ukDayKey(c.created*1000).slice(0,7);            /* v16.39: London month */
@@ -4941,6 +4989,8 @@ function analystDigest(){
     attributionOrganic: { paidCheckoutsTracked:paidN, viaAffiliateCodes:affN, selfReportedSources:att,
       note:'selfReportedSources comes from the checkout dropdown, use it to recommend channel-level actions' },
     affiliateCodes: affAgg,
+    countries: (function(){ try{ return countryStats(liveSubsList(), now).map(r=>({country:r.cc||'unknown', members:r.members, mrrGBP:Math.round(r.mrr), mrr30dAgoGBP:Math.round(r.mrr30), mrr90dAgoGBP:Math.round(r.mrr90),
+      newMembers30d:r.joins30, newMembersPrev30d:r.joins30prev, churn30dPct:r.churn==null? null : Math.round(r.churn*10)/10, churned30d:r.churned})); }catch(e){ return {error:String(e&&e.message||e)}; } })(),
     channelChurn: (m.channelChurn||[]).map(r=>({channel:r.label, base30d:r.base, added30d:r.added, churned30d:r.gone, pendingCancel:r.cape,
       churn30dPct:r.rate==null?null:Math.round(r.rate*10)/10, monthlyChurn90dPct:r.rate90m==null?null:Math.round(r.rate90m*10)/10})),
     affiliateCodeChurn: (m.affChurn||[]).filter(r=>(r.base+r.added)>=2||r.gone>0).slice(0,30)
@@ -9125,6 +9175,68 @@ document.querySelectorAll('#lkJCTf button').forEach(b=> b.onclick=()=>{ lkJCTfD=
   document.querySelectorAll('#lkJCTf button').forEach(x=>x.classList.toggle('on',x===b)); drawLurkPage(); });
 document.querySelectorAll('#lkH1Tf button').forEach(b=> b.onclick=()=>{ lkH1TfD=Number(b.dataset.d);
   document.querySelectorAll('#lkH1Tf button').forEach(x=>x.classList.toggle('on',x===b)); drawLurkPage(); });
+/* v16.74 country page. Pure over the subscription list: one row per country with paying members now,
+   MRR now vs 30 and 90 days ago, first-time joins in the last 30 days vs the 30 before, and the 30-day
+   churn rate on the same Stripe basis as the headline (churned ÷ (members 30 days ago + new in the window)). */
+function countryStats(subsArr, now){
+  const D=864e5, groups={};
+  (subsArr||[]).forEach(x=>{ const c=countryOf(x)||'??'; (groups[c]=groups[c]||[]).push(x); });
+  const firstOf={}; coachActsAll().forEach(p=>{ firstOf[custKey(p.x)]=p; });
+  const joinsBy=(a,b)=>{ const o={}; Object.values(firstOf).forEach(p=>{ if(p.t>=a&&p.t<b){ const c=countryOf(p.x)||'??'; o[c]=(o[c]||0)+1; } }); return o; };
+  const j30=joinsBy(now-30*D, now), j30p=joinsBy(now-60*D, now-30*D);
+  const rows=Object.keys(groups).map(c=>{ const g=groups[c];
+    const paying=new Set(); g.forEach(x=>{ if(stripePaidAt(x,now)) paying.add(x.cust||x.id); });
+    const st=stripeChurnStats(g, now, 30*D), den=st.base.length+st.added.length;
+    const mrr=mrrAt(g,now), m30=mrrAt(g,now-30*D), m90=mrrAt(g,now-90*D);
+    return {cc:c==='??'? null : c, members:paying.size, mrr, mrr30:m30, mrr90:m90,
+      joins30:j30[c]||0, joins30prev:j30p[c]||0, churned:st.churned.length, churnBase:den, churn: den? st.churned.length/den*100 : null}; })
+    .filter(r=>r.members>0 || r.mrr>0 || r.joins30>0 || r.churned>0)
+    .sort((a,b)=> (b.cc?1:0)-(a.cc?1:0) || b.mrr-a.mrr);
+  return rows;
+}
+function drawCountries(){
+  const tb=document.querySelector('#ctTable tbody'), th=document.querySelector('#ctTable thead'); if(!tb) return;
+  const subs=liveSubsList(), now=Date.now(), D=864e5;
+  const R=countryStats(subs, now);
+  const known=R.filter(r=>r.cc), unk=R.find(r=>!r.cc)||{members:0,mrr:0};
+  const totMrr=R.reduce((a,r)=>a+r.mrr,0), totMem=R.reduce((a,r)=>a+r.members,0);
+  const uk=R.find(r=>r.cc==='GB')||{mrr:0,members:0};
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.innerHTML=v; };
+  const pc=(a,b)=> b? Math.round(a/b*100)+'%' : '—';
+  set('ctN', known.filter(r=>r.members>0).length); set('ctND','with paying members now');
+  set('ctUK', pc(uk.mrr,totMrr)); set('ctUKD', fmtGBP(uk.mrr)+' · '+uk.members+' members');
+  set('ctAbroad', fmtGBP(known.filter(r=>r.cc!=='GB').reduce((a,r)=>a+r.mrr,0))); set('ctAbroadD', known.filter(r=>r.cc!=='GB').reduce((a,r)=>a+r.members,0)+' members in '+known.filter(r=>r.cc!=='GB'&&r.members>0).length+' countries');
+  set('ctCov', pc(totMem-unk.members, totMem)); set('ctCovD', unk.members? unk.members+' paying members with no country on Stripe yet' : 'every paying member');
+  const chg=(a,b)=>{ const d=a-b; if(Math.abs(d)<0.5) return '<span style="color:var(--muted)">±£0</span>';
+    const p=b>0? ' ('+(d>0?'+':'')+Math.round(d/b*100)+'%)' : '';
+    return '<span style="color:'+(d>0?'var(--good)':'var(--bad)')+'">'+(d>0?'+':'−')+fmtGBP(Math.abs(d))+p+'</span>'; };
+  th.innerHTML='<tr><th>Country</th><th>Members</th><th>MRR</th><th>Share</th><th>MRR change · 30d</th><th>MRR change · 90d</th><th>New members · 30d</th><th>Churn · 30d</th><th>£ per member</th></tr>';
+  tb.innerHTML=R.map(r=>'<tr><td style="color:var(--text);font-weight:600;white-space:nowrap">'+(r.cc? countryFlag(r.cc)+' '+esc(countryName(r.cc)) : '<span style="color:var(--dim)">Country not known yet</span>')+'</td>'
+    +'<td class="num">'+r.members+'</td><td class="num">'+fmtGBP(r.mrr)+'</td><td class="num">'+pc(r.mrr,totMrr)+'</td>'
+    +'<td class="num">'+chg(r.mrr,r.mrr30)+'</td><td class="num">'+chg(r.mrr,r.mrr90)+'</td>'
+    +'<td class="num">'+r.joins30+' <span class="sn" style="display:inline">vs '+r.joins30prev+'</span></td>'
+    +'<td class="num" title="'+r.churned+' of '+r.churnBase+'">'+(r.churn==null? '—' : (Math.round(r.churn*10)/10)+'%'+(r.churnBase<20? ' <span class="sn" style="display:inline">('+r.churned+' of '+r.churnBase+')</span>' : ''))+'</td>'
+    +'<td class="num">'+(r.members? fmtGBP(r.mrr/r.members) : '—')+'</td></tr>').join('');
+  set('ctNote','A member’s country comes from Stripe: the address on their customer record, else the billing country they entered at checkout, else the country that issued their card. '
+    +'Churn uses the same basis as the headline (members who left in the last 30 days ÷ members 30 days ago plus new ones in the window); countries with under 20 members show the raw count, because one person moves the percentage a lot. '
+    +(unk.members? 'Members with no country yet fill in as Stripe data is pulled again; Pull all-time on Account fills the most.' : ''));
+  /* monthly charts: the five biggest countries by MRR now, the rest folded together */
+  const top=known.slice(0,5).map(r=>r.cc), cols=[PAL.accent,PAL.good,PAL.gold,PAL.violet,PAL.cyan,PAL.muted];
+  const months=[]; for(let i=11;i>=0;i--){ const d=new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth()-i); months.push(d.toISOString().slice(0,7)); }
+  const monEnd=k=>{ const [y,m]=k.split('-').map(Number); return Math.min(now, Date.UTC(y,m,1)-1); };
+  const byC={}; subs.forEach(x=>{ const c=countryOf(x); const k=top.includes(c)? c : '_rest'; (byC[k]=byC[k]||[]).push(x); });
+  const keys=top.concat(byC._rest? ['_rest'] : []);
+  const lab=k=> k==='_rest'? 'Everywhere else' : countryFlag(k)+' '+countryName(k);
+  const ML=months.map(k=>{ const d=new Date(k+'-01T00:00:00Z'); return d.toLocaleDateString('en-GB',{month:'short',year:'2-digit',timeZone:'UTC'}); });
+  chart('chCtMrr',{type:'bar',data:{labels:ML,rvMeta:'monthly · month-end MRR',datasets:keys.map((k,i)=>({label:lab(k),data:months.map(m=>Math.round(mrrAt(byC[k]||[], monEnd(m)))),backgroundColor:rgbaOf(cols[i%cols.length],.75),borderRadius:2,stack:'m'}))},
+    options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,label:c=>' '+c.dataset.label+': '+fmtGBP(c.raw),footer:items=>'Total '+fmtGBP(items.reduce((a,b)=>a+b.raw,0))}}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{color:tickCol}},y:{stacked:true,beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol,callback:v=>fmtGBP(v)}}}}});
+  const jm={}; coachActsAll().forEach(p=>{ const k=new Date(p.t).toISOString().slice(0,7); if(!months.includes(k)) return; const c=countryOf(p.x); const kk=top.includes(c)? c : '_rest';
+    (jm[kk]=jm[kk]||{})[k]=(jm[kk][k]||0)+1; });
+  chart('chCtJoins',{type:'bar',data:{labels:ML,rvMeta:'monthly · first-time paying members',datasets:keys.map((k,i)=>({label:lab(k),data:months.map(m=>(jm[k]||{})[m]||0),backgroundColor:rgbaOf(cols[i%cols.length],.75),borderRadius:2,stack:'j'}))},
+    options:{...op,plugins:{...op.plugins,tooltip:{...TT,callbacks:{...TT.callbacks,footer:items=>items.reduce((a,b)=>a+b.raw,0)+' new members'}}},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{color:tickCol}},y:{stacked:true,beginAtZero:true,grid:{color:gridCol},ticks:{color:tickCol,precision:0}}}}});
+}
 function drawLurkPage(){
   if(!lastM || !lastM.lurk) return;
   const L=lastM.lurk;
@@ -12319,7 +12431,7 @@ function mtabsPaint(v){
 }
 try{ mtabsBuild(); }catch(e){}
 /* ---------- nav ---------- */
-const titles={ rewards:'Success rewards', emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', affiliates:'Affiliates', projects:'Projects', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', goals:'Goals', settings:'Account'};
+const titles={ rewards:'Success rewards', emails:'Emails', command:'Command', reports:'Reports', revenue:'Revenue', profit:'Profit · real £ banked', credits:'Credits · free months & discounts', todo:'Planner', growth:'Growth', joins:'New joins', lurk:'Lurk gap · discord → paid', countries:'Countries', retention:'Retention', cancels:'Cancels', trials:'Trials', attribution:'Attribution', affiliates:'Affiliates', projects:'Projects', recovery:'Recovery', resigns:'Resign-ups', changes:'Pro revamp', expansion:'Expansion', goals:'Goals', settings:'Account'};
 function enhanceInteractive(root){
   (root||document).querySelectorAll('.clickable,.hero,.alertline').forEach(el=>{
     if(el.matches('button,a,input,select,textarea')||typeof el.onclick!=='function') return;
@@ -12336,11 +12448,11 @@ document.addEventListener('keydown',e=>{
    sidebar entry per hub. Goals folded into Account. */
 const HUBS={ dotoday:{label:'Do today', views:['recovery','expansion','rewards','emails']},
   revenue:{label:'Revenue', views:['revenue','profit','credits']},
-  growth:{label:'Growth', views:['growth','attribution','affiliates','joins','lurk']},
+  growth:{label:'Growth', views:['growth','attribution','affiliates','joins','countries','lurk']},
   retention:{label:'Retention', views:['retention','cancels','resigns']} };
 const HUB_OF={}; Object.keys(HUBS).forEach(h=>HUBS[h].views.forEach(v=>{ HUB_OF[v]=h; }));
 const TAB_LABEL={recovery:'Recovery',expansion:'Expansion',rewards:'Rewards',emails:'Emails',revenue:'Overview',profit:'Profit',credits:'Credits',
-  growth:'Growth',attribution:'Attribution',affiliates:'Affiliates',joins:'New joins',lurk:'Lurk gap',retention:'Retention',cancels:'Cancels',resigns:'Resign-ups'};
+  growth:'Growth',attribution:'Attribution',affiliates:'Affiliates',joins:'New joins',countries:'Countries',lurk:'Lurk gap',retention:'Retention',cancels:'Cancels',resigns:'Resign-ups'};
 function renderHubTabs(v){
   const view=document.getElementById('v-'+v); if(!view) return;
   const hub=HUB_OF[v]; let bar=view.querySelector(':scope > .hubtabs');
