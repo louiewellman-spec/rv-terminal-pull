@@ -680,8 +680,10 @@ html[data-theme="glass"] #updBar,html[data-theme="frost"] #updBar{backdrop-filte
       </div>
       <div class="card" id="rpStrip" style="display:grid;grid-template-columns:58fr 42fr;gap:0;padding-top:10px;padding-bottom:10px"></div>
       <div class="card" id="rpDeepInline" style="margin-top:12px" hidden></div>
+      <div class="card" id="rpMonthKpi" style="margin-top:12px"></div>
     </div>
     <div id="rpPaneHistory" hidden></div>
+    <div class="card" id="rpMonthKpiH" style="margin-top:12px" hidden></div>
     <div id="rpPaneWeek" hidden>
       <div class="card" id="wfVerdict" style="margin-bottom:12px"></div>
       <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px">
@@ -2046,7 +2048,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.76';
+const BUILD = 'v16.77';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -4951,6 +4953,7 @@ function analystDigest(){
           ((m.cancelsDetail)||[]).filter(r=>r.created>=cut).forEach(r=>{ agg[r.tier==='elite'?'elite':'pro'][r.reason==='payment failed'?'paymentFailed':'voluntary']++; });
           agg.note='subscription-level counts; the customer-level churned figure above can differ slightly'; return agg; })()},
       netMrrMovementLast30dGBP:m.mrrMove },
+    monthKpi:(function(){ try{ return rpMonthKpiRows(now).map(({k,c,l})=>({month:k, firstTryPct:c&&c.first!=null? Math.round(c.first*10)/10:null, collectedPct:c&&c.final!=null? Math.round(c.final*10)/10:null, wonBackPct:c&&c.rec!=null? Math.round(c.rec*10)/10:null, signups1h:l&&l.p1Days? l.p1:null, signups72h:l&&l.p72Days? l.p72:null, buyersTracked:l? l.pa:null})); }catch(e){ return null; } })(),
     collectionMonthly:(function(){ try{ return collectionRows(S.invHist||{}, S.recovery||{}, now, 'm', 400).map(x=>({month:x.k, billsDue:x.due, paid:x.paid, pending:x.pending, failed:x.failed,
       collectedPct:x.final==null?null:Math.round(x.final*10)/10, firstTryPct:x.first==null?null:Math.round(x.first*10)/10, wonBackPct:x.rec==null?null:Math.round(x.rec*10)/10, collectedGBP:Math.round(x.gbp)})); }catch(e){ return null; } })(),
     recoveryReconciliation30d:(function(){ const cut=now-30*D, log=(S.recovery&&S.recovery.log)||[];
@@ -7966,6 +7969,46 @@ function rpStrip(st){
   el.innerHTML='<div style="padding-right:16px;border-right:1px solid var(--line);font-size:12px;color:var(--muted)" title="'+esc(nextTip)+'">'+lab('Next month · '+monLabel(nextMk))+nextTxt+'</div><div style="padding-left:16px;font-size:12px;color:var(--muted);cursor:pointer" id="rpTrCell" title="open past months">'+lab('Track record')+trTxt+'</div>';
   const tc=document.getElementById('rpTrCell'); if(tc) tc.onclick=()=>rpSetPane('history');
 }
+/* v16.77 — Louie, 21 Oct: "in the report page i also want collection rate, 1st payment, collected in the end
+   aswell, also 1 hour sign ups and 72 hour sign ups per month". Same maths as the Money page collection chart
+   (collectionRows, monthly) and the Lurk page (L.long through lkMonthRows), so the numbers agree everywhere.
+   Quick sign-ups are dated by the day they PAID and counted against buyers we can link to a Discord join. */
+function rpMonthKpiRows(now){
+  const col={}; collectionRows(S.invHist||{}, S.recovery||{}, now, 'm', 400).forEach(r=>{ col[r.k]=r; });
+  const lk={}; lkMonthRows((lastM&&lastM.lurk&&lastM.lurk.long)||[]).forEach(r=>{ lk[r.k]=r; });
+  const ks=Object.keys(Object.assign({}, col, lk)).filter(k=>/^\d{4}-\d{2}$/.test(k) && k<=mkOf(now)).sort().reverse().slice(0,12);
+  return ks.map(k=>({k, c:col[k]||null, l:lk[k]||null}));
+}
+function rpMonthKpi(){
+  const now=Date.now(), rows=rpMonthKpiRows(now);
+  const pc=v=> v==null? '<span style="color:var(--dim)">—</span>' : (Math.round(v*10)/10)+'%';
+  const settleDay=k=>{ const d=new Date(Date.parse(k+'-01T00:00:00Z')); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+1, 1)+COL_PENDING_D*864e5)
+    .toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'UTC'}); };
+  const quick=(l,key)=>{ if(!l || l[key]==null || !l[key+'Days']) return '<td class="num"><span style="color:var(--dim)">—</span></td>';
+    return '<td class="num"><b style="color:var(--text)">'+l[key]+'</b>'+(l.pa? ' <span class="sn">'+Math.round(l[key]/l.pa*100)+'%</span>' : '')+'</td>'; };
+  const body=rows.map(({k,c,l})=>{
+    const cur=k===mkOf(now);
+    const end= c&&c.final!=null? '<b style="color:var(--text)">'+pc(c.final)+'</b>'
+      : (c&&c.due)? '<span class="sn">settles '+settleDay(k)+'</span>' : pc(null);
+    return '<tr><td style="color:var(--text);font-weight:600;white-space:nowrap">'+monLabel(k)+(cur?' <span class="sn">so far</span>':'')+'</td>'
+      +'<td class="num">'+(c&&c.first!=null? '<b style="color:var(--text)">'+pc(c.first)+'</b>' : pc(null))+'</td>'
+      +'<td class="num">'+end+'</td>'
+      +'<td class="num">'+(c&&c.rec!=null? pc(c.rec) : pc(null))+'</td>'
+      +'<td class="num">'+(c? (c.due+c.pending) : '—')+'</td>'
+      +quick(l,'p1')+quick(l,'p72')+'<td class="num">'+(l? l.pa : '—')+'</td></tr>'; }).join('');
+  const html='<div class="row" style="justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap"><h3>Collection and quick sign-ups · by month</h3><span class="tag">newest first</span></div>'
+    +(rows.length? '<div style="overflow-x:auto;margin-top:6px"><table><thead><tr><th>Month</th>'
+      +'<th title="bills that went through on the first try">Paid first time</th>'
+      +'<th title="bills paid in the end, after retries and chasing. A month settles 21 days after it ends">Collection rate · paid in the end</th>'
+      +'<th title="of the payments that failed, how many we got paid">Failed, then paid</th>'
+      +'<th title="bills due that month">Bills</th>'
+      +'<th title="paid within 1 hour of joining the Discord">1 hour sign-ups</th>'
+      +'<th title="paid within 72 hours of joining the Discord">72 hour sign-ups</th>'
+      +'<th title="buyers we can match to a Discord join">Buyers tracked</th></tr></thead><tbody>'+body+'</tbody></table></div>'
+      +'<div class="sn" style="margin-top:8px">Sign-up % is out of the buyers tracked that month. Paid first time starts on 22 Aug 2026, when failed payments began being tracked.</div>'
+    : '<div class="empty">Refresh data to fill this in.</div>');
+  ['rpMonthKpi','rpMonthKpiH'].forEach(id=>{ const el=document.getElementById(id); if(el) el.innerHTML=html; });
+}
 function rpHistory(st){
   const el=document.getElementById('rpPaneHistory'); if(!el) return;
   const keys=Object.keys(S.forecasts||{}).filter(k=>/^\d{4}-\d{2}$/.test(k)&&k!==st.nowK&&mkEnd(k)<=st.realNow).sort().reverse().slice(0,6);
@@ -8242,7 +8285,7 @@ function rpDeepInline(st){
 }
 let rpPane='now';
 function rpSetPane(name){ rpPane=name;
-  [['now','rpPaneNow'],['week','rpPaneWeek'],['history','rpPaneHistory'],['quarters','rpPaneQuarters']].forEach(x=>{ const el=document.getElementById(x[1]); if(el) el.hidden=(x[0]!==name); });
+  [['now','rpPaneNow'],['week','rpPaneWeek'],['history','rpPaneHistory'],['history','rpMonthKpiH'],['quarters','rpPaneQuarters']].forEach(x=>{ const el=document.getElementById(x[1]); if(el) el.hidden=(x[0]!==name); });
   document.querySelectorAll('#rpPane .tfbtn').forEach(b=>b.classList.toggle('on', b.dataset.pane===name));
   if(name==='now'){ try{ rpPathChart(rpState()); }catch(e){} } }
 function drawReportsPage(){
@@ -8259,6 +8302,7 @@ function drawReportsPage(){
   try{ rpStrip(st); }catch(e){ reportNonFatal('Reports strip',e); }
   try{ rpDeepInline(st); }catch(e){ reportNonFatal('Reports detail',e); }
   try{ rpHistory(st); }catch(e){ reportNonFatal('Reports history',e); }
+  try{ rpMonthKpi(); }catch(e){ reportNonFatal('Reports collection + quick sign-ups',e); }
   try{ rpQuarters(st); }catch(e){ reportNonFatal('Reports quarters',e); }
   try{ drawWeekly(); }catch(e){ reportNonFatal('Weekly forecast',e); }
   rpSetPane(rpPane);
@@ -9493,8 +9537,9 @@ function lkDrawChanges(LG){
 function lkMonthRows(LG){
   const m={}, order=[];
   LG.forEach(x=>{ const k=x.d.slice(0,7);
-    if(!m[k]){ m[k]={k, days:0, pa:0, p24:0, j:0, jDays:0, c24:0}; order.push(k); }
-    const o=m[k]; o.days++; o.pa+=x.pa||0; o.p24+=x.p24||0;
+    if(!m[k]){ m[k]={k, days:0, pa:0, p1:0, p24:0, p72:0, p1Days:0, p72Days:0, j:0, jDays:0, c24:0}; order.push(k); }
+    const o=m[k]; o.days++; o.pa+=x.pa||0; o.p1+=x.p1||0; o.p24+=x.p24||0; o.p72+=x.p72||0;
+    if(x.p1!=null) o.p1Days++; if(x.p72!=null) o.p72Days++;
     if(x.j!=null){ o.j+=x.j; o.jDays++; o.c24+=x.c24||0; } });
   return order.map(k=>{ const o=m[k], y=+k.slice(0,4), mo=+k.slice(5,7);
     o.dim=new Date(Date.UTC(y,mo,0)).getUTCDate(); o.part=o.days<o.dim; return o; });
