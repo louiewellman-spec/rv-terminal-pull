@@ -2046,7 +2046,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.75';
+const BUILD = 'v16.76';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2090,6 +2090,12 @@ function countryOf(x){
   const v=_ccSess.bs[x.id] || (x.cust && _ccSess.bc[x.cust]) || (x.cust && S.ccByCust && S.ccByCust[x.cust]) || null;
   return v? String(v).toUpperCase() : null;
 }
+/* v16.76: UK wall-clock date + time for a timestamp (joins table) */
+let _ukFmt=null;
+function ukDateTime(ts){ if(!ts) return {d:'',t:''};
+  try{ _ukFmt=_ukFmt||new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/London',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+    const p={}; _ukFmt.formatToParts(new Date(ts)).forEach(z=>{ p[z.type]=z.value; });
+    return {d:p.year+'-'+p.month+'-'+p.day, t:p.hour+':'+p.minute}; }catch(e){ const iso=new Date(ts).toISOString(); return {d:iso.slice(0,10), t:iso.slice(11,16)}; } }
 const countryName = cc => { if(!cc) return 'Unknown'; try{ return new Intl.DisplayNames(['en-GB'],{type:'region'}).of(cc)||cc; }catch(e){ return cc; } };
 const countryFlag = cc => (cc && /^[A-Z]{2}$/.test(cc))? String.fromCodePoint(...[...cc].map(ch=>0x1F1E6+ch.charCodeAt(0)-65)) : '🏳';
 const srcNorm = v => { if(!v) return v; return String(v).toLowerCase().trim()==='google'? 'website' : v; };
@@ -3895,7 +3901,7 @@ function compute(){
         daysAwayBeforeRejoin:Math.round(x.gapD), priorTenureDays:x.priorD!=null? Math.round(x.priorD):null, stint:x.stint})) };
   const lkByCust=(lurk&&lurk.byCust)||{};
   const mapJoin = x=>({
-    date: dayKey(x.created), created:x.created, tier: tOf(x), monthly: x.monthly, status: x.status, cape: !!x.cape,
+    date: dayKey(x.created), created:x.created, cc: countryOf(x), tier: tOf(x), monthly: x.monthly, status: x.status, cape: !!x.cape,
     resign: isResign(x), nowActive: isLiveNow(x),
     code: x.code||null, ck: codeKind(x.code),
     aff: codeKind(x.code)==='aff',
@@ -4871,7 +4877,7 @@ function drawJoinsPage(){
   const eh=document.getElementById('njExpHint');
   if(eh) eh.innerHTML=J.length+' members'+((njF!=='all'||njActiveOnly)? ' ('+[njF==='direct'?'paid direct':null, njF==='trial'?'trial joins':null, njActiveOnly?'still active':null].filter(Boolean).join(' · ')+' only)':'')+' · <span class="gtx gtx-green" style="font-weight:700">'+withEmail+' have an email</span> · '+withHandle+' have a discord handle'+(J.length-withHandle? ' · '+(J.length-withHandle)+' show billing name only (they skipped the discord field at checkout, email still works for those)':'');
   const jh=document.querySelector('#joinsTable thead'), jb=document.querySelector('#joinsTable tbody');
-  jh.innerHTML='<tr><th>Date</th><th>Discord</th><th>Tier</th><th>Type</th><th>£/mo</th><th>Source</th><th>Invited by</th><th title="how long between joining the discord and paying">Joined → paid</th><th>Code</th><th>Re-signup</th><th>Status</th></tr>';
+  jh.innerHTML='<tr><th title="UK time">Date · time</th><th>Discord</th><th>Country</th><th>Tier</th><th>Type</th><th>£/mo</th><th>Source</th><th>Invited by</th><th title="how long between joining the discord and paying">Joined → paid</th><th>Code</th><th>Re-signup</th><th>Status</th></tr>';
   jb.innerHTML = J.slice(0,500).map(j=>{
     const tierPill = '<span class="pill '+(j.tier==='elite'?'mid':'good')+'">'+(j.tier==='elite'?'Elite':'Pro')+'</span>';
     const typ = j.trialNP? '<span class="pill bad" title="cancelled during the trial, never paid">trial · never paid</span>'
@@ -4881,12 +4887,13 @@ function drawJoinsPage(){
       : j.status==='active' ? '<span class="pill good">active</span>'
       : j.status==='past_due' ? '<span class="pill mid">past due</span>'
       : '<span class="pill bad">cancelled</span>';
-    return '<tr><td>'+j.date+'</td><td style="color:var(--text);font-weight:600">'+(j.duser? esc(j.duser)+(j.bn?' <span class="pill" style="background:color-mix(in srgb,var(--muted) 12%,transparent);color:var(--dim);font-size:10px" title="stripe billing name, not a discord username">name</span>':'') : '<span style="color:var(--dim)">—</span>')+'</td><td>'+tierPill+'</td><td>'+typ+'</td><td class="num">£'+(Math.round(j.monthly*100)/100).toFixed(2)+'</td><td style="white-space:nowrap">'+(j.src?'<span class="pill" style="background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font-size:10px" title="what they picked in the checkout dropdown">'+esc(srcLabel(j.src))+'</span>':'<span style="color:var(--dim)">—</span>')+'</td>'
+    const dt=ukDateTime(j.created);
+    return '<tr><td style="white-space:nowrap">'+dt.d+' <span style="color:var(--dim)">'+dt.t+'</span></td><td style="color:var(--text);font-weight:600">'+(j.duser? esc(j.duser)+(j.bn?' <span class="pill" style="background:color-mix(in srgb,var(--muted) 12%,transparent);color:var(--dim);font-size:10px" title="stripe billing name, not a discord username">name</span>':'') : '<span style="color:var(--dim)">—</span>')+'</td><td style="white-space:nowrap">'+(j.cc? countryFlag(j.cc)+' <span title="'+esc(countryName(j.cc))+'">'+esc(countryName(j.cc))+'</span>' : '<span style="color:var(--dim)">—</span>')+'</td><td>'+tierPill+'</td><td>'+typ+'</td><td class="num">£'+(Math.round(j.monthly*100)/100).toFixed(2)+'</td><td style="white-space:nowrap">'+(j.src?'<span class="pill" style="background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font-size:10px" title="what they picked in the checkout dropdown">'+esc(srcLabel(j.src))+'</span>':'<span style="color:var(--dim)">—</span>')+'</td>'
       +'<td style="white-space:nowrap">'+(j.inv? '<span class="pill" style="background:color-mix(in srgb,var(--violet) 14%,transparent);color:var(--violet);font-size:10px" title="whose discord invite link brought them in">'+esc(j.inv==='rv.louie'?'rv.louie · tiktok ads':j.inv)+'</span>' : '<span style="color:var(--dim)">—</span>')+'</td>'
       +'<td class="num" style="white-space:nowrap">'+lagTxt(j.lagH)+'</td>'
       +'<td>'+(j.code? '<span class="pill '+(j.ck==='aff'?'mid':'good')+'" title="'+(j.ck==='aff'?'affiliate':'your code')+'">'+esc(j.code)+'</span>' : '<span style="color:var(--dim)">—</span>')+'</td><td>'+(j.resign?'<span class="pill mid">re-signup</span>':'<span style="color:var(--dim)">first</span>')+'</td><td>'+st+'</td></tr>';
   }).join('');
-  if(J.length>500){ jb.innerHTML += '<tr><td colspan="11" class="sn">showing newest 500 of '+J.length+'</td></tr>'; }
+  if(J.length>500){ jb.innerHTML += '<tr><td colspan="12" class="sn">showing newest 500 of '+J.length+'</td></tr>'; }
   const je=document.getElementById('joinsEmpty'); if(je) je.style.display = J.length?'none':'block';
 }
 document.querySelectorAll('#njFilter button').forEach(b=> b.onclick=()=>{ njF=b.dataset.f; document.querySelectorAll('#njFilter button').forEach(x=>x.classList.toggle('on',x===b)); drawJoinsPage(); });
@@ -6144,7 +6151,7 @@ function njExport(kind){
   let lines, fname, note;
   if(kind==='email'){ const e=rows.map(r=>r.email).filter(Boolean); lines=e.join('\n'); fname='joins_emails'; note=e.length+' emails'; }
   else if(kind==='discord'){ const h=rows.map(r=>r.handle).filter(Boolean); lines=h.join('\n'); fname='joins_discord'; note=h.length+' discord handles ('+(rows.length-h.length)+' had none)'; }
-  else { lines='date,discord_or_name,tier,type,monthly_gbp,source,code,resignup,status,email\n'+rows.map(r=>[r.date,(r.handle||r.name||r.duser||''),r.tier,(r.trialNP?'trial never paid':r.trial?'trial':'direct'),(r.monthly||0),(r.src||''),(r.code||''),(r.resign?'yes':'no'),r.status,(r.email||'')].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n'); fname='joins_full'; note=rows.length+' rows'; }
+  else { lines='date,time_uk,discord_or_name,country,tier,type,monthly_gbp,source,code,resignup,status,email\n'+rows.map(r=>{ const dt=ukDateTime(r.created); return [dt.d||r.date,dt.t,(r.handle||r.name||r.duser||''),(r.cc?countryName(r.cc):''),r.tier,(r.trialNP?'trial never paid':r.trial?'trial':'direct'),(r.monthly||0),(r.src||''),(r.code||''),(r.resign?'yes':'no'),r.status,(r.email||'')].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(','); }).join('\n'); fname='joins_full'; note=rows.length+' rows'; }
   if(!lines){ status('Nothing to export for this range.','err'); return; }
   const ext=kind==='csv'?'csv':'txt';
   const blob=new Blob([lines],{type:'text/'+(kind==='csv'?'csv':'plain')});
