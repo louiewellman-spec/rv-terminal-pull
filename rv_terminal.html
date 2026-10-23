@@ -2048,7 +2048,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.77';
+const BUILD = 'v16.78';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -4953,6 +4953,7 @@ function analystDigest(){
           ((m.cancelsDetail)||[]).filter(r=>r.created>=cut).forEach(r=>{ agg[r.tier==='elite'?'elite':'pro'][r.reason==='payment failed'?'paymentFailed':'voluntary']++; });
           agg.note='subscription-level counts; the customer-level churned figure above can differ slightly'; return agg; })()},
       netMrrMovementLast30dGBP:m.mrrMove },
+    emailLogDedupe:S._emailLogDedupe||null,
     monthKpi:(function(){ try{ return rpMonthKpiRows(now).map(({k,c,l})=>({month:k, firstTryPct:c&&c.first!=null? Math.round(c.first*10)/10:null, collectedPct:c&&c.final!=null? Math.round(c.final*10)/10:null, wonBackPct:c&&c.rec!=null? Math.round(c.rec*10)/10:null, signups1h:l&&l.p1Days? l.p1:null, signups72h:l&&l.p72Days? l.p72:null, buyersTracked:l? l.pa:null})); }catch(e){ return null; } })(),
     collectionMonthly:(function(){ try{ return collectionRows(S.invHist||{}, S.recovery||{}, now, 'm', 400).map(x=>({month:x.k, billsDue:x.due, paid:x.paid, pending:x.pending, failed:x.failed,
       collectedPct:x.final==null?null:Math.round(x.final*10)/10, firstTryPct:x.first==null?null:Math.round(x.first*10)/10, wonBackPct:x.rec==null?null:Math.round(x.rec*10)/10, collectedGBP:Math.round(x.gbp)})); }catch(e){ return null; } })(),
@@ -13814,16 +13815,39 @@ async function sbPush(){
     }
     S._mrrKeyDiff=false;
   }
-  const log=(S.emailLog||[]);
-  if(log.length){
-    const have=await sbRest('rv_email_log?select=email,sent_on,campaign&limit=100000');
-    const seen=new Set((have||[]).map(r=>(r.email||'').toLowerCase()+'|'+r.sent_on+'|'+r.campaign));
-    const fresh=log.map(r=>({owner:uid, email:String(r.e||'').toLowerCase(), sent_on:r.d, campaign:r.c, kind:r.t||'offer'}))
-      .filter(r=>r.email && r.sent_on && !seen.has(r.email+'|'+r.sent_on+'|'+r.campaign));
-    for(let i=0;i<fresh.length;i+=500){ await sbRest('rv_email_log', {method:'POST', body:fresh.slice(i,i+500), prefer:'return=minimal'}); }
-    total+=fresh.length;
-  }
+  total+=await sbPushEmailLog(uid);
   return total;
+}
+/* v16.78 — Louie, 23 Oct: "something wrong with repos". Two faults in the email-log push:
+   · the table only accepts kind offer/billing/courtesy/stop. The morning desk's new-member check-ins
+     log as 'checkin', so from 22 Oct every push was rejected (HTTP 400, rv_email_log_kind_check) and
+     every runner tick ended red with nothing saved. Any kind the table doesn't know now goes up as
+     'courtesy' (same rules: not an offer, not billing); the local row keeps its own kind.
+   · the "already in the cloud?" check read `limit=100000`, which PostgREST silently caps at 1000
+     rows, so everything past the first 1000 was re-inserted on every push: 319,700 rows on 23 Oct for
+     a log of a few thousand, downloaded in full by every cold pull. It now reads every page, and
+     deletes the duplicates it finds (keeps the oldest of each), a capped batch per push. */
+const SB_EMAIL_KINDS=new Set(['offer','billing','courtesy','stop']);
+const sbEmailKind=t=> SB_EMAIL_KINDS.has(t)? t : (t? 'courtesy' : 'offer');
+const SB_DEDUPE_MAX_REQ=300, SB_DEDUPE_CHUNK=400;
+async function sbPushEmailLog(uid){
+  const log=(S.emailLog||[]); if(!log.length) return 0;
+  const key=(e,d,c)=>String(e||'').toLowerCase()+'|'+d+'|'+c;
+  const remote=(await sbPage('rv_email_log','id,email,sent_on,campaign','order=id.asc'))||[];
+  const seen=new Set(), dup=[];
+  remote.forEach(r=>{ const k=key(r.email, r.sent_on, r.campaign); if(seen.has(k)) dup.push(r.id); else seen.add(k); });
+  const fresh=[];
+  log.forEach(r=>{ const e=String((r&&r.e)||'').trim().toLowerCase(); if(!e || !r.d) return;
+    const k=key(e, r.d, r.c); if(seen.has(k)) return; seen.add(k);
+    fresh.push({owner:uid, email:e, sent_on:r.d, campaign:r.c, kind:sbEmailKind(r.t)}); });
+  for(let i=0;i<fresh.length;i+=500){ await sbRest('rv_email_log', {method:'POST', body:fresh.slice(i,i+500), prefer:'return=minimal'}); }
+  let removed=0;
+  for(let i=0, req=0; i<dup.length && req<SB_DEDUPE_MAX_REQ; i+=SB_DEDUPE_CHUNK, req++){
+    const ids=dup.slice(i, i+SB_DEDUPE_CHUNK);
+    await sbRest('rv_email_log?id=in.('+ids.join(',')+')', {method:'DELETE', prefer:'return=minimal'});
+    removed+=ids.length; }
+  if(dup.length){ S._emailLogDedupe={at:Date.now(), found:dup.length, removed, left:dup.length-removed, rows:remote.length}; }
+  return fresh.length;
 }
 async function sbPage(table, select, extra, maxRows){
   /* PostgREST caps a response at 1000 rows: walk Range windows until a short page */
