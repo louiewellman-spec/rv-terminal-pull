@@ -540,8 +540,8 @@ html[data-theme="glassy"]{
   --r:22px; --r-sm:12px; --pad:16px 18px; --bar-r:6;
   --sans:'Geist',system-ui,-apple-system,'Segoe UI',sans-serif; --mono:'Geist',system-ui,-apple-system,'Segoe UI',sans-serif;
   --fs-lab:12.5px; --fs-sn:12px; --fs-body:13px; --fs-big:28px; --fs-hero:34px;
-  --glass-win:rgba(240,246,255,.46); --glass-bar:rgba(244,248,255,.58); --glass-edge:rgba(255,255,255,.62); --glass-hi:rgba(255,255,255,.8);
-  --card-bg:rgba(255,255,255,.55); --card-edge:rgba(255,255,255,.72); --card-shadow:0 1px 2px rgba(10,24,52,.05),0 12px 32px rgba(10,24,52,.08);
+  --glass-win:rgba(240,246,255,.46); --glass-bar:rgba(244,248,255,.88); --glass-edge:rgba(255,255,255,.62); --glass-hi:rgba(255,255,255,.8);
+  --card-bg:rgba(255,255,255,.55); --card-edge:rgba(255,255,255,.72); --card-shadow:0 1px 2px rgba(10,24,52,.05),0 4px 12px rgba(10,24,52,.06);
   --chip-on:#FFFFFF; --btn-bg:#00A8FF; --btn-ink:#04121F; --th-bg:rgba(244,248,255,.96); --modal-bg:rgba(246,249,255,.93);
   --feature-a:#25BCFF; --feature-b:#0068C4; --feature-glow:rgba(0,120,220,.32);
   --orb:radial-gradient(circle at 32% 30%,#E6F7FF 0,#5CCBFF 34%,#0090E0 64%,#0A2A5A 100%); --orb-glow:rgba(0,168,255,.5);
@@ -568,8 +568,8 @@ html[data-theme="glassy-dark"]{
   --r:22px; --r-sm:12px; --pad:16px 18px; --bar-r:6;
   --sans:'Geist',system-ui,-apple-system,'Segoe UI',sans-serif; --mono:'Geist',system-ui,-apple-system,'Segoe UI',sans-serif;
   --fs-lab:12.5px; --fs-sn:12px; --fs-body:13px; --fs-big:28px; --fs-hero:34px;
-  --glass-win:rgba(14,20,36,.62); --glass-bar:rgba(16,22,40,.70); --glass-edge:rgba(148,175,220,.16); --glass-hi:rgba(255,255,255,.07);
-  --card-bg:rgba(18,24,38,.58); --card-edge:rgba(148,175,220,.13); --card-shadow:0 12px 32px rgba(0,0,0,.30);
+  --glass-win:rgba(14,20,36,.62); --glass-bar:rgba(16,22,40,.92); --glass-edge:rgba(148,175,220,.16); --glass-hi:rgba(255,255,255,.07);
+  --card-bg:rgba(18,24,38,.58); --card-edge:rgba(148,175,220,.13); --card-shadow:0 4px 12px rgba(0,0,0,.24);
   --chip-on:rgba(255,255,255,.13); --btn-bg:#00A8FF; --btn-ink:#04121F; --th-bg:rgba(16,22,38,.97); --modal-bg:rgba(14,20,34,.95);
   --feature-a:#1FB2FF; --feature-b:#0058B0; --feature-glow:rgba(0,120,220,.35);
   --orb:radial-gradient(circle at 32% 30%,#E6F7FF 0,#5CCBFF 34%,#0090E0 64%,#06203F 100%); --orb-glow:rgba(0,168,255,.55);
@@ -588,8 +588,8 @@ html[data-theme^="glassy"] .main{height:100vh;height:100dvh;overflow-y:auto;padd
 
 /* top bar: welcome · jump to a page · pull · signals */
 html[data-theme^="glassy"] .topbar{position:sticky;top:0;z-index:30;margin:0 0 16px;padding:7px 8px 7px 7px;min-height:56px;gap:10px;flex-wrap:nowrap;overflow:visible;
-  border:1px solid var(--glass-edge);border-radius:999px;background:var(--glass-bar);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-  box-shadow:inset 0 1px 0 var(--glass-hi),0 12px 34px rgba(var(--sh-rgb),.12)}
+  border:1px solid var(--glass-edge);border-radius:999px;background:var(--glass-bar);
+  box-shadow:inset 0 1px 0 var(--glass-hi),0 6px 16px rgba(var(--sh-rgb),.10)}
 html[data-theme^="glassy"] .topbar h1,html[data-theme^="glassy"] #topKpi,html[data-theme^="glassy"] .topbar .upd,html[data-theme^="glassy"] #arCountdown{display:none}
 html[data-theme^="glassy"] .tb-who{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:500;color:var(--text);white-space:nowrap;flex:none}
 html[data-theme^="glassy"] .tb-av{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--btn-bg);color:var(--btn-ink);font-weight:600;font-size:15px;box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
@@ -601,7 +601,7 @@ html[data-theme^="glassy"] .tb-search input{background:transparent;border:0;padd
 html[data-theme^="glassy"] .tb-search input:focus{outline:none}
 html[data-theme^="glassy"] .tb-kbd{font:500 11px var(--sans);color:var(--dim);border:1px solid var(--line2);border-radius:6px;padding:1px 6px;flex:none}
 html[data-theme^="glassy"] .tb-res{position:absolute;left:0;right:0;top:50px;z-index:40;padding:6px;border-radius:20px;background:var(--modal-bg);border:1px solid var(--glass-edge);
-  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:var(--shadow)}
+  box-shadow:var(--shadow)}
 html[data-theme^="glassy"] .tb-res[hidden]{display:none}
 html[data-theme^="glassy"] .tb-res button{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;border:0;background:none;padding:9px 12px;border-radius:14px;font-size:13.5px;color:var(--text);text-align:left}
 html[data-theme^="glassy"] .tb-res{max-height:min(460px,70vh);overflow-y:auto}
@@ -622,7 +622,7 @@ html[data-theme^="glassy"] .tb-badge[hidden]{display:none}
 /* the window: one frosted pane per page */
 html[data-theme^="glassy"] .win{display:block;position:relative;z-index:0;border-radius:32px;padding:30px 32px 34px;margin:0 0 112px}
 html[data-theme^="glassy"] .win::before{content:'';position:absolute;inset:0;z-index:-1;border-radius:inherit;background:var(--glass-win);border:1px solid var(--glass-edge);
-  box-shadow:inset 0 1px 0 var(--glass-hi),0 34px 90px rgba(var(--sh-rgb),.20)}
+  box-shadow:inset 0 1px 0 var(--glass-hi),0 14px 36px rgba(var(--sh-rgb),.14)}
 html[data-theme^="glassy"] .pagehead{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:0 0 22px}
 html[data-theme^="glassy"] #phTitle{font-size:36px;font-weight:600;letter-spacing:-.03em;line-height:1.08;color:var(--text)}
 html[data-theme^="glassy"] .ph-sub{font-size:13px;color:var(--muted);margin-top:7px}
@@ -632,8 +632,8 @@ html[data-theme^="glassy"] .view{padding:0;max-width:none}
 @media (min-width:621px){
   html[data-theme^="glassy"] aside{position:fixed;left:18px;top:50%;transform:translateY(-50%);z-index:40;width:60px;height:auto;max-height:calc(100vh - 40px);
     padding:10px 9px;display:flex;flex-direction:column;align-items:center;gap:6px;overflow:visible;
-    border:1px solid var(--glass-edge);border-radius:999px;background:var(--glass-bar);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-    box-shadow:inset 0 1px 0 var(--glass-hi),0 12px 34px rgba(var(--sh-rgb),.12)}
+    border:1px solid var(--glass-edge);border-radius:999px;background:var(--glass-bar);
+    box-shadow:inset 0 1px 0 var(--glass-hi),0 6px 16px rgba(var(--sh-rgb),.10)}
   html[data-theme^="glassy"] aside .brand{border:0;margin:0 0 4px;padding:0}
   html[data-theme^="glassy"] aside .brand>div:last-child{display:none}
   html[data-theme^="glassy"] aside .logo{width:40px;height:40px;border-radius:50%;background:var(--btn-bg);color:var(--btn-ink);font-family:var(--sans);font-size:12.5px;font-weight:700}
@@ -650,7 +650,7 @@ html[data-theme^="glassy"] .view{padding:0;max-width:none}
   /* hub tabs float at the bottom, like the reference's section pill */
   html[data-theme^="glassy"] .view.on>.hubtabs{position:fixed;left:calc(50% + 40px);bottom:20px;transform:translateX(-50%);z-index:35;margin:0;max-width:calc(100vw - 140px);
     padding:6px;gap:2px;border:1px solid var(--glass-edge);border-radius:999px;background:var(--glass-bar);
-    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:inset 0 1px 0 var(--glass-hi),0 14px 36px rgba(var(--sh-rgb),.16)}
+    box-shadow:inset 0 1px 0 var(--glass-hi),0 6px 16px rgba(var(--sh-rgb),.12)}
 }
 html[data-theme^="glassy"] .hubtabs{background:var(--panel2);border:1px solid var(--card-edge)}
 html[data-theme^="glassy"] .hubtabs button{padding:8px 17px;font-size:13px;color:var(--muted)}
@@ -716,13 +716,13 @@ html[data-theme^="glassy"] ::-webkit-scrollbar-thumb{background:rgba(10,24,52,.2
 html[data-theme="glassy-dark"] ::-webkit-scrollbar-thumb{background:rgba(148,175,220,.18)}
 
 /* modal, sign-in, update bar */
-html[data-theme^="glassy"] .modal-bg{background:rgba(var(--sh-rgb),.16);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+html[data-theme^="glassy"] .modal-bg{background:rgba(var(--sh-rgb),.32)}
 html[data-theme^="glassy"] .modal,html[data-theme^="glassy"] .gate-box{background:var(--modal-bg);border:1px solid var(--glass-edge);border-radius:28px;
-  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);box-shadow:inset 0 1px 0 var(--glass-hi),var(--shadow)}
+  box-shadow:inset 0 1px 0 var(--glass-hi),var(--shadow)}
 html[data-theme^="glassy"] .modal .mx{border-radius:999px}
-html[data-theme^="glassy"] #gate{background:transparent;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+html[data-theme^="glassy"] #gate{background:rgba(var(--sh-rgb),.35)}
 html[data-theme^="glassy"] .gate-brand .logo{border-radius:50%;background:var(--btn-bg);color:var(--btn-ink);font-family:var(--sans)}
-html[data-theme^="glassy"] #updBar{background:var(--modal-bg);border:1px solid var(--glass-edge);border-radius:999px;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);bottom:84px}
+html[data-theme^="glassy"] #updBar{background:var(--modal-bg);border:1px solid var(--glass-edge);border-radius:999px;bottom:84px}
 .theme-opt[data-theme="glassy"] .sw{background:linear-gradient(160deg,#E4EEF9,#6F8DB8);border-color:rgba(10,24,52,.25)}
 .theme-opt[data-theme="glassy"] .sw::after,.theme-opt[data-theme="glassy-dark"] .sw::after{content:'';position:absolute;inset:4px 6px 9px;border-radius:4px;background:rgba(255,255,255,.55);border:1px solid rgba(255,255,255,.85)}
 .theme-opt[data-theme="glassy"] .sw i{background:#00A8FF} .theme-opt[data-theme="glassy-dark"] .sw{background:linear-gradient(160deg,#16305A,#0A0E1A);border-color:rgba(0,0,0,.4)}
@@ -759,6 +759,8 @@ html[data-theme^="glassy"] #updBar{background:var(--modal-bg);border:1px solid v
   html[data-theme^="glassy"] #mtabs button.on{color:var(--text);background:var(--chip-on)}
   html[data-theme^="glassy"] #updBar{bottom:calc(84px + env(safe-area-inset-bottom));border-radius:20px}
 }
+/* v16.85: no live blur anywhere in glassy (Louie: still "a little" sluggish); base rules on these four still asked for one */
+html[data-theme^="glassy"] .topbar,html[data-theme^="glassy"] aside,html[data-theme^="glassy"] #mtabs,html[data-theme^="glassy"] .modal-bg{backdrop-filter:none;-webkit-backdrop-filter:none}
 @media (prefers-reduced-transparency:reduce){
   html[data-theme^="glassy"] .win::before,html[data-theme^="glassy"] .topbar,html[data-theme^="glassy"] aside,html[data-theme^="glassy"] .view.on>.hubtabs{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--th-bg)}
 }
@@ -2424,7 +2426,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.84';
+const BUILD = 'v16.85';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
