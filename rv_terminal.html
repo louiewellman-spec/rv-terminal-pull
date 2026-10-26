@@ -769,7 +769,7 @@ html[data-theme^="glassy"] #updBar{background:var(--modal-bg);border:1px solid v
   background:var(--card-bg,var(--panel));border:1px solid var(--card-edge,var(--line));box-shadow:var(--card-shadow,none)}
 .ck-t.clickable:hover{border-color:var(--glass-edge,var(--line2))}
 .ck-s3{grid-column:span 3} .ck-s5{grid-column:span 5} .ck-s6{grid-column:span 6} .ck-s7{grid-column:span 7}
-.ck-r1{height:226px} .ck-r2{height:176px} .ck-r3{height:176px} .ck-r4{height:176px}
+.ck-r1{height:clamp(160px,calc((100vh - 190px)*.28),280px)} .ck-r2,.ck-r3,.ck-r4{height:clamp(138px,calc((100vh - 190px)*.24),230px)}
 .ck{gap:10px}
 .ck-h{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex:none}
 .ck-h h4{font-size:14px;font-weight:600;letter-spacing:-.01em;color:var(--text);line-height:1.25}
@@ -785,7 +785,7 @@ html[data-theme^="glassy"] #updBar{background:var(--modal-bg);border:1px solid v
 .ck-note{font-size:11.5px;font-weight:600;color:var(--good);white-space:nowrap}
 /* donuts */
 .ck-donut{flex:1;min-height:0;display:flex;align-items:center;gap:14px;margin-top:8px}
-.ck-dw{position:relative;width:122px;height:122px;flex:none}
+.ck-dw{position:relative;height:min(122px,100%);aspect-ratio:1;flex:none}
 .ck-dw canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
 .ck-dc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;text-align:center}
 .ck-dc b{font-size:20px;font-weight:600;letter-spacing:-.03em;color:var(--text);line-height:1.1} .ck-dc span{font-size:10.5px;color:var(--dim)}
@@ -794,10 +794,10 @@ html[data-theme^="glassy"] #updBar{background:var(--modal-bg);border:1px solid v
 .ck-dl li i{width:8px;height:8px;border-radius:2px;flex:none} .ck-dl li span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ck-dl li b{font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
 /* code bars */
-.ck-bars{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:space-around;gap:4px;margin-top:8px}
-.ck-bar{display:grid;grid-template-columns:96px 1fr 34px;align-items:center;gap:10px;font-size:12px}
+.ck-bars{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:space-evenly;gap:2px;margin-top:6px;overflow:hidden}
+.ck-bar{display:grid;grid-template-columns:96px 1fr 34px;align-items:center;gap:10px;font-size:12px;line-height:1.2;min-height:18px}
 .ck-bl{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ck-bt{height:9px;border-radius:99px;background:var(--cold-soft);overflow:hidden} .ck-bt i{display:block;height:100%;border-radius:99px}
+.ck-bt{height:8px;border-radius:99px;background:var(--cold-soft);overflow:hidden} .ck-bt i{display:block;height:100%;border-radius:99px}
 .ck-bar b{text-align:right;font-weight:600;color:var(--text)}
 .ck-empty{color:var(--dim);font-size:12.5px;padding:14px 0;text-align:center}
 /* key trio */
@@ -808,14 +808,14 @@ html[data-theme^="glassy"] #updBar{background:var(--modal-bg);border:1px solid v
 .ck-kc{position:relative;flex:1;min-height:26px;margin:2px -11px -8px}
 .ck-kc canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
 /* gauge + side */
-.ck-health{flex:1;min-height:0;display:flex;align-items:center;gap:16px;margin-top:6px}
-.ck-gw{position:relative;width:140px;height:128px;flex:none}
+.ck-health{flex:1;min-height:0;display:flex;align-items:center;gap:14px;margin-top:4px;overflow:hidden}
+.ck-gw{position:relative;width:min(140px,40%);aspect-ratio:1.1;max-height:100%;flex:none}
 .ck-gw canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
 .ck-gc{position:absolute;left:0;right:0;top:50%;transform:translateY(-38%);text-align:center;pointer-events:none}
 .ck-gc b{display:block;font-size:24px;font-weight:600;letter-spacing:-.03em;color:var(--text)} .ck-gc span{font-size:10.5px;color:var(--dim)}
-.ck-side{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px}
+.ck-side{flex:1;min-width:0;display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;align-content:center}
 .ck-side div{display:flex;flex-direction:column}
-.ck-side dt{font-size:11px;color:var(--dim)} .ck-side dd{font-size:15px;font-weight:600;color:var(--text);letter-spacing:-.01em} .ck-side dd small{font-size:11px;color:var(--muted);font-weight:500}
+.ck-side dt{font-size:11px;color:var(--dim);line-height:1.25} .ck-side dd{font-size:16px;font-weight:600;color:var(--text);letter-spacing:-.01em} .ck-side dd small{font-size:11px;color:var(--muted);font-weight:500}
 .ck-stat{display:flex;align-items:baseline;gap:8px;margin-top:6px;flex:none}
 .ck-stat b{font-size:22px;font-weight:600;letter-spacing:-.03em;color:var(--text)} .ck-stat span{font-size:11.5px;color:var(--muted)}
 /* feed */
@@ -837,13 +837,17 @@ button.ck-fi:hover{background:var(--accent-soft)}
 .ck-live i{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 0 3px var(--good-soft)}
 .ck-live.stale i{background:var(--gold);box-shadow:0 0 0 3px var(--gold-soft)}
 .ck-range button{padding:6px 14px}
-@media (max-width:1280px){ .ck-s3{grid-column:span 6} .ck-s6{grid-column:span 12} .ck-s4{grid-column:span 6} .ck-s7,.ck-s5{grid-column:span 12} .ck-r2,.ck-r3{height:206px} }
+@media (max-width:1280px){ .ck-s3{grid-column:span 6} .ck-s6{grid-column:span 12} .ck-s4{grid-column:span 6} .ck-s7,.ck-s5{grid-column:span 12} .ck-r1,.ck-r2,.ck-r3,.ck-r4{height:210px} }
 @media (max-width:1280px){ .ck-t.ck-s4:nth-of-type(6){grid-column:span 12} }
 @media (max-width:620px){ .ck{gap:10px} .ck-t,.ck-s3,.ck-s4,.ck-s5,.ck-s6,.ck-s7{grid-column:span 12} .ck-r1{height:auto;min-height:250px} .ck-big .num{font-size:32px} .ck-keys{gap:6px} .ck-k b{font-size:19px} .ck-bar{grid-template-columns:80px 1fr 30px} .ph-side{justify-content:flex-start;margin-top:10px} .pagehead{flex-wrap:wrap} }
 html[data-theme^="glassy"] .pagehead{flex-wrap:wrap}
-html[data-theme^="glassy"] .win:has(#v-command.on) .pagehead{margin-bottom:14px}
-html[data-theme^="glassy"] .win:has(#v-command.on) #phTitle{font-size:28px}
-html[data-theme^="glassy"] .win:has(#v-command.on){padding-top:22px}
+html[data-theme^="glassy"] .win:has(#v-command.on) .pagehead{margin-bottom:10px;align-items:center}
+html[data-theme^="glassy"] .win:has(#v-command.on) .pagehead>div:first-child{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+html[data-theme^="glassy"] .win:has(#v-command.on) #phTitle{font-size:26px}
+html[data-theme^="glassy"] .win:has(#v-command.on) .ph-sub{margin-top:0}
+html[data-theme^="glassy"] .win:has(#v-command.on){padding-top:16px;padding-bottom:18px}
+html[data-theme^="glassy"] .main:has(#v-command.on) .topbar{margin-bottom:10px}
+@media (max-height:860px){ .ck-acts{display:none} .ck-dl{gap:4px} .ck-h p{display:none} .ck-t{padding:11px 14px 10px} .ck-big{margin:4px 0 2px} .ck-big .num{font-size:30px} }
 </style>
 </head>
 <body>
@@ -2420,7 +2424,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.82';
+const BUILD = 'v16.83';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -13065,9 +13069,10 @@ function drawCockpit(m){
   const J=(m.joinsAll||[]).filter(j=>j.created>=t0 && j.created<=now && !j.trialNP);
   const srcMap={}; J.forEach(j=>{ const l=j.src? (srcLabel(j.src)||j.src) : 'Not answered'; srcMap[l]=(srcMap[l]||0)+1; });
   set('ckSrcN', J.length.toLocaleString('en-GB')); set('ckSrcSub','checkout answer · last '+span);
-  ckDonut('chCkSrc','ckSrcLeg', ckTop(srcMap,5), v=>v+' joins');
+  ckDonut('chCkSrc','ckSrcLeg', ckTop(srcMap,4), v=>v+' joins');
   const codeMap={}, kind={}; J.forEach(j=>{ if(!j.code) return; codeMap[j.code]=(codeMap[j.code]||0)+1; kind[j.code]=j.ck; });
-  const codes=Object.entries(codeMap).sort((a,b)=>b[1]-a[1]).slice(0,6), cmax=codes.length? codes[0][1] : 1, withCode=J.filter(j=>j.code).length;
+  const cbEl=document.getElementById('ckCodes'), fitN=(cbEl && cbEl.clientHeight)? Math.max(3, Math.min(8, Math.floor(cbEl.clientHeight/22))) : 6;
+  const codes=Object.entries(codeMap).sort((a,b)=>b[1]-a[1]).slice(0,fitN), cmax=codes.length? codes[0][1] : 1, withCode=J.filter(j=>j.code).length;
   set('ckCodesSub', withCode+' of '+J.length+' paid joins used a code · last '+span);
   const cb=document.getElementById('ckCodes');
   if(cb) cb.innerHTML=codes.length? codes.map(([c,n])=>'<div class="ck-bar"><span class="ck-bl">'+esc(c)+'</span><span class="ck-bt"><i style="width:'+Math.max(4,Math.round(n/cmax*100))+'%;background:'+(kind[c]==='aff'? 'var(--accent)' : 'var(--good)')+'"></i></span><b class="num">'+n+'</b></div>').join('')
@@ -13092,7 +13097,7 @@ function drawCockpit(m){
   const side=document.getElementById('ckSide');
   if(side) side.innerHTML='<div><dt>Paid first time</dt><dd>'+(first!=null? Math.round(first*10)/10+'%' : '—')+'</dd></div>'
     +'<div><dt>Collected in the end</dt><dd>'+(final!=null? Math.round(final*10)/10+'%' : '—')+'</dd></div>'
-    +'<div><dt>Past due</dt><dd>'+(m.pastDue||0)+' <small>'+fmtGBP(m.pdMRR||0)+'/mo</small></dd></div>'
+    +'<div><dt>Past due</dt><dd>'+(m.pastDue||0)+' <small>'+fmtGBP(m.pdMRR||0)+'</small></dd></div>'
     +'<div><dt>Elite members</dt><dd>'+(eliteN+proN? Math.round(eliteN/(eliteN+proN)*100)+'%' : '—')+'</dd></div>';
   /* cash by month (last 6) */
   const bm=(S.cash&&S.cash.byMonth)||{}, mks=Object.keys(bm).filter(k=>/^\d{4}-\d{2}$/.test(k)).sort().slice(-6);
