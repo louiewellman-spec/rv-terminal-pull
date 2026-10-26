@@ -762,6 +762,88 @@ html[data-theme^="glassy"] #updBar{background:var(--modal-bg);border:1px solid v
 @media (prefers-reduced-transparency:reduce){
   html[data-theme^="glassy"] .win::before,html[data-theme^="glassy"] .topbar,html[data-theme^="glassy"] aside,html[data-theme^="glassy"] .view.on>.hubtabs{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--th-bg)}
 }
+/* ---------- v16.82 · Command cockpit: one dense grid, everything on one screen ---------- */
+#v-command .cmdtop{display:none}
+.ck{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:12px;margin:0 0 22px}
+.ck-t{grid-column:span 4;position:relative;display:flex;flex-direction:column;min-width:0;padding:14px 16px 12px;border-radius:var(--r);
+  background:var(--card-bg,var(--panel));border:1px solid var(--card-edge,var(--line));box-shadow:var(--card-shadow,none)}
+.ck-t.clickable:hover{border-color:var(--glass-edge,var(--line2))}
+.ck-s3{grid-column:span 3} .ck-s5{grid-column:span 5} .ck-s6{grid-column:span 6} .ck-s7{grid-column:span 7}
+.ck-r1{height:226px} .ck-r2{height:176px} .ck-r3{height:176px} .ck-r4{height:176px}
+.ck{gap:10px}
+.ck-h{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex:none}
+.ck-h h4{font-size:14px;font-weight:600;letter-spacing:-.01em;color:var(--text);line-height:1.25}
+.ck-h p{font-size:11.5px;color:var(--dim);margin-top:2px;line-height:1.3}
+.ck-leg{display:flex;gap:12px;flex-wrap:wrap;justify-content:flex-end;font-size:11.5px;color:var(--muted)}
+.ck-leg span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap} .ck-leg i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.ck-leg b{color:var(--text);font-weight:600}
+.ck-big{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:8px 0 4px;flex:none}
+.ck-big .num{font-size:36px;font-weight:600;letter-spacing:-.04em;line-height:1;color:var(--text)}
+.ck-vs{font-size:11.5px;color:var(--dim)}
+.ck-cv{position:relative;flex:1;min-height:0;margin-top:6px}
+.ck-cv canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
+.ck-note{font-size:11.5px;font-weight:600;color:var(--good);white-space:nowrap}
+/* donuts */
+.ck-donut{flex:1;min-height:0;display:flex;align-items:center;gap:14px;margin-top:8px}
+.ck-dw{position:relative;width:122px;height:122px;flex:none}
+.ck-dw canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
+.ck-dc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;text-align:center}
+.ck-dc b{font-size:20px;font-weight:600;letter-spacing:-.03em;color:var(--text);line-height:1.1} .ck-dc span{font-size:10.5px;color:var(--dim)}
+.ck-dl{list-style:none;flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.ck-dl li{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);min-width:0}
+.ck-dl li i{width:8px;height:8px;border-radius:2px;flex:none} .ck-dl li span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ck-dl li b{font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+/* code bars */
+.ck-bars{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:space-around;gap:4px;margin-top:8px}
+.ck-bar{display:grid;grid-template-columns:96px 1fr 34px;align-items:center;gap:10px;font-size:12px}
+.ck-bl{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ck-bt{height:9px;border-radius:99px;background:var(--cold-soft);overflow:hidden} .ck-bt i{display:block;height:100%;border-radius:99px}
+.ck-bar b{text-align:right;font-weight:600;color:var(--text)}
+.ck-empty{color:var(--dim);font-size:12.5px;padding:14px 0;text-align:center}
+/* key trio */
+.ck-keys{flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:10px}
+.ck-k{position:relative;display:flex;flex-direction:column;gap:3px;padding:10px 11px 8px;border-radius:16px;background:var(--panel2);border:1px solid var(--card-edge,var(--line));min-width:0;overflow:hidden}
+.ck-kl{font-size:11.5px;color:var(--muted)} .ck-k b{font-size:24px;font-weight:600;letter-spacing:-.03em;line-height:1.05;color:var(--text)}
+.ck-k .chip{align-self:flex-start;font-size:10.5px}
+.ck-kc{position:relative;flex:1;min-height:26px;margin:2px -11px -8px}
+.ck-kc canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
+/* gauge + side */
+.ck-health{flex:1;min-height:0;display:flex;align-items:center;gap:16px;margin-top:6px}
+.ck-gw{position:relative;width:140px;height:128px;flex:none}
+.ck-gw canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
+.ck-gc{position:absolute;left:0;right:0;top:50%;transform:translateY(-38%);text-align:center;pointer-events:none}
+.ck-gc b{display:block;font-size:24px;font-weight:600;letter-spacing:-.03em;color:var(--text)} .ck-gc span{font-size:10.5px;color:var(--dim)}
+.ck-side{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px}
+.ck-side div{display:flex;flex-direction:column}
+.ck-side dt{font-size:11px;color:var(--dim)} .ck-side dd{font-size:15px;font-weight:600;color:var(--text);letter-spacing:-.01em} .ck-side dd small{font-size:11px;color:var(--muted);font-weight:500}
+.ck-stat{display:flex;align-items:baseline;gap:8px;margin-top:6px;flex:none}
+.ck-stat b{font-size:22px;font-weight:600;letter-spacing:-.03em;color:var(--text)} .ck-stat span{font-size:11.5px;color:var(--muted)}
+/* feed */
+.ck-seg{display:inline-flex;gap:2px;padding:3px;border-radius:999px;background:var(--panel2);border:1px solid var(--card-edge,var(--line));flex:none}
+.ck-seg button{border:0;background:none;color:var(--muted);font-size:12px;font-weight:500;padding:5px 12px;border-radius:999px}
+.ck-seg button.on{background:var(--btn-bg,var(--accent));color:var(--btn-ink,var(--accent-ink))}
+.ck-feed{flex:1;min-height:0;overflow-y:auto;margin-top:8px;display:flex;flex-direction:column;gap:4px;padding-right:2px}
+.ck-fi{display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:0;background:var(--panel2);border-radius:12px;padding:7px 10px;font-size:12px;color:var(--text);min-height:32px}
+button.ck-fi:hover{background:var(--accent-soft)}
+.ck-fi i{width:7px;height:7px;border-radius:50%;flex:none;background:var(--good)} .ck-fi.bad i{background:var(--bad)} .ck-fi.warn i{background:var(--gold)}
+.ck-fi span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .ck-fi span b{font-weight:600}
+.ck-fi small{color:var(--dim);font-size:11px;flex:none}
+.ck-acts{display:flex;gap:6px;margin-top:8px;flex:none}
+.ck-acts button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--card-edge,var(--line));background:var(--panel2);color:var(--text);border-radius:999px;padding:5px 8px;font-size:11.5px;font-weight:500}
+.ck-acts button:hover{background:var(--chip-on,var(--panel3))} .ck-acts button span{font-size:13px;color:var(--accent)} .ck-acts em{font-style:normal}
+/* header controls */
+.ph-side{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.ck-live{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:500;color:var(--text);padding:7px 13px;border-radius:999px;background:var(--panel2);border:1px solid var(--card-edge,var(--line));font-variant-numeric:tabular-nums}
+.ck-live i{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 0 3px var(--good-soft)}
+.ck-live.stale i{background:var(--gold);box-shadow:0 0 0 3px var(--gold-soft)}
+.ck-range button{padding:6px 14px}
+@media (max-width:1280px){ .ck-s3{grid-column:span 6} .ck-s6{grid-column:span 12} .ck-s4{grid-column:span 6} .ck-s7,.ck-s5{grid-column:span 12} .ck-r2,.ck-r3{height:206px} }
+@media (max-width:1280px){ .ck-t.ck-s4:nth-of-type(6){grid-column:span 12} }
+@media (max-width:620px){ .ck{gap:10px} .ck-t,.ck-s3,.ck-s4,.ck-s5,.ck-s6,.ck-s7{grid-column:span 12} .ck-r1{height:auto;min-height:250px} .ck-big .num{font-size:32px} .ck-keys{gap:6px} .ck-k b{font-size:19px} .ck-bar{grid-template-columns:80px 1fr 30px} .ph-side{justify-content:flex-start;margin-top:10px} .pagehead{flex-wrap:wrap} }
+html[data-theme^="glassy"] .pagehead{flex-wrap:wrap}
+html[data-theme^="glassy"] .win:has(#v-command.on) .pagehead{margin-bottom:14px}
+html[data-theme^="glassy"] .win:has(#v-command.on) #phTitle{font-size:28px}
+html[data-theme^="glassy"] .win:has(#v-command.on){padding-top:22px}
 </style>
 </head>
 <body>
@@ -821,10 +903,45 @@ html[data-theme^="glassy"] #updBar{background:var(--modal-bg);border:1px solid v
     <button type="button" class="tb-bell gl-only" id="tbBell" aria-label="Signals"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.8h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span class="tb-badge" id="tbBadge" hidden></span></button>
   </div>
   <div class="win">
-  <div class="pagehead" id="pageHead"><div><h2 id="phTitle">Command</h2><div class="ph-sub" id="phSub"></div></div></div>
+  <div class="pagehead" id="pageHead"><div><h2 id="phTitle">Command</h2><div class="ph-sub" id="phSub"></div></div><div class="ph-side" id="phSide"></div></div>
 
   <!-- COMMAND -->
   <section class="view on" id="v-command">
+    <!-- v16.82 the cockpit: Louie, 26 Oct 2026, "i want the command area to be like this all on one page" -->
+    <div class="ck" id="cockpit">
+      <div class="ck-t ck-s6 ck-r1 clickable" id="ckMrr"><div class="ck-h"><div><h4>MRR</h4><p id="ckMrrSub">daily</p></div><div class="ck-leg"><span><i style="background:var(--accent)"></i>MRR</span><span><i style="background:var(--good)"></i>Daily change</span></div></div>
+        <div class="ck-big"><span class="num" id="ckMrrVal">—</span><span class="chip flat" id="ckMrrChip"></span><span class="ck-vs" id="ckMrrVs"></span></div>
+        <div class="ck-cv"><canvas id="chCkMrr" aria-label="MRR over the chosen range"></canvas></div></div>
+      <div class="ck-t ck-s3 ck-r1"><div class="ck-h"><div><h4>Where paid joins came from</h4><p id="ckSrcSub">checkout answer</p></div></div>
+        <div class="ck-donut"><div class="ck-dw"><canvas id="chCkSrc" aria-label="Paid joins by source"></canvas><div class="ck-dc"><b id="ckSrcN">—</b><span>paid joins</span></div></div><ul class="ck-dl" id="ckSrcLeg"></ul></div></div>
+      <div class="ck-t ck-s3 ck-r1 clickable" id="ckCty"><div class="ck-h"><div><h4>MRR by country</h4><p>share of MRR now</p></div></div>
+        <div class="ck-donut"><div class="ck-dw"><canvas id="chCkCty" aria-label="MRR by country"></canvas><div class="ck-dc"><b id="ckCtyN">—</b><span>MRR</span></div></div><ul class="ck-dl" id="ckCtyLeg"></ul></div></div>
+
+      <div class="ck-t ck-s4 ck-r2"><div class="ck-h"><div><h4>Codes used</h4><p id="ckCodesSub">paid joins with a code</p></div><div class="ck-leg"><span><i style="background:var(--good)"></i>Ours</span><span><i style="background:var(--accent)"></i>Affiliate</span></div></div>
+        <div class="ck-bars" id="ckCodes"></div></div>
+      <div class="ck-t ck-s4 ck-r2"><div class="ck-h"><div><h4>Key numbers</h4><p id="ckKeySub">vs the period before</p></div></div>
+        <div class="ck-keys">
+          <div class="ck-k clickable" id="ckK1"><span class="ck-kl">Paid joins</span><b class="num" id="ckK1v">—</b><span class="chip flat" id="ckK1c"></span><div class="ck-kc"><canvas id="chCkK1"></canvas></div></div>
+          <div class="ck-k clickable" id="ckK2"><span class="ck-kl">Cancels</span><b class="num" id="ckK2v">—</b><span class="chip flat" id="ckK2c"></span><div class="ck-kc"><canvas id="chCkK2"></canvas></div></div>
+          <div class="ck-k clickable" id="ckK3"><span class="ck-kl">Net members</span><b class="num" id="ckK3v">—</b><span class="chip flat" id="ckK3c"></span><div class="ck-kc"><canvas id="chCkK3"></canvas></div></div>
+        </div></div>
+      <div class="ck-t ck-s4 ck-r2"><div class="ck-h"><div><h4>Money health</h4><p>MRR goal and collection</p></div></div>
+        <div class="ck-health"><div class="ck-gw clickable" id="ckGoal"><canvas id="chCkGauge" aria-label="MRR against the goal"></canvas><div class="ck-gc"><b id="ckGoalPct">—</b><span id="ckGoalOf">of MRR goal</span></div></div><dl class="ck-side" id="ckSide"></dl></div></div>
+
+      <div class="ck-t ck-s4 ck-r3 clickable" id="ckCash"><div class="ck-h"><div><h4>Cash by month</h4><p>paid invoices, not range filtered</p></div><span class="ck-note" id="ckCashNote"></span></div>
+        <div class="ck-cv"><canvas id="chCkCash" aria-label="Cash collected by month"></canvas></div></div>
+      <div class="ck-t ck-s4 ck-r3"><div class="ck-h"><div><h4>Joins and cancels</h4><p id="ckJcSub">per day</p></div><div class="ck-leg"><span><i style="background:var(--accent)"></i>Joins</span><span><i style="background:var(--bad)"></i>Cancels</span></div></div>
+        <div class="ck-stat"><b class="num" id="ckJcRatio">—</b><span id="ckJcText"></span></div>
+        <div class="ck-cv"><canvas id="chCkJc" aria-label="Paid joins and cancels"></canvas></div></div>
+      <div class="ck-t ck-s4 ck-r3 clickable" id="ckAct"><div class="ck-h"><div><h4>Paying members</h4><p>month end, last 6 months</p></div></div>
+        <div class="ck-cv"><canvas id="chCkAct" aria-label="Paying members at each month end"></canvas></div></div>
+
+      <div class="ck-t ck-s7 ck-r4"><div class="ck-h"><div><h4>Discord joins and paid joins</h4><p id="ckDiscSub">per day</p></div><div class="ck-leg"><span><i style="background:var(--violet)"></i>Discord joins <b id="ckDiscJ"></b></span><span><i style="background:var(--good)"></i>Paid joins <b id="ckDiscP"></b></span><span>Conversion <b id="ckDiscC"></b></span></div></div>
+        <div class="ck-cv"><canvas id="chCkDisc" aria-label="Discord joins against paid joins"></canvas></div></div>
+      <div class="ck-t ck-s5 ck-r4"><div class="ck-h"><div><h4>Feed</h4><p id="ckFeedSub">what needs a look</p></div><div class="ck-seg" id="ckFeedTabs" role="tablist"><button type="button" data-f="signals" class="on" role="tab">Signals</button><button type="button" data-f="latest" role="tab">Latest</button></div></div>
+        <div class="ck-feed" id="ckFeed"></div>
+        <div class="ck-acts"><button type="button" id="ckPull"><span>↻</span>Pull latest</button><button type="button" id="ckTheme"><span>◐</span><em id="ckThemeL">Dark</em></button><button type="button" id="ckFull"><span>⤢</span>Full screen</button></div></div>
+    </div>
     <div class="cmdtop">
       <div class="hero-grid">
         <div class="hero flag" id="cardMRR" style="--hac:#00A8FF"><h3>Monthly recurring revenue</h3>
@@ -2303,7 +2420,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.81';
+const BUILD = 'v16.82';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -4546,7 +4663,7 @@ function renderAll(){
 /* page → the painters that only touch that page. Pure paints only: anything with a side effect
    another page or the bridge reads is in the always-block above. */
 const PAGE_DRAWS={
-  command:[m=>drawMrrMove(m), m=>{ buildAlerts(m); drawHeroExtras(m); setPulseExtras(m); }, m=>drawFunnelStrip(m)],
+  command:[m=>drawMrrMove(m), m=>{ buildAlerts(m); drawHeroExtras(m); setPulseExtras(m); }, m=>drawFunnelStrip(m), m=>drawCockpit(m)],
   revenue:[()=>drawMRRChart(), ()=>drawRevenuePage()],
   growth:[()=>drawJoinsBig(), ()=>drawJoinsNeeded(), ()=>drawNetFlow('chCancBig'), m=>drawGrowthFlow(m), m=>drawGrowthCharts(m), ()=>drawGrowthExtras()],
   attribution:[()=>drawAttribution()],
@@ -12818,6 +12935,7 @@ function glPaint(v){ if(v) glView=v; v=glView;
   set('phTitle', v==='command'? glGreeting()+(n? ', '+n : '') : hub? HUBS[hub].label : (titles[v]||v));
   const lu=document.getElementById('lastUpdated'), warn=lu && /older build/.test(lu.textContent||'');
   set('phSub', warn? lu.textContent : glUpdated());
+  try{ ckPaintSide(v); }catch(e){}
   glBell(); }
 /* v16.81 — Louie: "let this search every single graph". Pages first, then every section heading,
    card title and chart on every page, read from the DOM each time so new cards are found too. */
@@ -12890,6 +13008,171 @@ function glBell(){ const st=document.getElementById('alertStrip'), b=document.ge
   try{ const st=document.getElementById('alertStrip'); if(st && typeof MutationObserver!=='undefined') new MutationObserver(()=>{ try{ glBell(); }catch(e){} }).observe(st,{childList:true,subtree:true}); }catch(e){}
   setInterval(()=>{ try{ glPaint(); }catch(e){} }, 30000);
 })();
+/* v16.82 — the cockpit. Louie, 26 Oct 2026, sent a "live e-commerce analytics dashboard" reel:
+   "i want the command area to be like this all on one page kinda thing". One dense grid of the
+   numbers that matter, every tile on a 7D / 30D / 90D switch except the month-based ones. Every
+   number comes from the same helpers the deeper pages use (mrrOnDay, coachActs, coachCancels,
+   countryStats, collectionRows, S.cash), so the cockpit can never disagree with them. */
+let ckRange=(()=>{ try{ const v=+localStorage.getItem('rv_ckrange'); return [7,30,90].indexOf(v)>=0? v : 30; }catch(e){ return 30; } })();
+let ckFeedTab='signals';
+const CK_COLS=()=>[PAL.accent, PAL.violet, PAL.cyan, PAL.gold, PAL.orange, PAL.good, PAL.dim];
+function ckBuckets(now, days){
+  /* UTC day buckets (the same day keys the rest of the terminal uses); 90 days go weekly */
+  const step=days>45? 7 : 1, n=Math.ceil(days/step), end=Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), new Date(now).getUTCDate())+D;
+  const out=[]; for(let i=n-1;i>=0;i--){ const b=end-i*step*D; out.push({a:b-step*D, b, k:dayKey(b-step*D)}); }
+  return {step, list:out};
+}
+function ckLab(t, step){ const d=new Date(t); return step>1? d.getUTCDate()+' '+['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()] : d.getUTCDate()+'/'+(d.getUTCMonth()+1); }
+function ckChip(id, cur, prev, goodUp, fmt){ const el=document.getElementById(id); if(!el) return;
+  if(prev==null || !isFinite(prev) || cur==null){ el.textContent=''; el.className='chip flat'; return; }
+  const d=cur-prev, pc=prev? d/Math.abs(prev)*100 : null, up=d>0;
+  el.textContent=(d>0?'+':d<0?'−':'±')+(fmt? fmt(Math.abs(d)) : Math.abs(Math.round(d)))+(pc!=null&&isFinite(pc)&&Math.abs(pc)<1000? ' · '+(pc>=0?'+':'−')+Math.abs(Math.round(pc*10)/10)+'%' : '');
+  el.className='chip '+(d===0? 'flat' : (up===goodUp? 'up' : 'down')); }
+function ckSpark(id, data, col){
+  chart(id,{type:'line',data:{labels:data.map((_,i)=>i),datasets:[{data, borderColor:col, borderWidth:1.8, tension:.35, pointRadius:0, fill:true,
+    backgroundColor:(c)=>{ const {ctx,chartArea}=c.chart; if(!chartArea) return rgbaOf(col,.15); const g=ctx.createLinearGradient(0,chartArea.top,0,chartArea.bottom); g.addColorStop(0,rgbaOf(col,.28)); g.addColorStop(1,rgbaOf(col,0)); return g; }}]},
+    options:{responsive:true, maintainAspectRatio:false, animation:false, plugins:{legend:{display:false}, tooltip:{enabled:false}}, scales:{x:{display:false}, y:{display:false, beginAtZero:true}}, elements:{point:{radius:0}}}});
+}
+function ckDonut(id, legId, parts, fmtV){
+  const cols=CK_COLS(), tot=parts.reduce((a,p)=>a+p.v,0)||1;
+  chart(id,{type:'doughnut',data:{labels:parts.map(p=>p.l),datasets:[{data:parts.map(p=>p.v), backgroundColor:parts.map((p,i)=>p.c||cols[i%cols.length]), borderWidth:0, spacing:2, borderRadius:4}]},
+    options:{responsive:true, maintainAspectRatio:false, cutout:'72%', animation:false, plugins:{legend:{display:false}, tooltip:{...TT, callbacks:{label:c=>' '+c.label+': '+(fmtV? fmtV(c.raw) : c.raw)+' · '+Math.round(c.raw/tot*1000)/10+'%'}}}}});
+  const ul=document.getElementById(legId);
+  if(ul) ul.innerHTML=parts.map((p,i)=>'<li><i style="background:'+(p.c||cols[i%cols.length])+'"></i><span>'+esc(p.l)+'</span><b>'+(Math.round(p.v/tot*1000)/10)+'%</b></li>').join('');
+}
+function ckTop(map, n){ const e=Object.entries(map).sort((a,b)=>b[1]-a[1]); const top=e.slice(0,n).map(([l,v])=>({l,v})); const rest=e.slice(n).reduce((a,x)=>a+x[1],0); if(rest>0) top.push({l:'Everywhere else', v:rest, c:PAL.dim}); return top; }
+function drawCockpit(m){
+  const root=document.getElementById('cockpit'); if(!root || !m) return;
+  const now=Date.now(), days=ckRange, subs=liveSubsList(), live=isFinite(m.mrr)? m.mrr : null;
+  const B=ckBuckets(now, days), labs=B.list.map(b=>ckLab(b.a, B.step)), t0=now-days*D, tp=now-2*days*D;
+  const set=(id,t)=>{ const e=document.getElementById(id); if(e) e.textContent=t; };
+  const per=B.step>1? 'per week' : 'per day', span=days+' days';
+  /* MRR: level line + daily (weekly) change bars */
+  const lvl=B.list.map(b=>Math.round(mrrOnDay(subs, Math.min(b.b, now)-1, now, live)));
+  const before=Math.round(mrrOnDay(subs, B.list[0].a-1, now, live));
+  const chg=lvl.map((v,i)=>v-(i? lvl[i-1] : before));
+  set('ckMrrVal', live!=null? fmtGBP(live) : '—'); set('ckMrrSub', per+' · last '+span);
+  ckChip('ckMrrChip', live, before, true, v=>'£'+Math.round(v).toLocaleString('en-GB')); set('ckMrrVs','vs '+span+' ago');
+  chart('chCkMrr',{data:{labels:labs, datasets:[
+      {type:'line', label:'MRR', data:lvl, borderColor:PAL.accent, borderWidth:2.4, tension:.3, pointRadius:0, yAxisID:'y', order:1,
+       fill:true, backgroundColor:(c)=>{ const {ctx,chartArea}=c.chart; if(!chartArea) return rgbaOf(PAL.accent,.1); const g=ctx.createLinearGradient(0,chartArea.top,0,chartArea.bottom); g.addColorStop(0,rgbaOf(PAL.accent,.22)); g.addColorStop(1,rgbaOf(PAL.accent,0)); return g; }},
+      {type:'bar', label:'Daily change', data:chg, backgroundColor:chg.map(v=>rgbaOf(v>=0? PAL.good : PAL.bad, .75)), borderRadius:3, yAxisID:'y1', order:2, barPercentage:.7}]},
+    options:{...op, plugins:{...op.plugins, legend:{display:false}, tooltip:{...TT, callbacks:{...TT.callbacks, label:c=> c.datasetIndex===0? ' MRR £'+c.raw.toLocaleString('en-GB') : ' Change '+(c.raw>=0?'+':'−')+'£'+Math.abs(c.raw).toLocaleString('en-GB')}}},
+      scales:{x:{grid:{display:false}, ticks:{color:PAL.tick, maxTicksLimit:8, maxRotation:0}},
+        y:{position:'right', grid:{color:PAL.grid}, ticks:{color:PAL.tick, maxTicksLimit:4, callback:v=>'£'+(Math.round(v/100)/10)+'k'}, beginAtZero:false},
+        y1:{display:false, beginAtZero:true, suggestedMax:Math.max(1,...chg.map(Math.abs))*3}}}});
+  /* sources + codes from paid joins in range */
+  const J=(m.joinsAll||[]).filter(j=>j.created>=t0 && j.created<=now && !j.trialNP);
+  const srcMap={}; J.forEach(j=>{ const l=j.src? (srcLabel(j.src)||j.src) : 'Not answered'; srcMap[l]=(srcMap[l]||0)+1; });
+  set('ckSrcN', J.length.toLocaleString('en-GB')); set('ckSrcSub','checkout answer · last '+span);
+  ckDonut('chCkSrc','ckSrcLeg', ckTop(srcMap,5), v=>v+' joins');
+  const codeMap={}, kind={}; J.forEach(j=>{ if(!j.code) return; codeMap[j.code]=(codeMap[j.code]||0)+1; kind[j.code]=j.ck; });
+  const codes=Object.entries(codeMap).sort((a,b)=>b[1]-a[1]).slice(0,6), cmax=codes.length? codes[0][1] : 1, withCode=J.filter(j=>j.code).length;
+  set('ckCodesSub', withCode+' of '+J.length+' paid joins used a code · last '+span);
+  const cb=document.getElementById('ckCodes');
+  if(cb) cb.innerHTML=codes.length? codes.map(([c,n])=>'<div class="ck-bar"><span class="ck-bl">'+esc(c)+'</span><span class="ck-bt"><i style="width:'+Math.max(4,Math.round(n/cmax*100))+'%;background:'+(kind[c]==='aff'? 'var(--accent)' : 'var(--good)')+'"></i></span><b class="num">'+n+'</b></div>').join('')
+    : '<div class="ck-empty">No codes used in this range</div>';
+  /* countries (MRR now) */
+  try{ const rows=countryStats(subs, now)||[], cm={}; let tot=0;
+    rows.forEach(r=>{ const l=r.cc? countryName(r.cc) : 'Unknown'; cm[l]=(cm[l]||0)+r.mrr; tot+=r.mrr; });
+    set('ckCtyN', tot>=1000? '£'+(Math.round(tot/100)/10)+'k' : fmtGBP(tot)); ckDonut('chCkCty','ckCtyLeg', ckTop(cm,4), v=>fmtGBP(v)); }catch(e){}
+  /* key numbers: paid joins, cancels, net members, with the period before */
+  const acts=coachActs(t0, now).length, actsP=coachActs(tp, t0).length, cx=coachCancels(t0, now).length, cxP=coachCancels(tp, t0).length;
+  const aS=B.list.map(b=>coachActs(b.a, Math.min(b.b, now)).length), cS=B.list.map(b=>coachCancels(b.a, Math.min(b.b, now)).length);
+  set('ckK1v', acts); set('ckK2v', cx); set('ckK3v', (acts-cx>0?'+':'')+(acts-cx)); set('ckKeySub', 'last '+span+' vs the '+span+' before');
+  ckChip('ckK1c', acts, actsP, true); ckChip('ckK2c', cx, cxP, false); ckChip('ckK3c', acts-cx, actsP-cxP, true);
+  ckSpark('chCkK1', aS, PAL.accent); ckSpark('chCkK2', cS, PAL.bad); ckSpark('chCkK3', aS.map((v,i)=>v-cS[i]), PAL.good);
+  /* money health: gauge = MRR vs goal; side = collection, past due, elite share */
+  const goal=Number(S.settings&&S.settings.goals&&S.settings.goals.mrr)||0, gp=goal&&live!=null? Math.min(1.5, live/goal) : 0;
+  set('ckGoalPct', goal&&live!=null? Math.round(live/goal*1000)/10+'%' : '—'); set('ckGoalOf', goal? 'of '+fmtGBP(goal)+' goal' : 'no MRR goal set');
+  chart('chCkGauge',{type:'doughnut',data:{datasets:[{data:[Math.min(gp,1), Math.max(0,1-gp)], backgroundColor:[gp>=1? PAL.good : PAL.accent, rgbaOf(PAL.muted,.16)], borderWidth:0, borderRadius:8}]},
+    options:{responsive:true, maintainAspectRatio:false, rotation:-125, circumference:250, cutout:'80%', animation:false, plugins:{legend:{display:false}, tooltip:{enabled:false}}}});
+  let first=null, final=null; try{ const cr=collectionRows(S.invHist||{}, S.recovery||{}, now, 'm', 120); const cur=cr[cr.length-1], fin=cr.filter(r=>r.final!=null).pop(); first=cur&&cur.first; final=fin&&fin.final; }catch(e){}
+  const eliteN=Number(m.elite)||0, proN=Number(m.pro)||0;
+  const side=document.getElementById('ckSide');
+  if(side) side.innerHTML='<div><dt>Paid first time</dt><dd>'+(first!=null? Math.round(first*10)/10+'%' : '—')+'</dd></div>'
+    +'<div><dt>Collected in the end</dt><dd>'+(final!=null? Math.round(final*10)/10+'%' : '—')+'</dd></div>'
+    +'<div><dt>Past due</dt><dd>'+(m.pastDue||0)+' <small>'+fmtGBP(m.pdMRR||0)+'/mo</small></dd></div>'
+    +'<div><dt>Elite members</dt><dd>'+(eliteN+proN? Math.round(eliteN/(eliteN+proN)*100)+'%' : '—')+'</dd></div>';
+  /* cash by month (last 6) */
+  const bm=(S.cash&&S.cash.byMonth)||{}, mks=Object.keys(bm).filter(k=>/^\d{4}-\d{2}$/.test(k)).sort().slice(-6);
+  const cash=mks.map(k=>Math.round(Number(bm[k]&&bm[k].paid)||0)), curMk=mkOf(now);
+  if(mks.length>=3){ const a=cash[0], b=cash[mks[mks.length-1]===curMk? cash.length-2 : cash.length-1]; set('ckCashNote', a? (b>=a?'+':'−')+Math.abs(Math.round((b-a)/a*100))+'% since '+monLabel(mks[0]) : ''); }
+  chart('chCkCash',{type:'bar',data:{labels:mks.map(monLabel), datasets:[{data:cash, backgroundColor:mks.map(k=>rgbaOf(PAL.good, k===curMk? .4 : .85)), borderRadius:6, barPercentage:.55}]},
+    options:{...op, plugins:{...op.plugins, legend:{display:false}, tooltip:{...TT, callbacks:{...TT.callbacks, label:c=>' £'+c.raw.toLocaleString('en-GB')+(mks[c.dataIndex]===curMk? ' so far' : '')}}},
+      scales:{x:{grid:{display:false}, ticks:{color:PAL.tick}}, y:{display:false, beginAtZero:true}}}});
+  /* joins vs cancels */
+  set('ckJcSub', per+' · last '+span); set('ckJcRatio', cx? (Math.round(acts/cx*10)/10)+'×' : acts? '∞' : '—'); set('ckJcText', 'joins for every cancel · '+acts+' in, '+cx+' out');
+  chart('chCkJc',{type:'bar',data:{labels:labs, datasets:[{label:'Joins', data:aS, backgroundColor:rgbaOf(PAL.accent,.85), borderRadius:3, barPercentage:.8, categoryPercentage:.7},
+      {label:'Cancels', data:cS, backgroundColor:rgbaOf(PAL.bad,.8), borderRadius:3, barPercentage:.8, categoryPercentage:.7}]},
+    options:{...op, plugins:{...op.plugins, legend:{display:false}}, scales:{x:{grid:{display:false}, ticks:{color:PAL.tick, maxTicksLimit:8, maxRotation:0}}, y:{grid:{color:PAL.grid}, ticks:{color:PAL.tick, maxTicksLimit:3}, beginAtZero:true}}}});
+  /* paying members at month end, last 6 months */
+  const ends=[]; { const d=new Date(now); for(let i=5;i>=1;i--){ ends.push({t:Date.UTC(d.getUTCFullYear(), d.getUTCMonth()-i+1, 1)-1, l:monLabel(mkOf(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()-i, 1)))}); } ends.push({t:now, l:'Now'}); }
+  const actN=memoSeries('ckAct|'+dayKey(now), ()=>ends.map(e=>activeAt(subs, e.t)));
+  chart('chCkAct',{type:'bar',data:{labels:ends.map(e=>e.l), datasets:[{data:actN, backgroundColor:ends.map((e,i)=>i===ends.length-1? rgbaOf(PAL.accent,.9) : rgbaOf(PAL.muted,.32)), borderRadius:6, barPercentage:.6}]},
+    options:{...op, layout:{padding:{top:16}}, plugins:{...op.plugins, legend:{display:false}, tooltip:{...TT, callbacks:{...TT.callbacks, label:c=>{ const p=c.dataIndex? actN[c.dataIndex-1] : null; return ' '+c.raw+' paying'+(p? ' · '+(c.raw>=p?'+':'−')+Math.abs(Math.round((c.raw-p)/p*1000)/10)+'%' : ''); }}}},
+      scales:{x:{grid:{display:false}, ticks:{color:PAL.tick}}, y:{display:false, beginAtZero:false, suggestedMin:Math.min(...actN)*0.85}}},
+    plugins:[{id:'ckVals', afterDatasetsDraw(c){ const {ctx}=c; const meta=c.getDatasetMeta(0); ctx.save(); ctx.font='600 11px '+(cssVar('--sans')||'sans-serif'); ctx.fillStyle=PAL.text; ctx.textAlign='center';
+      meta.data.forEach((b,i)=>{ ctx.fillText(actN[i], b.x, b.y-5); }); ctx.restore(); }}]});
+  /* discord joins and paid joins */
+  const dj=B.list.map(b=>{ let n=0, any=false; for(let t=b.a; t<Math.min(b.b, now+D); t+=D){ const v=djAt(dayKey(t)); if(v){ n+=v.j; any=true; } } return any? n : null; });
+  const djT=dj.reduce((a,v)=>a+(v||0),0);
+  set('ckDiscSub', per+' · last '+span); set('ckDiscJ', djT.toLocaleString('en-GB')); set('ckDiscP', acts); set('ckDiscC', djT? (Math.round(acts/djT*1000)/10)+'%' : '—');
+  chart('chCkDisc',{type:'line',data:{labels:labs, datasets:[{label:'Discord joins', data:dj, borderColor:PAL.violet, borderWidth:2, tension:.3, pointRadius:0, yAxisID:'y', spanGaps:true},
+      {label:'Paid joins', data:aS, borderColor:PAL.good, borderWidth:2, tension:.3, pointRadius:0, yAxisID:'y1'}]},
+    options:{...op, plugins:{...op.plugins, legend:{display:false}}, scales:{x:{grid:{display:false}, ticks:{color:PAL.tick, maxTicksLimit:10, maxRotation:0}},
+      y:{grid:{color:PAL.grid}, ticks:{color:PAL.tick, maxTicksLimit:3}, beginAtZero:true}, y1:{position:'right', grid:{display:false}, ticks:{color:PAL.tick, maxTicksLimit:3}, beginAtZero:true}}}});
+  ckFeed(m);
+  ckBind();
+}
+function ckAgo(t){ const mi=Math.max(0, Math.round((Date.now()-t)/60000)); return mi<60? mi+'m' : mi<1440? Math.round(mi/60)+'h' : Math.round(mi/1440)+'d'; }
+function ckFeed(m){
+  const el=document.getElementById('ckFeed'); if(!el) return;
+  document.querySelectorAll('#ckFeedTabs button').forEach(b=>b.classList.toggle('on', b.dataset.f===ckFeedTab));
+  if(ckFeedTab==='signals'){
+    const src=[...document.querySelectorAll('#alertStrip .alertline')];
+    el.innerHTML=src.length? src.map((a,i)=>'<button type="button" class="ck-fi '+(a.classList.contains('bad')? 'bad' : a.classList.contains('warn')? 'warn' : 'good')+'" data-si="'+i+'"><i></i><span>'+esc(((a.querySelector(':scope > div > div:first-child')||a).textContent||'').trim().slice(0,120))+'</span></button>').join('')
+      : '<div class="ck-empty">Nothing needs a look right now</div>';
+    el.querySelectorAll('[data-si]').forEach(b=>{ b.onclick=()=>{ const a=src[+b.dataset.si]; if(a) a.click(); }; });
+    const n=src.filter(a=>a.classList.contains('bad')||a.classList.contains('warn')).length;
+    const sub=document.getElementById('ckFeedSub'); if(sub) sub.textContent=n? n+' need a look' : 'all clear';
+  } else {
+    const now=Date.now(), ev=[];
+    ((m||lastM||{}).joinsAll||[]).filter(j=>now-j.created<14*D && !j.trialNP).slice(0,12).forEach(j=>ev.push({t:j.created, k:'join', h:(j.duser||j.name||'New member'), d:(j.tier==='elite'?'Elite':'Pro')+' · £'+(Math.round(j.monthly*100)/100)+(j.src? ' · '+(srcLabel(j.src)||j.src) : '')+(j.code? ' · '+j.code : '')}));
+    coachCancels(now-14*D, now).forEach(r=>ev.push({t:r.canceled, k:'cancel', h:(r.duser||r.cname||(r.cemail? String(r.cemail).split('@')[0] : 'Member')), d:'cancelled · £'+(Math.round((r.monthly||0)*100)/100)+'/mo'}));
+    ev.sort((a,b)=>b.t-a.t);
+    el.innerHTML=ev.length? ev.slice(0,14).map(e=>'<div class="ck-fi '+(e.k==='join'? 'good' : 'bad')+'"><i></i><span><b>'+esc(String(e.h))+'</b> '+esc(e.d)+'</span><small>'+ckAgo(e.t)+'</small></div>').join('') : '<div class="ck-empty">No joins or cancels in the last 14 days</div>';
+    const sub=document.getElementById('ckFeedSub'); if(sub) sub.textContent='joins and cancels, newest first';
+  }
+}
+let _ckBound=false;
+function ckBind(){
+  if(_ckBound) return; _ckBound=true;
+  const on=(id,f)=>{ const e=document.getElementById(id); if(e) e.onclick=f; };
+  on('ckMrr', ()=>{ const c=document.getElementById('cardMRR'); if(c) c.click(); });
+  on('ckCty', ()=>switchView('countries'));
+  on('ckGoal', ()=>{ try{ goalModal('mrr'); }catch(e){} });
+  on('ckCash', ()=>switchView('profit'));
+  on('ckAct', ()=>{ const c=document.getElementById('cardActive'); if(c) c.click(); });
+  on('ckK1', ()=>switchView('joins'));
+  on('ckK2', ()=>switchView('cancels'));
+  on('ckK3', ()=>switchView('growth'));
+  on('ckPull', ()=>{ const b=document.getElementById('refreshBtn'); if(b) b.click(); });
+  on('ckTheme', ()=>{ const t=currentTheme(); applyTheme(t==='glassy-dark'? 'glassy' : 'glassy-dark'); ckThemeLabel(); });
+  on('ckFull', ()=>{ try{ if(document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen(); }catch(e){} });
+  document.querySelectorAll('#ckFeedTabs button').forEach(b=>{ b.onclick=()=>{ ckFeedTab=b.dataset.f; ckFeed(lastM); }; });
+  ckThemeLabel();
+}
+function ckThemeLabel(){ const l=document.getElementById('ckThemeL'); if(l) l.textContent=currentTheme()==='glassy-dark'? 'Light' : 'Dark'; }
+function ckPaintSide(v){
+  const side=document.getElementById('phSide'); if(!side) return;
+  if(v!=='command'){ side.innerHTML=''; return; }
+  const lf=S.lastFetch, t=lf&&(lf.t||lf), fresh=t && Date.now()-t<20*60000;
+  let clock=''; try{ clock=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'}); }catch(e){}
+  side.innerHTML='<div class="ck-seg ck-range" role="tablist" aria-label="Range">'+[7,30,90].map(d=>'<button type="button" data-r="'+d+'"'+(d===ckRange? ' class="on"' : '')+'>'+d+'D</button>').join('')+'</div>'
+    +'<span class="ck-live'+(fresh? '' : ' stale')+'"><i></i>'+(fresh? 'Live' : 'Stale')+' · '+clock+'</span>';
+  side.querySelectorAll('[data-r]').forEach(b=>{ b.onclick=()=>{ ckRange=+b.dataset.r; try{ localStorage.setItem('rv_ckrange', String(ckRange)); }catch(e){} ckPaintSide('command'); try{ drawCockpit(lastM); }catch(e){ reportNonFatal('Cockpit',e); } }; });
+}
 /* v15.78: the browser is a READER. "Pull latest" = Supabase, never Stripe. refresh() (Stripe)
    still exists for the headless runner, which seeds a key; a browser never has one. */
 async function pullLatest(){
