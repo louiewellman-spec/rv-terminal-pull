@@ -2426,7 +2426,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.85';
+const BUILD = 'v16.86';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -4663,8 +4663,13 @@ function renderAll(){
      on 18 hidden pages; now it rebuilds the 5-11 you are looking at. ---- */
   Object.keys(PAGE_DRAWS).forEach(v=>{ pageDirty[v]=true; });
   const cv=currentView();
+  /* v16.86: repaint the open page in place. Scroll is held so a pull never throws you to the top
+     while charts are rebuilt (a destroyed canvas briefly collapses its card). */
+  const mnEl=document.querySelector('.main'), keepY=mnEl? mnEl.scrollTop : 0;
   paintPage(cv, m);
+  if(mnEl && Math.abs(mnEl.scrollTop-keepY)>2) mnEl.scrollTop=keepY;
   enhanceInteractive(document.getElementById('v-'+cv)||document);
+  try{ glPaint(cv); }catch(e){}
 }
 /* page → the painters that only touch that page. Pure paints only: anything with a side effect
    another page or the bridge reads is in the always-block above. */
@@ -13286,6 +13291,8 @@ function updBar(on){
 }
 async function updReload(){
   updGuardSet(_updBuild||'');
+  try{ const mn=document.querySelector('.main'); history.replaceState(null,'','#'+currentView()+(location.hash.indexOf('?')>=0? location.hash.slice(location.hash.indexOf('?')) : ''));
+    sessionStorage.setItem('rv_keep_scroll', JSON.stringify({v:currentView(), y:mn? mn.scrollTop : 0, at:Date.now()})); }catch(e){}
   /* a queued cloud save goes first, so an edit made seconds ago is never lost to the reload */
   try{ if(typeof sbReady==='function' && sbReady() && Date.now()<_syncDueAt+8000){ clearTimeout(_sbEditTimer); await Promise.race([sbPush(), new Promise(r=>setTimeout(r,5000))]); } }catch(e){}
   location.reload();
@@ -15000,9 +15007,16 @@ setInterval(pubAgeTick, 60000); pubAgeTick();
 const _hashParts=location.hash.slice(1).split('?'), initialView=_hashParts[0];
 /* v16.62 deep link: #reports?q=2026Q2 opens Reports › Quarters on that quarter */
 try{ const qm=/(?:^|&)q=(\d{4})-?Q([1-4])/i.exec(_hashParts[1]||''); if(qm){ rpQSel=qm[1]+'-Q'+qm[2]; rpPane='quarters'; } }catch(e){}
-if(!S.settings.key) switchView('settings');
-else if(titles[initialView]) switchView(initialView);
+/* v16.86 — Louie, 28 Oct: "on every pull i want the dash refreshed, kept on the same screen im on".
+   Browsers have never held a Stripe key since v15.78, so the old `!S.settings.key → Account` rule
+   sent EVERY load to Account, including the automatic reload when a new build goes live. Now the
+   page in the link opens; Account is only the landing page for a signed-out browser with no data. */
+if(titles[initialView]) switchView(initialView);
+else if(!S.settings.key && !(typeof sbReady==='function' && sbReady())) switchView('settings');
 else enhanceInteractive(document);
+try{ const sp=JSON.parse(sessionStorage.getItem('rv_keep_scroll')||'null'); sessionStorage.removeItem('rv_keep_scroll');
+  if(sp && sp.v===currentView() && Date.now()-sp.at<60000){ const mn=document.querySelector('.main');
+    const back=()=>{ if(mn) mn.scrollTop=sp.y; }; back(); setTimeout(back,400); setTimeout(back,1500); } }catch(e){}
 </script>
 </body>
 </html>
