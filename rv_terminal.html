@@ -2426,7 +2426,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.86';
+const BUILD = 'v16.87';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -13222,7 +13222,7 @@ function gatePaint(){ const on=sbReady(); gateShow(!on);
 /* ---------- auto refresh every 15 minutes ---------- */
 let _arBusy=false, _arNext=0;
 const AR_MS = 15*60*1000;
-const AP_MS = 5*60*1000;   /* v15.78: browsers auto-PULL from Supabase every 5 min */
+const AP_MS = 60*1000;     /* v16.87: browsers CHECK every minute (one tiny rv_kv read); the full pull only runs when the runner has saved newer data. Was 5 min, so a new sub could sit unseen for 5+ min after landing (Louie, 29 Oct) */
 async function arTick(){
   if(S.settings.autoRefresh===false || _arBusy) return;
   _arBusy=true;
@@ -13240,6 +13240,9 @@ setInterval(()=>{
 }, 5000);
 document.addEventListener('visibilitychange', ()=>{
   if(document.hidden) return;
+  /* v16.87: coming back to the tab always checks straight away (Chrome freezes/throttles background
+     tabs, so the minute timer may not have run); the check only downloads when the cloud is newer */
+  if(sbReady() && !S.settings.key){ arTick(); return; }
   const lf=S.lastFetch, t=lf&&(lf.t||lf);
   if(t && Date.now()-t > AR_MS) arTick();
 });
