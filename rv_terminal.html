@@ -2429,7 +2429,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.89';
+const BUILD = 'v16.90';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -5264,7 +5264,13 @@ function lagTxt(h){
 function joinWhyRows(J){
   const asked=J.filter(j=>j.why && !j.trialNP), by={};
   const fromGate=asked.filter(j=>j.whyFrom==='gate').length;
-  asked.forEach(j=>{ const l=whyLabel(j.why); const o=by[l]||(by[l]={l, n:0, act:0, gbp:0, elite:0}); o.n++; if(j.status!=='canceled') o.act++; o.gbp+=Number(j.monthly)||0; if(j.tier==='elite') o.elite++; });
+  /* v16.90 — Louie: "is this data defo right 100% still active". It was true (nobody cancelled) but flattering:
+     a booked cancel counted as active, and in a 30-day range nobody has reached a renewal yet. Still active
+     now = not cancelled AND no cancel booked; booked cancels get their own column; renewals reached shown. */
+  asked.forEach(j=>{ const l=whyLabel(j.why); const o=by[l]||(by[l]={l, n:0, act:0, booked:0, gone:0, renewable:0, gbp:0, elite:0}); o.n++;
+    if(j.status==='canceled') o.gone++; else if(j.cape) o.booked++; else o.act++;
+    if(Date.now()-j.created>31*864e5) o.renewable++;
+    o.gbp+=Number(j.monthly)||0; if(j.tier==='elite') o.elite++; });
   const rows=Object.values(by).sort((a,b)=>{ const ia=WHY_ORDER.indexOf(a.l), ib=WHY_ORDER.indexOf(b.l); return (b.n-a.n)||((ia<0?99:ia)-(ib<0?99:ib)); });
   return {rows, asked:asked.length, total:J.filter(j=>!j.trialNP).length, fromGate, fromCheckout:asked.length-fromGate};
 }
@@ -5274,11 +5280,13 @@ function drawJoinWhy(J){
   const cols={'Vinted bots':'var(--accent)','Pokemon':'var(--gold)','Sneaker and clothing drops':'var(--violet)','AutoCop (ACO)':'var(--cyan)','Not sure yet':'var(--dim)'};
   if(!W.rows.length){ el.innerHTML='<div class="empty">No answers in this range yet: nobody answered the checkout question or used a gate code.</div>'; if(note) note.textContent=''; return; }
   const max=Math.max(...W.rows.map(r=>r.n));
-  el.innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>Joining for</th><th style="text-align:left;width:38%"></th><th>Joins</th><th>Share</th><th title="still subscribed now">Still active</th><th>Avg £/mo</th><th>Elite</th></tr></thead><tbody>'
+  el.innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>Joining for</th><th style="text-align:left;width:38%"></th><th>Joins</th><th>Share</th><th title="still subscribed, no cancel booked">Still active</th><th title="cancelled for the end of their paid month">Cancel booked</th><th title="already cancelled">Cancelled</th><th>Avg £/mo</th><th>Elite</th></tr></thead><tbody>'
     +W.rows.map(r=>'<tr><td style="font-weight:600">'+esc(r.l)+'</td><td style="text-align:left"><span style="display:block;height:8px;border-radius:99px;background:var(--cold-soft);overflow:hidden"><i style="display:block;height:100%;width:'+Math.max(3,Math.round(r.n/max*100))+'%;border-radius:99px;background:'+(cols[r.l]||'var(--accent)')+'"></i></span></td>'
-      +'<td class="num"><b>'+r.n+'</b></td><td class="num">'+Math.round(r.n/W.asked*100)+'%</td><td class="num">'+Math.round(r.act/r.n*100)+'%</td><td class="num">'+fmtGBP(r.gbp/r.n)+'</td><td class="num">'+r.elite+'</td></tr>').join('')
+      +'<td class="num"><b>'+r.n+'</b></td><td class="num">'+Math.round(r.n/W.asked*100)+'%</td><td class="num">'+Math.round(r.act/r.n*100)+'%</td><td class="num">'+(r.booked||'<span style="color:var(--dim)">0</span>')+'</td><td class="num">'+(r.gone||'<span style="color:var(--dim)">0</span>')+'</td><td class="num">'+fmtGBP(r.gbp/r.n)+'</td><td class="num">'+r.elite+'</td></tr>').join('')
     +'</tbody></table></div>';
-  if(note) note.textContent=W.asked+' of '+W.total+' paying joins in this range have an answer: '+W.fromCheckout+' from the checkout question, '+W.fromGate+' from the Discord gate code they used (VINTED, POKEMON, DROPS, STARTER). Shares are out of those with an answer.';
+  const ren=W.rows.reduce((a,r)=>a+r.renewable,0);
+  if(note) note.textContent=W.asked+' of '+W.total+' paying joins in this range have an answer: '+W.fromCheckout+' from the checkout question, '+W.fromGate+' from the Discord gate code they used (VINTED, POKEMON, DROPS, STARTER). Shares are out of those with an answer. '
+    +(ren? ren+' of them have reached their first renewal.' : 'None of them has reached a first renewal yet, so Still active can only fall from booked cancels for now. Use 3m or 6m for a real read.');
 }
 function drawJoinsPage(){
   if(!lastM) return;
@@ -5388,7 +5396,7 @@ function analystDigest(){
           agg.note='subscription-level counts; the customer-level churned figure above can differ slightly'; return agg; })()},
       netMrrMovementLast30dGBP:m.mrrMove },
     emailLogDedupe:S._emailLogDedupe||null,
-    joinReasons30:(function(){ try{ const J=((lastM&&lastM.joinsAll)||[]).filter(j=>now-j.created<30*864e5); const W=joinWhyRows(J); return {asked:W.asked, paying:W.total, fromCheckout:W.fromCheckout, fromGate:W.fromGate, rows:W.rows.map(r=>({reason:r.l, joins:r.n, stillActive:r.act, avgMonthly:Math.round(r.gbp/r.n*100)/100, elite:r.elite}))}; }catch(e){ return null; } })(),
+    joinReasons30:(function(){ try{ const J=((lastM&&lastM.joinsAll)||[]).filter(j=>now-j.created<30*864e5); const W=joinWhyRows(J); return {asked:W.asked, paying:W.total, fromCheckout:W.fromCheckout, fromGate:W.fromGate, rows:W.rows.map(r=>({reason:r.l, joins:r.n, stillActive:r.act, cancelBooked:r.booked, cancelled:r.gone, avgMonthly:Math.round(r.gbp/r.n*100)/100, elite:r.elite}))}; }catch(e){ return null; } })(),
     monthKpi:(function(){ try{ return rpMonthKpiRows(now).map(({k,c,l})=>({month:k, firstTryPct:c&&c.first!=null? Math.round(c.first*10)/10:null, collectedPct:c&&c.final!=null? Math.round(c.final*10)/10:null, wonBackPct:c&&c.rec!=null? Math.round(c.rec*10)/10:null, signups1h:l&&l.p1Days? l.p1:null, signups72h:l&&l.p72Days? l.p72:null, buyersTracked:l? l.pa:null})); }catch(e){ return null; } })(),
     collectionMonthly:(function(){ try{ return collectionRows(S.invHist||{}, S.recovery||{}, now, 'm', 400).map(x=>({month:x.k, billsDue:x.due, paid:x.paid, pending:x.pending, failed:x.failed,
       collectedPct:x.final==null?null:Math.round(x.final*10)/10, firstTryPct:x.first==null?null:Math.round(x.first*10)/10, wonBackPct:x.rec==null?null:Math.round(x.rec*10)/10, collectedGBP:Math.round(x.gbp)})); }catch(e){ return null; } })(),
