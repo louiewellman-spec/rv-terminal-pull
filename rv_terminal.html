@@ -2429,7 +2429,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.88';
+const BUILD = 'v16.89';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2488,6 +2488,12 @@ const whyLabel = v => { if(!v) return null; const k=String(v).toLowerCase().repl
   if(/sneaker|cloth|drop|retail/.test(k)) return 'Sneaker and clothing drops'; if(/aco|autocop/.test(k)) return 'AutoCop (ACO)';
   if(/notsure|unsure|dontknow|other/.test(k)) return 'Not sure yet';
   return String(v).charAt(0).toUpperCase()+String(v).slice(1); };
+/* v16.89 — Louie, 30 Oct: "if they used a gate join then backfill any we havent done yet". Members who joined
+   before the checkout question (or skipped it) but came through a Discord decision-gate code get their lane
+   as the answer: VINTED → Vinted bots, POKEMON/CARDS → Pokemon, DROPS → drops, STARTER (start-reselling
+   channel) → Not sure yet. A real checkout answer always wins; gate-filled rows are marked whyFrom:'gate'. */
+const GATE_WHY={VINTED:'vintedbots', POKEMON:'pokemon', CARDS:'pokemon', DROPS:'sneakerandclothingdrops', STARTER:'notsureyet'};
+const gateWhy = c => { if(!c) return null; const k=String(c).toUpperCase().replace(/[^A-Z0-9]/g,''); return GATE_WHY[k]||null; };
 const WHY_SHORT={'Vinted bots':'Vinted','Sneaker and clothing drops':'Drops','AutoCop (ACO)':'ACO','Not sure yet':'Not sure'};
 const srcNorm = v => { if(!v) return v; return String(v).toLowerCase().trim()==='google'? 'website' : v; };
 /* ---------- CODE TYPES: member refer-a-friend vs staff affiliate vs promo/campaign.
@@ -4305,7 +4311,8 @@ function compute(){
     duser: nameOf(x), bn: !isHandle(x),
     email: x.cemail||null, handle: isHandle(x)? nameOf(x):null, name: x.cname||null,
     src: srcBySub[x.id] || (x.cust && srcByCust[x.cust]) || null,
-    why: whyBySub[x.id] || (x.cust && whyByCust[x.cust]) || null,
+    why: whyBySub[x.id] || (x.cust && whyByCust[x.cust]) || gateWhy(x.code) || null,
+    whyFrom: (whyBySub[x.id] || (x.cust && whyByCust[x.cust]))? 'checkout' : gateWhy(x.code)? 'gate' : null,
     inv: (function(){ try{ const r=lkByCust[custKey(x)]; return (r&&r.inv)||null; }catch(e){ return null; } })(),   /* v15.37: whose invite link brought them */
     lagH: (function(){ try{ const r=lkByCust[custKey(x)]; return (r&&r.lagH!=null)? r.lagH : null; }catch(e){ return null; } })(),   /* v15.44: hours from discord join to paying */
     canceled: x.canceled||null, trial: x.trialEnd!=null,
@@ -5256,21 +5263,22 @@ function lagTxt(h){
    still active now, average £/mo. Only members who were asked count (the question is new). */
 function joinWhyRows(J){
   const asked=J.filter(j=>j.why && !j.trialNP), by={};
+  const fromGate=asked.filter(j=>j.whyFrom==='gate').length;
   asked.forEach(j=>{ const l=whyLabel(j.why); const o=by[l]||(by[l]={l, n:0, act:0, gbp:0, elite:0}); o.n++; if(j.status!=='canceled') o.act++; o.gbp+=Number(j.monthly)||0; if(j.tier==='elite') o.elite++; });
   const rows=Object.values(by).sort((a,b)=>{ const ia=WHY_ORDER.indexOf(a.l), ib=WHY_ORDER.indexOf(b.l); return (b.n-a.n)||((ia<0?99:ia)-(ib<0?99:ib)); });
-  return {rows, asked:asked.length, total:J.filter(j=>!j.trialNP).length};
+  return {rows, asked:asked.length, total:J.filter(j=>!j.trialNP).length, fromGate, fromCheckout:asked.length-fromGate};
 }
 function drawJoinWhy(J){
   const el=document.getElementById('njWhy'); if(!el) return;
   const W=joinWhyRows(J), note=document.getElementById('njWhyNote');
   const cols={'Vinted bots':'var(--accent)','Pokemon':'var(--gold)','Sneaker and clothing drops':'var(--violet)','AutoCop (ACO)':'var(--cyan)','Not sure yet':'var(--dim)'};
-  if(!W.rows.length){ el.innerHTML='<div class="empty">No answers yet in this range. The question is new, so answers appear as members join.</div>'; if(note) note.textContent=''; return; }
+  if(!W.rows.length){ el.innerHTML='<div class="empty">No answers in this range yet: nobody answered the checkout question or used a gate code.</div>'; if(note) note.textContent=''; return; }
   const max=Math.max(...W.rows.map(r=>r.n));
   el.innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>Joining for</th><th style="text-align:left;width:38%"></th><th>Joins</th><th>Share</th><th title="still subscribed now">Still active</th><th>Avg £/mo</th><th>Elite</th></tr></thead><tbody>'
     +W.rows.map(r=>'<tr><td style="font-weight:600">'+esc(r.l)+'</td><td style="text-align:left"><span style="display:block;height:8px;border-radius:99px;background:var(--cold-soft);overflow:hidden"><i style="display:block;height:100%;width:'+Math.max(3,Math.round(r.n/max*100))+'%;border-radius:99px;background:'+(cols[r.l]||'var(--accent)')+'"></i></span></td>'
       +'<td class="num"><b>'+r.n+'</b></td><td class="num">'+Math.round(r.n/W.asked*100)+'%</td><td class="num">'+Math.round(r.act/r.n*100)+'%</td><td class="num">'+fmtGBP(r.gbp/r.n)+'</td><td class="num">'+r.elite+'</td></tr>').join('')
     +'</tbody></table></div>';
-  if(note) note.textContent=W.asked+' of '+W.total+' paying joins in this range answered. Members who joined before the question was added have no answer, so the share is out of those asked.';
+  if(note) note.textContent=W.asked+' of '+W.total+' paying joins in this range have an answer: '+W.fromCheckout+' from the checkout question, '+W.fromGate+' from the Discord gate code they used (VINTED, POKEMON, DROPS, STARTER). Shares are out of those with an answer.';
 }
 function drawJoinsPage(){
   if(!lastM) return;
@@ -5315,7 +5323,8 @@ function drawJoinsPage(){
       : '<span class="pill bad">cancelled</span>';
     const dt=ukDateTime(j.created);
     return '<tr><td style="white-space:nowrap">'+dt.d+' <span style="color:var(--dim)">'+dt.t+'</span></td><td style="color:var(--text);font-weight:600">'+(j.duser? esc(j.duser)+(j.bn?' <span class="pill" style="background:color-mix(in srgb,var(--muted) 12%,transparent);color:var(--dim);font-size:10px" title="stripe billing name, not a discord username">name</span>':'') : '<span style="color:var(--dim)">—</span>')+'</td><td style="white-space:nowrap">'+(j.cc? countryFlag(j.cc)+' <span title="'+esc(countryName(j.cc))+'">'+esc(countryName(j.cc))+'</span>' : '<span style="color:var(--dim)">—</span>')+'</td><td>'+tierPill+'</td><td>'+typ+'</td><td class="num">£'+(Math.round(j.monthly*100)/100).toFixed(2)+'</td><td style="white-space:nowrap">'+(j.src?'<span class="pill" style="background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font-size:10px" title="what they picked in the checkout dropdown">'+esc(srcLabel(j.src))+'</span>':'<span style="color:var(--dim)">—</span>')+'</td>'
-      +'<td style="white-space:nowrap">'+(j.why? '<span class="pill" style="background:color-mix(in srgb,var(--violet) 12%,transparent);color:var(--violet);font-size:10px" title="'+esc(whyLabel(j.why))+'">'+esc(WHY_SHORT[whyLabel(j.why)]||whyLabel(j.why))+'</span>' : '<span style="color:var(--dim)">—</span>')+'</td>'
+      +'<td style="white-space:nowrap">'+(j.why? (j.whyFrom==='gate'? '<span class="pill" style="background:transparent;border:1px dashed color-mix(in srgb,var(--violet) 55%,transparent);color:var(--violet);font-size:10px" title="'+esc(whyLabel(j.why))+' · from the '+esc(j.code||'')+' gate code (no checkout answer)">'+esc(WHY_SHORT[whyLabel(j.why)]||whyLabel(j.why))+'</span>'
+        : '<span class="pill" style="background:color-mix(in srgb,var(--violet) 12%,transparent);color:var(--violet);font-size:10px" title="'+esc(whyLabel(j.why))+' · checkout answer">'+esc(WHY_SHORT[whyLabel(j.why)]||whyLabel(j.why))+'</span>') : '<span style="color:var(--dim)">—</span>')+'</td>'
       +'<td style="white-space:nowrap">'+(j.inv? '<span class="pill" style="background:color-mix(in srgb,var(--violet) 14%,transparent);color:var(--violet);font-size:10px" title="whose discord invite link brought them in">'+esc(j.inv==='rv.louie'?'rv.louie · tiktok ads':j.inv)+'</span>' : '<span style="color:var(--dim)">—</span>')+'</td>'
       +'<td class="num" style="white-space:nowrap">'+lagTxt(j.lagH)+'</td>'
       +'<td>'+(j.code? '<span class="pill '+(j.ck==='aff'?'mid':'good')+'" title="'+(j.ck==='aff'?'affiliate':'your code')+'">'+esc(j.code)+'</span>' : '<span style="color:var(--dim)">—</span>')+'</td><td>'+(j.resign?'<span class="pill mid">re-signup</span>':'<span style="color:var(--dim)">first</span>')+'</td><td>'+st+'</td></tr>';
@@ -5379,7 +5388,7 @@ function analystDigest(){
           agg.note='subscription-level counts; the customer-level churned figure above can differ slightly'; return agg; })()},
       netMrrMovementLast30dGBP:m.mrrMove },
     emailLogDedupe:S._emailLogDedupe||null,
-    joinReasons30:(function(){ try{ const J=((lastM&&lastM.joinsAll)||[]).filter(j=>now-j.created<30*864e5); const W=joinWhyRows(J); return {asked:W.asked, paying:W.total, rows:W.rows.map(r=>({reason:r.l, joins:r.n, stillActive:r.act, avgMonthly:Math.round(r.gbp/r.n*100)/100, elite:r.elite}))}; }catch(e){ return null; } })(),
+    joinReasons30:(function(){ try{ const J=((lastM&&lastM.joinsAll)||[]).filter(j=>now-j.created<30*864e5); const W=joinWhyRows(J); return {asked:W.asked, paying:W.total, fromCheckout:W.fromCheckout, fromGate:W.fromGate, rows:W.rows.map(r=>({reason:r.l, joins:r.n, stillActive:r.act, avgMonthly:Math.round(r.gbp/r.n*100)/100, elite:r.elite}))}; }catch(e){ return null; } })(),
     monthKpi:(function(){ try{ return rpMonthKpiRows(now).map(({k,c,l})=>({month:k, firstTryPct:c&&c.first!=null? Math.round(c.first*10)/10:null, collectedPct:c&&c.final!=null? Math.round(c.final*10)/10:null, wonBackPct:c&&c.rec!=null? Math.round(c.rec*10)/10:null, signups1h:l&&l.p1Days? l.p1:null, signups72h:l&&l.p72Days? l.p72:null, buyersTracked:l? l.pa:null})); }catch(e){ return null; } })(),
     collectionMonthly:(function(){ try{ return collectionRows(S.invHist||{}, S.recovery||{}, now, 'm', 400).map(x=>({month:x.k, billsDue:x.due, paid:x.paid, pending:x.pending, failed:x.failed,
       collectedPct:x.final==null?null:Math.round(x.final*10)/10, firstTryPct:x.first==null?null:Math.round(x.first*10)/10, wonBackPct:x.rec==null?null:Math.round(x.rec*10)/10, collectedGBP:Math.round(x.gbp)})); }catch(e){ return null; } })(),
@@ -6581,7 +6590,7 @@ function njExport(kind){
   let lines, fname, note;
   if(kind==='email'){ const e=rows.map(r=>r.email).filter(Boolean); lines=e.join('\n'); fname='joins_emails'; note=e.length+' emails'; }
   else if(kind==='discord'){ const h=rows.map(r=>r.handle).filter(Boolean); lines=h.join('\n'); fname='joins_discord'; note=h.length+' discord handles ('+(rows.length-h.length)+' had none)'; }
-  else { lines='date,time_uk,discord_or_name,country,tier,type,monthly_gbp,source,joining_for,code,resignup,status,email\n'+rows.map(r=>{ const dt=ukDateTime(r.created); return [dt.d||r.date,dt.t,(r.handle||r.name||r.duser||''),(r.cc?countryName(r.cc):''),r.tier,(r.trialNP?'trial never paid':r.trial?'trial':'direct'),(r.monthly||0),(r.src||''),(r.why? whyLabel(r.why):''),(r.code||''),(r.resign?'yes':'no'),r.status,(r.email||'')].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(','); }).join('\n'); fname='joins_full'; note=rows.length+' rows'; }
+  else { lines='date,time_uk,discord_or_name,country,tier,type,monthly_gbp,source,joining_for,joining_for_from,code,resignup,status,email\n'+rows.map(r=>{ const dt=ukDateTime(r.created); return [dt.d||r.date,dt.t,(r.handle||r.name||r.duser||''),(r.cc?countryName(r.cc):''),r.tier,(r.trialNP?'trial never paid':r.trial?'trial':'direct'),(r.monthly||0),(r.src||''),(r.why? whyLabel(r.why):''),(r.whyFrom||''),(r.code||''),(r.resign?'yes':'no'),r.status,(r.email||'')].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(','); }).join('\n'); fname='joins_full'; note=rows.length+' rows'; }
   if(!lines){ status('Nothing to export for this range.','err'); return; }
   const ext=kind==='csv'?'csv':'txt';
   const blob=new Blob([lines],{type:'text/'+(kind==='csv'?'csv':'plain')});
