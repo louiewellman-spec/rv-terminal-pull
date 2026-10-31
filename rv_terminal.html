@@ -2429,7 +2429,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.90';
+const BUILD = 'v16.91';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -2483,7 +2483,12 @@ const countryName = cc => { if(!cc) return 'Unknown'; try{ return new Intl.Displ
 const countryFlag = cc => (cc && /^[A-Z]{2}$/.test(cc))? String.fromCodePoint(...[...cc].map(ch=>0x1F1E6+ch.charCodeAt(0)-65)) : '🏳';
 /* v16.88: the checkout's "What are you joining for?" answers, whatever key Stripe stored them under */
 const WHY_ORDER=['Vinted bots','Pokemon','Sneaker and clothing drops','AutoCop (ACO)','Not sure yet'];
+/* v16.91: the checkout stores the option KEY, not the label. Read off the live payment link (31 Oct 2026),
+   field key "goal": vinted / pokemon / drops / aco / starter. "starter" is the key behind "Not sure yet",
+   so it showed as "Starter" and looked like the STARTER code (Louie: donkey.kong0). */
+const WHY_KEYS={vinted:'Vinted bots', pokemon:'Pokemon', drops:'Sneaker and clothing drops', aco:'AutoCop (ACO)', starter:'Not sure yet'};
 const whyLabel = v => { if(!v) return null; const k=String(v).toLowerCase().replace(/[^a-z0-9]/g,'');
+  if(WHY_KEYS[k]) return WHY_KEYS[k];
   if(/vinted/.test(k)) return 'Vinted bots'; if(/pokemon|pokmon|tcg/.test(k)) return 'Pokemon';
   if(/sneaker|cloth|drop|retail/.test(k)) return 'Sneaker and clothing drops'; if(/aco|autocop/.test(k)) return 'AutoCop (ACO)';
   if(/notsure|unsure|dontknow|other/.test(k)) return 'Not sure yet';
@@ -2492,7 +2497,7 @@ const whyLabel = v => { if(!v) return null; const k=String(v).toLowerCase().repl
    before the checkout question (or skipped it) but came through a Discord decision-gate code get their lane
    as the answer: VINTED → Vinted bots, POKEMON/CARDS → Pokemon, DROPS → drops, STARTER (start-reselling
    channel) → Not sure yet. A real checkout answer always wins; gate-filled rows are marked whyFrom:'gate'. */
-const GATE_WHY={VINTED:'vintedbots', POKEMON:'pokemon', CARDS:'pokemon', DROPS:'sneakerandclothingdrops', STARTER:'notsureyet'};
+const GATE_WHY={VINTED:'vinted', POKEMON:'pokemon', CARDS:'pokemon', DROPS:'drops', STARTER:'starter'};
 const gateWhy = c => { if(!c) return null; const k=String(c).toUpperCase().replace(/[^A-Z0-9]/g,''); return GATE_WHY[k]||null; };
 const WHY_SHORT={'Vinted bots':'Vinted','Sneaker and clothing drops':'Drops','AutoCop (ACO)':'ACO','Not sure yet':'Not sure'};
 const srcNorm = v => { if(!v) return v; return String(v).toLowerCase().trim()==='google'? 'website' : v; };
@@ -2920,7 +2925,7 @@ function slimSession(cs){
       /* v16.88 — "What are you joining for?" (Vinted bots / Pokemon / drops / ACO / not sure), added to the
          checkout late Oct 2026. Read it first and skip it for the source, so it can never be taken for
          "Where did you find us?" whichever order the fields are in. */
-      if(/joining for|join for|why|reason|purpose|joining|interested in/.test(lab)){
+      if(/joining for|join for|why|reason|purpose|joining|interested in|^goal$/.test(lab) || f.key==='goal'){
         const v=(f.dropdown && f.dropdown.value) || (f.text && f.text.value) || null; if(v && !why) why=String(v).toLowerCase(); continue; }
       /* only attribution fields: dropdowns, or fields asking where they came from.
          never free-text like the Discord username field */
@@ -5331,8 +5336,8 @@ function drawJoinsPage(){
       : '<span class="pill bad">cancelled</span>';
     const dt=ukDateTime(j.created);
     return '<tr><td style="white-space:nowrap">'+dt.d+' <span style="color:var(--dim)">'+dt.t+'</span></td><td style="color:var(--text);font-weight:600">'+(j.duser? esc(j.duser)+(j.bn?' <span class="pill" style="background:color-mix(in srgb,var(--muted) 12%,transparent);color:var(--dim);font-size:10px" title="stripe billing name, not a discord username">name</span>':'') : '<span style="color:var(--dim)">—</span>')+'</td><td style="white-space:nowrap">'+(j.cc? countryFlag(j.cc)+' <span title="'+esc(countryName(j.cc))+'">'+esc(countryName(j.cc))+'</span>' : '<span style="color:var(--dim)">—</span>')+'</td><td>'+tierPill+'</td><td>'+typ+'</td><td class="num">£'+(Math.round(j.monthly*100)/100).toFixed(2)+'</td><td style="white-space:nowrap">'+(j.src?'<span class="pill" style="background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font-size:10px" title="what they picked in the checkout dropdown">'+esc(srcLabel(j.src))+'</span>':'<span style="color:var(--dim)">—</span>')+'</td>'
-      +'<td style="white-space:nowrap">'+(j.why? (j.whyFrom==='gate'? '<span class="pill" style="background:transparent;border:1px dashed color-mix(in srgb,var(--violet) 55%,transparent);color:var(--violet);font-size:10px" title="'+esc(whyLabel(j.why))+' · from the '+esc(j.code||'')+' gate code (no checkout answer)">'+esc(WHY_SHORT[whyLabel(j.why)]||whyLabel(j.why))+'</span>'
-        : '<span class="pill" style="background:color-mix(in srgb,var(--violet) 12%,transparent);color:var(--violet);font-size:10px" title="'+esc(whyLabel(j.why))+' · checkout answer">'+esc(WHY_SHORT[whyLabel(j.why)]||whyLabel(j.why))+'</span>') : '<span style="color:var(--dim)">—</span>')+'</td>'
+      +'<td style="white-space:nowrap">'+(j.why? (j.whyFrom==='gate'? '<span class="pill" style="background:transparent;border:1px dashed color-mix(in srgb,var(--violet) 55%,transparent);color:var(--violet);font-size:10px" title="No checkout answer · filled from the '+esc(j.code||'')+' gate code as '+esc(whyLabel(j.why))+'">'+esc(WHY_SHORT[whyLabel(j.why)]||whyLabel(j.why))+'</span>'
+        : '<span class="pill" style="background:color-mix(in srgb,var(--violet) 12%,transparent);color:var(--violet);font-size:10px" title="Checkout answer: '+esc(whyLabel(j.why))+(j.code? ' · code used: '+esc(j.code) : ' · no code')+'">'+esc(WHY_SHORT[whyLabel(j.why)]||whyLabel(j.why))+'</span>') : '<span style="color:var(--dim)">—</span>')+'</td>'
       +'<td style="white-space:nowrap">'+(j.inv? '<span class="pill" style="background:color-mix(in srgb,var(--violet) 14%,transparent);color:var(--violet);font-size:10px" title="whose discord invite link brought them in">'+esc(j.inv==='rv.louie'?'rv.louie · tiktok ads':j.inv)+'</span>' : '<span style="color:var(--dim)">—</span>')+'</td>'
       +'<td class="num" style="white-space:nowrap">'+lagTxt(j.lagH)+'</td>'
       +'<td>'+(j.code? '<span class="pill '+(j.ck==='aff'?'mid':'good')+'" title="'+(j.ck==='aff'?'affiliate':'your code')+'">'+esc(j.code)+'</span>' : '<span style="color:var(--dim)">—</span>')+'</td><td>'+(j.resign?'<span class="pill mid">re-signup</span>':'<span style="color:var(--dim)">first</span>')+'</td><td>'+st+'</td></tr>';
