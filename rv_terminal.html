@@ -17,7 +17,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<script>try{var _t=localStorage.getItem('rv_theme');if(!localStorage.getItem('rv_glassy')){_t='glassy';localStorage.setItem('rv_theme',_t);localStorage.setItem('rv_glassy','1');}if(_t&&_t!=='vault')document.documentElement.setAttribute('data-theme',_t);}catch(e){document.documentElement.setAttribute('data-theme','glassy');}</script>
+<script>try{var _t=localStorage.getItem('rv_theme');if(!localStorage.getItem('rv_glassy')){_t='glassy';localStorage.setItem('rv_theme',_t);localStorage.setItem('rv_glassy','1');}if(_t&&_t!=='vault')document.documentElement.setAttribute('data-theme',_t);if(localStorage.getItem('rv_sideopen')==='1')document.documentElement.classList.add('sb-open');}catch(e){document.documentElement.setAttribute('data-theme','glassy');}</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" integrity="sha384-bs/nf9FbdNouRbMiFcrcZfLXYPKiPaGVGplVbv7dLGECccEXDW+S3zjqSKR5ZEaD" crossorigin="anonymous"></script>
 <style>
 /* =====================================================================================
@@ -635,7 +635,7 @@ html[data-theme^="glassy"] .view{padding:0;max-width:none}
     border:1px solid var(--glass-edge);border-radius:999px;background:var(--glass-bar);
     box-shadow:inset 0 1px 0 var(--glass-hi),0 6px 16px rgba(var(--sh-rgb),.10)}
   html[data-theme^="glassy"] aside .brand{border:0;margin:0 0 4px;padding:0}
-  html[data-theme^="glassy"] aside .brand>div:last-child{display:none}
+  html[data-theme^="glassy"] aside .brand>div:not(.logo){display:none}
   html[data-theme^="glassy"] aside .logo{width:40px;height:40px;border-radius:50%;background:var(--btn-bg);color:var(--btn-ink);font-family:var(--sans);font-size:12.5px;font-weight:700}
   html[data-theme^="glassy"] aside nav{display:flex;flex-direction:column;align-items:center;gap:4px;overflow:visible;padding:0}
   html[data-theme^="glassy"] aside .navlab,html[data-theme^="glassy"] aside .side-foot,html[data-theme^="glassy"] aside nav details summary,html[data-theme^="glassy"] aside nav .dot{display:none}
@@ -851,18 +851,104 @@ html[data-theme^="glassy"] .win:has(#v-command.on) .ph-sub{margin-top:0}
 html[data-theme^="glassy"] .win:has(#v-command.on){padding-top:16px;padding-bottom:18px}
 html[data-theme^="glassy"] .main:has(#v-command.on) .topbar{margin-bottom:10px}
 @media (max-height:860px){ .ck-acts{display:none} .ck-dl{gap:4px} .ck-h p{display:none} .ck-t{padding:11px 14px 10px} .ck-big{margin:4px 0 2px} .ck-big .num{font-size:30px} }
+/* ---------- v16.93 · Glassy sidebar: a rail that expands into a full glass panel ---------- */
+.sb-badge,.sb-count,.sb-caret,.sb-sub,.sb-foot,.sb-search,.sb-toggle{display:none}
+@media (min-width:621px){
+  html[data-theme^="glassy"] aside{transition:width .22s ease,border-radius .22s ease,padding .22s ease}
+  html[data-theme^="glassy"] .main{transition:padding-left .22s ease}
+  html[data-theme^="glassy"] aside .brand{position:relative}
+  html[data-theme^="glassy"] .sb-toggle{display:grid;place-items:center;position:absolute;right:-17px;top:11px;width:20px;height:20px;border-radius:50%;border:1px solid var(--card-edge);background:var(--chip-on);color:var(--text);padding:0;box-shadow:0 3px 10px rgba(var(--sh-rgb),.18)}
+  html[data-theme^="glassy"] .sb-toggle svg{width:12px;height:12px;transition:transform .2s ease}
+  html[data-theme^="glassy"] .sb-search{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;border:0;background:none;color:var(--muted);flex:none}
+  html[data-theme^="glassy"] .sb-search:hover{background:var(--panel2);color:var(--text)}
+  html[data-theme^="glassy"] .sb-search .ico{width:19px;height:19px}
+  html[data-theme^="glassy"] .sb-search .lbl,html[data-theme^="glassy"] .sb-search kbd{display:none}
+  /* collapsed: thin dividers instead of section names, badge as a dot */
+  html[data-theme^="glassy"] aside .navlab{display:block;font-size:0;height:1px;width:18px;margin:5px auto;background:var(--line2);padding:0}
+  html[data-theme^="glassy"] aside nav details summary{display:none}
+  html[data-theme^="glassy"] .sb-badge{display:block;position:absolute;top:5px;right:5px;min-width:8px;height:8px;padding:0;border-radius:99px;background:var(--bad);font-size:0;box-shadow:0 0 0 2px var(--glass-bar)}
+  html[data-theme^="glassy"] .sb-badge[hidden]{display:none}
+  html[data-theme^="glassy"] .sb-foot{display:flex;flex-direction:column;align-items:center;gap:6px;margin-top:6px;padding-top:8px;border-top:1px solid var(--line)}
+  html[data-theme^="glassy"] .sb-night{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;border:0;background:none;color:var(--muted);padding:0}
+  html[data-theme^="glassy"] .sb-night:hover{background:var(--panel2);color:var(--text)}
+  html[data-theme^="glassy"] .sb-night .ico{width:19px;height:19px}
+  html[data-theme^="glassy"] .sb-night .lbl,html[data-theme^="glassy"] .sb-night .sb-switch{display:none}
+  html[data-theme^="glassy"] .sb-me{display:flex;align-items:center;gap:10px}
+  html[data-theme^="glassy"] .sb-av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--btn-bg);color:var(--btn-ink);font-weight:700;font-size:13px;flex:none;position:relative}
+  html[data-theme^="glassy"] .sb-av::after{content:'';position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;border-radius:50%;background:var(--good);box-shadow:0 0 0 2px var(--glass-bar)}
+  html[data-theme^="glassy"] .sb-meT{display:none}
+
+  /* expanded panel */
+  html.sb-open[data-theme^="glassy"] .main{padding-left:280px}
+  html.sb-open[data-theme^="glassy"] aside{width:246px;border-radius:30px;padding:14px 12px 12px;align-items:stretch;gap:4px;top:16px;bottom:16px;transform:none;max-height:none;overflow-y:auto;scrollbar-width:none}
+  html.sb-open[data-theme^="glassy"] aside::-webkit-scrollbar{display:none}
+  html.sb-open[data-theme^="glassy"] aside .brand{display:flex;align-items:center;gap:10px;padding:2px 4px 8px;margin:0}
+  html.sb-open[data-theme^="glassy"] aside .brand>div:not(.logo){display:block;min-width:0}
+  html.sb-open[data-theme^="glassy"] aside .brand b{font-size:14px;font-weight:600;color:var(--text)}
+  html.sb-open[data-theme^="glassy"] aside .brand span{font-family:var(--sans);font-size:11px;letter-spacing:0;text-transform:none;color:var(--dim)}
+  html.sb-open[data-theme^="glassy"] .sb-toggle{position:static;margin-left:auto;width:26px;height:26px}
+  html.sb-open[data-theme^="glassy"] .sb-toggle svg{transform:rotate(180deg)}
+  html.sb-open[data-theme^="glassy"] .sb-search{display:flex;align-items:center;gap:9px;width:100%;height:38px;border-radius:14px;padding:0 10px 0 12px;background:var(--panel2);border:1px solid var(--card-edge);color:var(--dim);margin:2px 0 6px;font-size:13px}
+  html.sb-open[data-theme^="glassy"] .sb-search .ico{width:16px;height:16px}
+  html.sb-open[data-theme^="glassy"] .sb-search .lbl{display:block;flex:1;text-align:left}
+  html.sb-open[data-theme^="glassy"] .sb-search kbd{display:block;font:500 10.5px var(--sans);border:1px solid var(--line2);border-radius:6px;padding:1px 6px;color:var(--dim)}
+  html.sb-open[data-theme^="glassy"] aside nav{align-items:stretch;gap:2px}
+  html.sb-open[data-theme^="glassy"] aside .navlab{font-size:11px;font-weight:500;height:auto;width:auto;background:none;margin:12px 12px 4px;color:var(--dim);letter-spacing:.02em}
+  html.sb-open[data-theme^="glassy"] aside nav button{width:100%;height:38px;border-radius:14px;justify-content:flex-start;gap:11px;padding:0 10px 0 12px}
+  html.sb-open[data-theme^="glassy"] aside nav .ico{width:18px;height:18px;flex:none}
+  html.sb-open[data-theme^="glassy"] aside nav .lbl{position:static;transform:none;opacity:1;background:none;box-shadow:none;padding:0;font-size:13.5px;font-weight:500;color:inherit;pointer-events:auto;flex:1;text-align:left}
+  html.sb-open[data-theme^="glassy"] aside nav button:hover .lbl{transform:none}
+  html.sb-open[data-theme^="glassy"] aside nav button.on{color:var(--text);font-weight:600}
+  html.sb-open[data-theme^="glassy"] .sb-badge{position:static;font-size:10.5px;font-weight:700;color:#fff;min-width:20px;height:20px;line-height:20px;text-align:center;padding:0 6px;box-shadow:none}
+  html.sb-open[data-theme^="glassy"] .sb-count{display:block;font-size:11px;font-weight:600;color:var(--muted);background:var(--cold-soft);border-radius:99px;padding:1px 7px}
+  html.sb-open[data-theme^="glassy"] .sb-count:empty{display:none}
+  html.sb-open[data-theme^="glassy"] .sb-caret{display:grid;place-items:center;width:22px;height:22px;border-radius:7px;color:var(--dim);margin-left:2px}
+  html.sb-open[data-theme^="glassy"] .sb-caret:hover{background:var(--panel3);color:var(--text)}
+  html.sb-open[data-theme^="glassy"] .sb-caret svg{width:14px;height:14px;transition:transform .18s ease}
+  html.sb-open[data-theme^="glassy"] .sb-caret.on svg{transform:rotate(180deg)}
+  html.sb-open[data-theme^="glassy"] .sb-sub.on{display:flex;flex-direction:column;gap:1px;margin:2px 0 6px 21px;padding-left:12px;border-left:1px solid var(--line2)}
+  html.sb-open[data-theme^="glassy"] .sb-pj{display:flex;align-items:center;gap:9px;width:100%;border:0;background:none;color:var(--muted);font-size:12.5px;padding:6px 8px;border-radius:10px;text-align:left;min-width:0}
+  html.sb-open[data-theme^="glassy"] .sb-pj span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  html.sb-open[data-theme^="glassy"] .sb-pj:hover,html.sb-open[data-theme^="glassy"] .sb-pj.on{background:var(--panel2);color:var(--text)}
+  html.sb-open[data-theme^="glassy"] .sb-pj i{width:7px;height:7px;border-radius:50%;flex:none;background:var(--good)}
+  html.sb-open[data-theme^="glassy"] .sb-pj i.p1{background:var(--bad)} html.sb-open[data-theme^="glassy"] .sb-pj i.p2{background:var(--gold)} html.sb-open[data-theme^="glassy"] .sb-pj i.p3{background:var(--violet)}
+  html.sb-open[data-theme^="glassy"] .sb-pj.more,html.sb-open[data-theme^="glassy"] .sb-pj.none{color:var(--dim);font-size:12px}
+  html.sb-open[data-theme^="glassy"] .sb-foot{align-items:stretch;margin-top:auto;gap:4px}
+  html.sb-open[data-theme^="glassy"] .sb-night{display:flex;align-items:center;gap:11px;width:100%;height:40px;border-radius:14px;padding:0 10px 0 12px;font-size:13.5px;font-weight:500}
+  html.sb-open[data-theme^="glassy"] .sb-night .ico{width:18px;height:18px}
+  html.sb-open[data-theme^="glassy"] .sb-night .lbl{display:block;flex:1;text-align:left;color:inherit}
+  html.sb-open[data-theme^="glassy"] .sb-switch{display:block;width:34px;height:20px;border-radius:99px;background:var(--cold-soft);border:1px solid var(--line2);position:relative;transition:background .15s ease}
+  html.sb-open[data-theme^="glassy"] .sb-switch i{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s ease}
+  html.sb-open[data-theme^="glassy"] .sb-night.on .sb-switch{background:var(--accent)} html.sb-open[data-theme^="glassy"] .sb-night.on .sb-switch i{transform:translateX(14px)}
+  html.sb-open[data-theme^="glassy"] .sb-me{padding:8px 8px 4px;border-top:1px solid var(--line);margin-top:4px}
+  html.sb-open[data-theme^="glassy"] .sb-meT{display:flex;flex-direction:column;min-width:0}
+  html.sb-open[data-theme^="glassy"] .sb-meT b{font-size:13px;font-weight:600;color:var(--text)}
+  html.sb-open[data-theme^="glassy"] .sb-meT small{font-size:11px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  html.sb-open[data-theme^="glassy"] .view.on>.hubtabs{left:calc(50% + 131px)}
+}
+@media (max-width:620px){
+  html[data-theme^="glassy"] .sb-foot{display:flex;flex-direction:column;gap:4px;margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+  html[data-theme^="glassy"] .sb-night{display:flex;align-items:center;gap:10px;border:0;background:none;color:var(--text);padding:10px;font-size:14px}
+  html[data-theme^="glassy"] .sb-night .ico{display:inline-block;width:18px;height:18px}
+  html[data-theme^="glassy"] .sb-switch{display:none}
+  html[data-theme^="glassy"] .sb-me{display:flex;align-items:center;gap:10px;padding:6px 10px}
+  html[data-theme^="glassy"] .sb-av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--btn-bg);color:var(--btn-ink);font-weight:700}
+  html[data-theme^="glassy"] .sb-meT{display:flex;flex-direction:column} html[data-theme^="glassy"] .sb-meT small{color:var(--dim);font-size:11px}
+}
 </style>
 </head>
 <body>
 
 <div class="app">
 <aside>
-  <div class="brand"><div class="logo">RV</div><div><b>RV Terminal</b><span>resell vault ops</span></div></div>
+  <div class="brand"><div class="logo">RV</div><div><b>RV Terminal</b><span>resell vault ops</span></div><button type="button" class="sb-toggle gl-only" id="sbToggle" aria-label="Expand the sidebar" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button></div>
+  <button type="button" class="sb-search gl-only" id="sbSearch" aria-label="Search pages and charts"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg><span class="lbl">Search pages</span><kbd>/</kbd></button>
   <nav aria-label="Dashboard sections">
     <div class="navlab">Today</div>
     <button data-v="command" class="on" aria-current="page"><span class="dot"></span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/></svg><span class="lbl">Command</span></button>
-    <button data-v="recovery" data-hub="dotoday"><span class="dot"></span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12.3 2.4 2.4 4.6-4.9"/></svg><span class="lbl">Do today</span></button>
-    <button data-v="projects"><span class="dot"></span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.2 4.5v15M14.8 4.5v9"/></svg><span class="lbl">Projects</span></button>
+    <button data-v="recovery" data-hub="dotoday"><span class="dot"></span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12.3 2.4 2.4 4.6-4.9"/></svg><span class="lbl">Do today</span><span class="sb-badge gl-only" id="sbBadgeToday" hidden></span></button>
+    <button data-v="projects"><span class="dot"></span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.2 4.5v15M14.8 4.5v9"/></svg><span class="lbl">Projects</span><span class="sb-count gl-only" id="sbProjN"></span><span class="sb-caret gl-only" id="sbProjCaret" role="button" aria-label="Show projects"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span></button>
+    <div class="sb-sub gl-only" id="sbProjects"></div>
     <div class="navlab">Money</div>
     <button data-v="revenue" data-hub="revenue"><span class="dot"></span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M14.6 8.4a2.5 2.5 0 0 0-4.4 1.6c0 2.3.5 3.1 0 5.6h5.3M8.8 12.6h4.7"/></svg><span class="lbl">Revenue</span></button>
     <button data-v="reports"><span class="dot"></span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.1A8 8 0 1 0 19.9 13H11z"/><path d="M14 3.6a8 8 0 0 1 6.4 6.4H14z"/></svg><span class="lbl">Reports</span></button>
@@ -871,11 +957,15 @@ html[data-theme^="glassy"] .main:has(#v-command.on) .topbar{margin-bottom:10px}
     <button data-v="retention" data-hub="retention"><span class="dot"></span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8.5" r="3.3"/><path d="M3 19.5a6 6 0 0 1 12 0"/><path d="M15.5 5.4a3.3 3.3 0 0 1 0 6.3M17.5 13.9a6 6 0 0 1 3.5 5.6"/></svg><span class="lbl">Retention</span></button>
     <div class="navlab">Setup</div>
     <button data-v="settings"><span class="dot"></span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/></svg><span class="lbl">Account</span></button>
-    <details id="navMore"><summary>More</summary>
+    <details id="navMore" open><summary>More</summary>
       <button data-v="trials"><span class="dot"></span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3.5h11M6.5 20.5h11"/><path d="M7.5 3.5c0 4.5 4.5 5.4 4.5 8.5s-4.5 4-4.5 8.5M16.5 3.5c0 4.5-4.5 5.4-4.5 8.5s4.5 4 4.5 8.5"/></svg><span class="lbl">Trials</span></button>
       <button data-v="changes"><span class="dot"></span><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 3.5 12.7 9l5.3 1.7-5.3 1.8L11 18l-1.7-5.5L4 10.7 9.3 9z"/><path d="m18.5 15.5.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></svg><span class="lbl">Pro revamp</span></button>
     </details>
   </nav>
+  <div class="sb-foot gl-only">
+    <button type="button" class="sb-night" id="sbNight" aria-label="Night mode"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></svg><span class="lbl">Night mode</span><span class="sb-switch" aria-hidden="true"><i></i></span></button>
+    <div class="sb-me"><span class="sb-av" id="sbMeAv">R</span><span class="sb-meT"><b id="sbMeName">Signed in</b><small id="sbMeEmail"></small></span></div>
+  </div>
   <div class="side-foot mono" id="persistFoot">storage: checking…</div>
 </aside>
 
@@ -2429,7 +2519,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.92';
+const BUILD = 'v16.93';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -12857,6 +12947,7 @@ function drawProjectsPage(){
       +'<span class="pjs">'+esc(p.owner||'')+(next? ' · '+new Date(next.d).toLocaleDateString('en-GB',{day:'numeric',month:'short'}) : p.due? ' · due '+new Date(p.due).toLocaleDateString('en-GB',{day:'numeric',month:'short'}):'')+'</span></div>'; }).join('');
   if(empty) empty.style.display=items.length?'none':'block';
   list.querySelectorAll('.pjrow').forEach(r=>{ r.onclick=()=>{ pjSel=r.dataset.id; drawProjectsPage(); }; });
+  try{ sbPaint(); }catch(e){}
   document.querySelectorAll('#pjFilter button').forEach(b=>b.classList.toggle('on', b.dataset.s===pjFilterS));
   document.querySelectorAll('#pjOwnerF button').forEach(b=>{ b.classList.toggle('on', b.dataset.o===pjFilterO);
     const o=b.dataset.o, live=items.filter(x=>x.status!=='done'&&x.status!=='parked'&&pjOwnerMatch(x.owner,o)).length;
@@ -13011,6 +13102,7 @@ function glPaint(v){ if(v) glView=v; v=glView;
   const lu=document.getElementById('lastUpdated'), warn=lu && /older build/.test(lu.textContent||'');
   set('phSub', warn? lu.textContent : glUpdated());
   try{ ckPaintSide(v); }catch(e){}
+  try{ sbPaint(); }catch(e){}
   glBell(); }
 /* v16.81 — Louie: "let this search every single graph". Pages first, then every section heading,
    card title and chart on every page, read from the DOM each time so new cards are found too. */
@@ -13245,6 +13337,45 @@ function ckBind(){
   document.querySelectorAll('#ckFeedTabs button').forEach(b=>{ b.onclick=()=>{ ckFeedTab=b.dataset.f; ckFeed(lastM); }; });
   ckThemeLabel();
 }
+
+/* v16.93 — Louie, 1 Nov: "side bar like this and change projects to look like that as well, keep same area"
+   (Glassy SideBar reel). The rail now expands into a full glass panel: search, sections, badges, Projects
+   opening into the live project list (priority dots), a night-mode switch and the signed-in profile. */
+let sbProjOpen=(()=>{ try{ return localStorage.getItem('rv_sbproj')!=='0'; }catch(e){ return true; } })();
+function sbSetOpen(on){ document.documentElement.classList.toggle('sb-open', !!on);
+  try{ localStorage.setItem('rv_sideopen', on? '1' : '0'); }catch(e){}
+  const t=document.getElementById('sbToggle'); if(t){ t.setAttribute('aria-expanded', on? 'true':'false'); t.setAttribute('aria-label', on? 'Collapse the sidebar' : 'Expand the sidebar'); }
+  setTimeout(()=>{ try{ Object.values(charts).forEach(c=>{ try{ c.resize(); }catch(e){} }); }catch(e){} }, 260); }
+function sbPaint(){
+  /* badge: open failed-payment cases (the Do today work) */
+  try{ const n=Object.keys((S.recovery&&S.recovery.cases)||{}).length, b=document.getElementById('sbBadgeToday');   /* read-only: never create records */
+    if(b){ b.textContent=n>99? '99+' : String(n); b.hidden=!n; } }catch(e){}
+  /* projects: open ones, highest priority first */
+  try{ const st=(S.projects&&Array.isArray(S.projects.items))? S.projects : {items:[]}, open=(st.items||[]).filter(p=>p.status!=='done' && p.status!=='parked')
+      .sort((a,b)=>(a.priority||2)-(b.priority||2) || (a.due||'9999').localeCompare(b.due||'9999'));
+    const cnt=document.getElementById('sbProjN'); if(cnt) cnt.textContent=open.length? String(open.length) : '';
+    const box=document.getElementById('sbProjects'); if(box){
+      box.classList.toggle('on', sbProjOpen);
+      box.innerHTML=open.length? open.slice(0,8).map(p=>'<button type="button" class="sb-pj'+(p.id===pjSel && currentView()==='projects'? ' on':'')+'" data-pj="'+esc(p.id)+'" title="'+esc(p.title||'Untitled')+'"><i class="p'+(p.priority||2)+'"></i><span>'+esc(p.title||'Untitled')+'</span></button>').join('')
+        +(open.length>8? '<button type="button" class="sb-pj more" data-pj="">+'+(open.length-8)+' more</button>' : '')
+        : '<div class="sb-pj none">No open projects</div>';
+      box.querySelectorAll('[data-pj]').forEach(b=>{ b.onclick=e=>{ e.stopPropagation(); if(b.dataset.pj) pjSel=b.dataset.pj; switchView('projects'); try{ drawProjectsPage(); }catch(x){} sbPaint(); }; }); }
+    const car=document.getElementById('sbProjCaret'); if(car) car.classList.toggle('on', sbProjOpen);
+  }catch(e){}
+  /* profile + night switch */
+  try{ const n=glName(), em=(S.sb&&S.sb.email)||''; const set=(id,t)=>{ const e=document.getElementById(id); if(e) e.textContent=t; };
+    set('sbMeName', n||'Signed in'); set('sbMeEmail', em); set('sbMeAv', (n||'R').slice(0,1));
+    const nb=document.getElementById('sbNight'); if(nb) nb.classList.toggle('on', currentTheme()==='glassy-dark'); }catch(e){}
+}
+(function(){
+  const on=(id,f)=>{ const e=document.getElementById(id); if(e) e.onclick=f; };
+  on('sbToggle', e=>{ e.stopPropagation(); sbSetOpen(!document.documentElement.classList.contains('sb-open')); });
+  on('sbSearch', ()=>{ const i=document.getElementById('tbSearch'); if(i){ i.focus(); } });
+  on('sbNight', ()=>{ const t=currentTheme(); applyTheme(t==='glassy-dark'? 'glassy' : 'glassy-dark'); sbPaint(); try{ ckThemeLabel(); }catch(e){} });
+  const car=document.getElementById('sbProjCaret');
+  if(car) car.addEventListener('click', e=>{ e.stopPropagation(); e.preventDefault(); sbProjOpen=!sbProjOpen; try{ localStorage.setItem('rv_sbproj', sbProjOpen? '1':'0'); }catch(x){} sbPaint(); });
+  const t=document.getElementById('sbToggle'); if(t){ const o=document.documentElement.classList.contains('sb-open'); t.setAttribute('aria-expanded', o? 'true':'false'); }
+})();
 function ckThemeLabel(){ const l=document.getElementById('ckThemeL'); if(l) l.textContent=currentTheme()==='glassy-dark'? 'Light' : 'Dark'; }
 function ckPaintSide(v){
   const side=document.getElementById('phSide'); if(!side) return;
