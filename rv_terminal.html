@@ -2429,7 +2429,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.91';
+const BUILD = 'v16.92';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -13163,10 +13163,15 @@ function drawCockpit(m){
   set('ckGoalPct', goal&&live!=null? Math.round(live/goal*1000)/10+'%' : '—'); set('ckGoalOf', goal? 'of '+fmtGBP(goal)+' goal' : 'no MRR goal set');
   chart('chCkGauge',{type:'doughnut',data:{datasets:[{data:[Math.min(gp,1), Math.max(0,1-gp)], backgroundColor:[gp>=1? PAL.good : PAL.accent, rgbaOf(PAL.muted,.16)], borderWidth:0, borderRadius:8}]},
     options:{responsive:true, maintainAspectRatio:false, rotation:-125, circumference:250, cutout:'80%', animation:false, plugins:{legend:{display:false}, tooltip:{enabled:false}}}});
-  let first=null, final=null; try{ const cr=collectionRows(S.invHist||{}, S.recovery||{}, now, 'm', 120); const cur=cr[cr.length-1], fin=cr.filter(r=>r.final!=null).pop(); first=cur&&cur.first; final=fin&&fin.final; }catch(e){}
+  /* v16.92 — Louie, 1 Nov: "terminal tripping". Paid first time read 100% because it took the CURRENT month,
+     which on the 1st held 2 bills. It is now the last 30 days (same maths as the Money tile); collected in
+     the end stays the latest settled month. */
+  let first=null, final=null; try{ const cr=collectionRows(S.invHist||{}, S.recovery||{}, now, 'm', 120); const fin=cr.filter(r=>r.final!=null).pop(); final=fin&&fin.final;
+    const d30=collectionRows(S.invHist||{}, S.recovery||{}, now, 'd', 30).filter(r=>r.first!=null); const a=d30.reduce((o,r)=>{ o.due+=r.due+r.pending; o.failed+=r.failed; return o; },{due:0,failed:0});
+    first=a.due? Math.max(0, 100-a.failed/a.due*100) : null; }catch(e){}
   const eliteN=Number(m.elite)||0, proN=Number(m.pro)||0;
   const side=document.getElementById('ckSide');
-  if(side) side.innerHTML='<div><dt>Paid first time</dt><dd>'+(first!=null? Math.round(first*10)/10+'%' : '—')+'</dd></div>'
+  if(side) side.innerHTML='<div><dt>Paid first time · 30d</dt><dd>'+(first!=null? Math.round(first*10)/10+'%' : '—')+'</dd></div>'
     +'<div><dt>Collected in the end</dt><dd>'+(final!=null? Math.round(final*10)/10+'%' : '—')+'</dd></div>'
     +'<div><dt>Past due</dt><dd>'+(m.pastDue||0)+' <small>'+fmtGBP(m.pdMRR||0)+'</small></dd></div>'
     +'<div><dt>Elite members</dt><dd>'+(eliteN+proN? Math.round(eliteN/(eliteN+proN)*100)+'%' : '—')+'</dd></div>';
@@ -13184,7 +13189,8 @@ function drawCockpit(m){
     options:{...op, plugins:{...op.plugins, legend:{display:false}}, scales:{x:{grid:{display:false}, ticks:{color:PAL.tick, maxTicksLimit:8, maxRotation:0}}, y:{grid:{color:PAL.grid}, ticks:{color:PAL.tick, maxTicksLimit:3}, beginAtZero:true}}}});
   /* paying members at month end, last 6 months */
   const ends=[]; { const d=new Date(now); for(let i=5;i>=1;i--){ ends.push({t:Date.UTC(d.getUTCFullYear(), d.getUTCMonth()-i+1, 1)-1, l:monLabel(mkOf(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()-i, 1)))}); } ends.push({t:now, l:'Now'}); }
-  const actN=memoSeries('ckAct|'+dayKey(now), ()=>ends.map(e=>activeAt(subs, e.t)));
+  const actN=memoSeries('ckAct|'+dayKey(now), ()=>ends.map(e=>activeAt(subs, e.t))).slice();
+  if(isFinite(m.active)) actN[actN.length-1]=m.active;   /* v16.92: "Now" = the headline subscriber count */
   chart('chCkAct',{type:'bar',data:{labels:ends.map(e=>e.l), datasets:[{data:actN, backgroundColor:ends.map((e,i)=>i===ends.length-1? rgbaOf(PAL.accent,.9) : rgbaOf(PAL.muted,.32)), borderRadius:6, barPercentage:.6}]},
     options:{...op, layout:{padding:{top:16}}, plugins:{...op.plugins, legend:{display:false}, tooltip:{...TT, callbacks:{...TT.callbacks, label:c=>{ const p=c.dataIndex? actN[c.dataIndex-1] : null; return ' '+c.raw+' paying'+(p? ' · '+(c.raw>=p?'+':'−')+Math.abs(Math.round((c.raw-p)/p*1000)/10)+'%' : ''); }}}},
       scales:{x:{grid:{display:false}, ticks:{color:PAL.tick}}, y:{display:false, beginAtZero:false, suggestedMin:Math.min(...actN)*0.85}}},
