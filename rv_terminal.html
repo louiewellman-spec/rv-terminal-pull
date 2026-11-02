@@ -2519,7 +2519,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.93';
+const BUILD = 'v16.94';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -14630,6 +14630,13 @@ function sbChangedRows(table, rows){
 async function sbPush(){
   const b=sbState(), uid=b.uid; if(!uid) throw new Error('sign in first');
   const shaped=sbShape(); let total=0;
+  /* v16.94: only the runner (it holds the Stripe key) writes the changes list, and it writes it FIRST, so
+     no browser can see a new lastFetch before the rows that go with it */
+  if(S.settings && S.settings.key && S.lastFetch && S.lastFetch.t){
+    try{ const patch={subs:sbChangedRows('rv_subs', shaped.rv_subs||[]), sessions:sbChangedRows('rv_sessions', shaped.rv_sessions||[]), inv:sbChangedRows('rv_inv_hist', shaped.rv_inv_hist||[])};
+      const rk=sbRecentNext(_sbRecentKv, patch, S._pulledT, S.lastFetch.t, Date.now());
+      await sbRest('rv_kv?on_conflict=owner,k', {method:'POST', body:[{owner:uid, k:'recentRows', v:rk}], prefer:'resolution=merge-duplicates,return=minimal'});
+      _sbRecentKv=rk; }catch(e){ reportNonFatal('Changes list', e); } }
   for(const table of Object.keys(shaped)){
     const rows=sbChangedRows(table, shaped[table]); if(!rows.length) continue;
     for(let i=0;i<rows.length;i+=500){
@@ -14717,6 +14724,46 @@ async function sbPage(table, select, extra, maxRows){
 /* S key → localStorage key. The convention is rv_<lowercase>; three keys predate it. */
 const SB_LS={signalsCache:'rv_signals', abandonedC:'rv_abandoned', botLinks:'rv_botlinks'};
 const SB_KV_SKIP=new Set(['stripe_key','stripe_sync_last','settings','sb','lastFetch']);
+/* v16.94 — Louie, 2 Nov: "i still have to do control shift R to get these to refresh". The page did refresh;
+   new members were simply 15-20 min old by the time they reached Postgres. The runner now ticks every 5 min
+   and, before it saves, writes a small rv_kv row `recentRows`: every sub / session / invoice row it changed
+   in the last ~40 min, keyed, with the tick chain it covers. A browser merges those instead of downloading
+   the 4 MB member list on every update (a full pull still runs on load and at least every 2 hours). */
+const SB_RECENT_KEEP=40*60*1000, SB_FULL_EVERY=2*3600*1000;
+let _sbRecentKv=null;
+function sbSessKey(x){ return x? x.created+'|'+(x.sub||'')+'|'+(x.cust||'') : ''; }
+function sbRecentCovers(rk, since, remoteT){
+  if(!rk || !rk.v || !Array.isArray(rk.ticks) || !rk.ticks.length || rk.from==null) return false;
+  if(!(since>0) || rk.from > since+1000) return false;           /* changes before the list began are missing */
+  if(remoteT && (rk.t||0) < remoteT-1000) return false;           /* list older than the save it should describe */
+  return true;
+}
+function sbMergeRecent(rk){
+  const out={subs:0, sessions:0, inv:0};
+  const subs=Object.values(rk.subs||{}).map(e=>e&&e.d).filter(x=>x&&x.id);
+  if(subs.length){ const by={}; (S.subs||[]).forEach((x,i)=>{ if(x&&x.id) by[x.id]=i; }); const arr=(S.subs||[]).slice();
+    subs.forEach(x=>{ if(by[x.id]!=null) arr[by[x.id]]=x; else { by[x.id]=arr.length; arr.push(x); } out.subs++; });
+    S.subs=arr; jset('rv_subs', S.subs); }
+  const ses=Object.values(rk.sessions||{}).map(e=>e&&e.d).filter(Boolean);
+  if(ses.length){ S.sessions=mergeSessions(S.sessions||[], ses); out.sessions=ses.length; jset('rv_sessions', S.sessions); }
+  const inv=Object.entries(rk.inv||{});
+  if(inv.length){ S.invHist=S.invHist||{}; inv.forEach(([k,e])=>{ if(e&&e.rows) { S.invHist[k]=e.rows; out.inv++; } }); jset('rv_invhist', S.invHist); }
+  return out;
+}
+function sbRecentNext(prev, patch, prevT, t, now){
+  /* pure: the next changes list. A gap in the tick chain (a save we did not see) starts a new list. */
+  let rk=(prev && prev.v===1 && Array.isArray(prev.ticks))? JSON.parse(JSON.stringify(prev)) : null;
+  const last=rk && rk.ticks[rk.ticks.length-1];
+  if(!rk || !last || !prevT || Math.abs((last.t||0)-prevT)>1000) rk={v:1, ticks:[], subs:{}, sessions:{}, inv:{}};
+  rk.ticks.push({prev:prevT||t, t});
+  (patch.subs||[]).forEach(r=>{ const d=r&&r.data; if(d&&d.id) rk.subs[d.id]={t, d}; });
+  (patch.sessions||[]).forEach(r=>{ const d=r&&r.data; if(d) rk.sessions[sbSessKey(d)]={t, d}; });
+  (patch.inv||[]).forEach(r=>{ if(r&&r.sub_id) rk.inv[r.sub_id]={t, rows:r.rows}; });
+  const cut=now-SB_RECENT_KEEP;
+  rk.ticks=rk.ticks.filter(k=>k.t>=cut); if(!rk.ticks.length) rk.ticks=[{prev:prevT||t, t}];
+  ['subs','sessions','inv'].forEach(k=>{ Object.keys(rk[k]).forEach(id=>{ if((rk[k][id].t||0)<cut) delete rk[k][id]; }); });
+  rk.from=rk.ticks[0].prev; rk.t=t; return rk;
+}
 async function sbPull(opts){
   /* v15.27: hydrate this browser from Postgres. Replaces subs/sessions/snapshots/forecasts/
      recovery/invoices/kv wholesale (Postgres is the fresher copy after a nightly run); the email
@@ -14769,8 +14816,9 @@ async function sbPull(opts){
     S.mrrEvents=Object.values(em).sort((a,b)=>a.t-b.t).slice(-2000);
     jset('rv_mrrevents', S.mrrEvents);
     planLedgerMemo={src:null,len:-1,last:null,byId:{},all:[]};   /* the ledger changed — drop the memo */ }
-  let syncLast=null, lastFetch=null;
+  let syncLast=null, lastFetch=null, recentKv=null;
   kv.forEach(r=>{ if(r.k==='stripe_sync_last'){ syncLast=r.v; return; } if(r.k==='lastFetch'){ lastFetch=r.v; return; }
+    if(r.k==='recentRows'){ recentKv=r.v; return; }                 /* v16.94: runner's changes list, never stored in S */
     if(r.k==='settings_shared' && r.v && typeof r.v==='object'){
       /* v16.15: settings holds the VAT payment log, monthly costs and goals — a person's work.
          Merge it the same way as everything else instead of letting the cloud overwrite it. */
@@ -14786,8 +14834,20 @@ async function sbPull(opts){
     if(m!==r.v && JSON.stringify(m)!==JSON.stringify(r.v)) _kvMerged.push(r.k);
     S[r.k]=m;
     jset(lsKey, S[r.k]); });
-  if(syncLast&&syncLast.t&&(!S.lastFetch||syncLast.t>(S.lastFetch.t||0))){ S.lastFetch={t:syncLast.t, build:BUILD, nightly:true}; jset('rv_lastfetch',S.lastFetch); }
+  _sbRecentKv=recentKv;
+  /* v16.94 CHANGES-ONLY PULL. A browser that already holds subs/sessions asks for lean + recentSince
+     (its own last fetch time). If the runner's changes list covers everything since then, merge just
+     those rows; otherwise say so and leave lastFetch alone, so the caller does a full pull. */
+  let recentOk=null;
+  if(opts && opts.recentSince!=null){
+    recentOk=sbRecentCovers(recentKv, opts.recentSince, lastFetch&&lastFetch.t);
+    if(recentOk){ const mr=sbMergeRecent(recentKv); n.recentSubs=mr.subs; n.recentSessions=mr.sessions; n.recentInv=mr.inv; }
+    n.recentOk=recentOk;
+  }
+  if(recentOk===false){ /* not covered: keep the old lastFetch so the full pull still happens */ }
+  else if(syncLast&&syncLast.t&&(!S.lastFetch||syncLast.t>(S.lastFetch.t||0))){ S.lastFetch={t:syncLast.t, build:BUILD, nightly:true}; jset('rv_lastfetch',S.lastFetch); }
   else if(lastFetch&&(!S.lastFetch||(lastFetch.t||0)>(S.lastFetch.t||0))){ S.lastFetch=lastFetch; jset('rv_lastfetch',S.lastFetch); }
+  if(lastFetch&&lastFetch.t) S._pulledT=lastFetch.t;              /* the runner stamps its changes list from this */
   const supObj={bounced:{},stopped:{},control:{}}; sup.forEach(r=>{ if(supObj[r.reason]) supObj[r.reason][r.email]=r.detail||''; });
   mergeSync({emailLog:log.map(r=>({e:r.email, d:r.sent_on, c:r.campaign, t:r.kind})), emailSup:supObj});
   S._sbNightly=syncLast||null; window._wbCache=null; window._emSentMap=null;
@@ -14850,8 +14910,12 @@ async function sbAutoSync(opts){
        only way to fetch it on demand. Unsent local edits are pushed within 6 s of being made. */
     if(!localEmpty && !stale && !force){ if(!_sbBase) sbBaseReset();   /* local == cloud, so this is the baseline */
       return {skipped:'this browser is already up to date', remoteT, localT}; }
+    if(!localEmpty && !force && S._sbFullAt && Date.now()-S._sbFullAt<SB_FULL_EVERY && localT>0){
+      const n=await sbPull({quiet:true, lean:true, recentSince:localT});
+      if(n && n.recentOk){ S._sbAutoAt=Date.now(); return {pulled:n, why:'changes only'}; }
+    }
     const n=await sbPull({quiet:true});
-    S._sbAutoAt=Date.now();
+    S._sbAutoAt=Date.now(); S._sbFullAt=Date.now();
     return {pulled:n, why: localEmpty? 'this browser was empty' : 'Postgres was newer'};
   }catch(e){ return {error:(e&&e.message)||String(e)}; }
 }
