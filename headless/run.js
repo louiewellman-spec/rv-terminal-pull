@@ -128,7 +128,7 @@ try{ vm.runInContext(script, ctx, {timeout:120000}); }catch(e){ console.error('b
        expand) whenever window._rvSlowAt is older than 6h — and a fresh Node process always starts at 0,
        so the FIRST run took 8m23s and every scheduled run would have too. 96 x 8 min a day blows the
        free Actions minutes. Take the slow lane only on the first tick of every 6th hour. */
-    const d=new Date(), SLOW = E.SLOW==='1' || (d.getUTCHours()%6===0 && d.getUTCMinutes()<20);
+    const d=new Date(), SLOW = E.SLOW==='1' || (d.getUTCHours()%6===0 && d.getUTCMinutes()>=5 && d.getUTCMinutes()<10);   /* 2 Nov 2026: 5-minute slots, so only the :07 tick */
     run('window._rvSlowAt = '+(SLOW? 0 : Date.now())+';');
     out.lane = SLOW? 'slow (6-hourly full pass)' : 'fast';
     log('refreshing from Stripe · '+out.lane+(fake?' (FAKE: '+path.basename(fake)+')':'')); await run('refresh()');

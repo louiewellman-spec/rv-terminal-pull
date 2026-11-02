@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # RV Terminal · pull chain.
-# One GitHub Actions job pulls Stripe every 15 minutes for ~5h35m; the workflow then dispatches its
+# One GitHub Actions job pulls Stripe every 5 minutes (was 15, until 2 Nov 2026) for ~5h35m; the workflow then dispatches its
 # own successor. GitHub's free-tier cron is best-effort (8-9 Sep 2026: 4 ticks fired in 12 h instead
 # of 48), so the cron is only a backup that restarts a dead chain.
-#   PERIOD  seconds between pull starts (900)
-#   OFFSET  seconds past the hour for the slots (420 → :07 :22 :37 :52, the minutes run.js's
-#           slow-lane gate expects: only the :07 tick of hours 0/6/12/18 takes the slow lane)
+#   PERIOD  seconds between pull starts (300; 900 before 2 Nov 2026 - new members took 15-20 min to show)
+#   OFFSET  seconds past the hour for the slots (420 → :02 :07 :12 ... with PERIOD 300; run.js's
+#           slow-lane gate only takes the :07 tick of hours 0/6/12/18)
 #   BUDGET  seconds this job may keep looping (5h35m; GitHub kills any job at 6h)
 #   PULL    the command run at each slot (node headless/run.js)
 #   NO_GIT  set to skip the per-slot checkout refresh (local tests)
 set -u
-PERIOD=${PERIOD:-900}; OFFSET=${OFFSET:-420}; BUDGET=${BUDGET:-20100}; PULL=${PULL:-node headless/run.js}
+PERIOD=${PERIOD:-300}; OFFSET=${OFFSET:-420}; BUDGET=${BUDGET:-20100}; PULL=${PULL:-node headless/run.js}
 start=$(date +%s); end=$((start+BUDGET)); runs=0; fails=0
 say(){ echo "$(date -u +%H:%M:%S)  $*"; }
 fmt(){ date -u -d @"$1" +%H:%M:%S 2>/dev/null || date -u -r "$1" +%H:%M:%S; }
@@ -35,7 +35,7 @@ while :; do
   # with Actions: write on louiewellman-spec/rv-terminal); silently skipped until it exists.
   if [ -n "${PRIVATE_DISPATCH_TOKEN:-}" ]; then
     hr=$(date -u +%-H); mn=$(date -u +%-M)
-    if [ "$mn" -lt 15 ]; then
+    if [ "$mn" -lt 5 ]; then        # 2 Nov 2026: 5-minute slots, so only the first slot of the hour (:02)
       say "dispatching rv-discord-sync on the private repo"
       GH_TOKEN="$PRIVATE_DISPATCH_TOKEN" ${GH:-gh} workflow run rv-discord-sync.yml -R louiewellman-spec/rv-terminal --ref main || say "::warning::discord dispatch failed"
       if [ $((hr % 4)) -eq 0 ]; then
