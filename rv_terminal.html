@@ -2521,7 +2521,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.96';
+const BUILD = 'v16.97';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -6672,10 +6672,13 @@ const CANCEL_FB={ too_expensive:'Too expensive', missing_features:'Missing featu
    make sure rv stats is pulling this ... its not just why its also this info". Every member-requested cancel
    from #payment-logs: the reason they picked, and since 2 Nov (/cancel) what got in the way, what would have
    kept them and whether they would come back, with plan, time as a member and who ran /cancel. */
+/* the old Stripe flow and the new /cancel command word the same reason differently; count them as one */
+const cxReason = r => { const k=String(r||'').toLowerCase().trim(); if(!k) return '';
+  if(/^not using it/.test(k)) return 'Not using it enough / no time'; if(k==='something else'||k==='other') return 'Other'; return r; };
 function cxRowsIn(t0,t1){ return ((S.botLinks&&S.botLinks.cx)||[]).filter(c=>c.t>=t0 && c.t<=t1); }
 function cxSummary(rows){
   const by={}, back={}, kept={};
-  rows.forEach(c=>{ const k=c.reason||'No reason given'; const o=by[k]||(by[k]={l:k, n:0, gbp:0, days:[], first:0}); o.n++; o.gbp+=c.amt||0; if(c.days!=null){ o.days.push(c.days); if(c.days<=31) o.first++; }
+  rows.forEach(c=>{ const k=cxReason(c.reason)||'No reason given'; const o=by[k]||(by[k]={l:k, n:0, gbp:0, days:[], first:0}); o.n++; o.gbp+=c.amt||0; if(c.days!=null){ o.days.push(c.days); if(c.days<=31) o.first++; }
     if(c.back){ back[c.back]=(back[c.back]||0)+1; } if(c.kept){ kept[c.kept]=(kept[c.kept]||0)+1; } });
   const reasons=Object.values(by).map(o=>{ const d=o.days.slice().sort((a,b)=>a-b); return Object.assign(o,{med:d.length? d[Math.floor(d.length/2)] : null}); })
     .sort((a,b)=> (a.l==='No reason given') - (b.l==='No reason given') || b.n-a.n);
