@@ -935,6 +935,17 @@ html[data-theme^="glassy"] .main:has(#v-command.on) .topbar{margin-bottom:10px}
   html[data-theme^="glassy"] .sb-av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:var(--btn-bg);color:var(--btn-ink);font-weight:700}
   html[data-theme^="glassy"] .sb-meT{display:flex;flex-direction:column} html[data-theme^="glassy"] .sb-meT small{color:var(--dim);font-size:11px}
 }
+/* v16.98 · In their words table */
+table.cxt{table-layout:fixed;min-width:900px}
+table.cxt th,table.cxt td{text-align:left;vertical-align:top;white-space:normal;padding:11px 12px}
+table.cxt th:nth-child(1){width:17%} table.cxt th:nth-child(2){width:15%} table.cxt th:nth-child(3),table.cxt th:nth-child(4){width:18%} table.cxt th:nth-child(5){width:12%} table.cxt th:nth-child(6){width:20%}
+table.cxt td:first-child{color:var(--text)}
+.cxn{font-weight:600;font-size:13.5px;color:var(--text);line-height:1.3}
+.cxm{font-size:11.5px;color:var(--dim);margin-top:2px}
+.cxw{font-size:13px;line-height:1.45;color:var(--text)}
+.cxw+.cxw{margin-top:4px}
+table.cxt .pill{white-space:normal;line-height:1.35;padding:3px 9px;display:inline-block}
+table.cxt tbody tr:nth-child(even) td{background:color-mix(in srgb,var(--text) 2.5%,transparent)}
 </style>
 </head>
 <body>
@@ -2521,7 +2532,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.97';
+const BUILD = 'v16.98';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -6684,6 +6695,7 @@ function cxSummary(rows){
     .sort((a,b)=> (a.l==='No reason given') - (b.l==='No reason given') || b.n-a.n);
   return {reasons, back, kept, total:rows.length, withReason:rows.filter(c=>c.reason).length, cmd:rows.filter(c=>c.cmd).length, answered:rows.filter(c=>c.way||c.kept||c.back).length};
 }
+let cxShowAll=false;
 function drawCancelReasons(){
   const el=document.getElementById('cxBody'); if(!el) return;
   const all=(S.botLinks&&S.botLinks.cx)||[];
@@ -6702,14 +6714,26 @@ function drawCancelReasons(){
   const backKeys=Object.keys(W.back).sort((a,b)=>W.back[b]-W.back[a]);
   const backHtml=backKeys.length? '<div style="margin-top:14px"><div class="plab" style="margin:0 0 6px">Would they come back? <span class="sn">(/cancel only)</span></div><div class="row" style="gap:6px">'
     +backKeys.map(k=>'<span class="pill '+(/^yes/i.test(k)?'good':/not|no\b/i.test(k)?'bad':'mid')+'">'+esc(k)+' · '+W.back[k]+'</span>').join('')+'</div></div>' : '';
-  const words=rows.filter(c=>cxWords(c).length).sort((a,b)=>b.t-a.t).slice(0,15);
-  const wordsHtml=words.length? '<div style="margin-top:16px"><div class="plab" style="margin:0 0 6px">In their words · newest first</div>'
-    +words.map(c=>'<div style="padding:10px 12px;border-radius:14px;background:var(--panel2);margin-bottom:6px">'
-      +'<div class="row" style="gap:8px;justify-content:space-between"><span><b style="color:var(--text)">'+esc(subN[c.sub]||'Member')+'</b> <span class="sn">'+(c.tier==='elite'?'Elite':'Pro')+' · £'+Math.round(c.amt)+'/mo · '+(c.days!=null? c.days+' days in' : '')+'</span></span>'
-      +'<span class="sn">'+new Date(c.t).toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'Europe/London'})+(c.cmd? ' · /cancel'+(c.by? ' by '+esc(c.by) : '') : '')+'</span></div>'
-      +(c.reason? '<div style="margin-top:4px"><span class="pill cold">'+esc(c.reason)+'</span></div>' : '')
-      +'<div style="margin-top:6px;font-size:12.5px;line-height:1.55;color:var(--muted)">'+cxWords(c).map(w=>{ const i=w.indexOf(': '); return '<div><b style="color:var(--text);font-weight:600">'+esc(w.slice(0,i))+':</b> '+esc(w.slice(i+2))+'</div>'; }).join('')+'</div></div>').join('')+'</div>' : '';
+  /* v16.98 — Louie: "hard to read tho". One row per member, the same columns every time, full-strength text. */
+  const allWords=rows.filter(c=>cxWords(c).length).sort((a,b)=>b.t-a.t);
+  const words=cxShowAll? allWords : allWords.slice(0,12);
+  const rc=r=> /expensive/i.test(r)?'mid' : /not using|break|time/i.test(r)?'cold' : r? 'good' : '';
+  const bc=k=> !k? '' : /^yes/i.test(k)?'good' : /not|^no\b/i.test(k)?'bad' : 'mid';
+  const cell=v=> v? '<span class="cxw">'+esc(v)+'</span>' : '<span style="color:var(--dim)">—</span>';
+  const said=c=> [c.said&&('“'+c.said.replace(/^["“']+|["”']+$/g,'')+'”'), c.more, c.note&&('Staff: '+c.note)].filter(Boolean);
+  const wordsHtml=allWords.length? '<div style="margin-top:18px"><div class="row" style="justify-content:space-between;align-items:baseline;margin:0 0 8px"><div class="plab" style="margin:0">In their words · newest first</div>'
+    +(allWords.length>12? '<button type="button" class="tfbtn" id="cxMore">'+(cxShowAll? 'Show latest 12' : 'Show all '+allWords.length)+'</button>' : '')+'</div>'
+    +'<div style="overflow-x:auto"><table class="cxt"><thead><tr><th>Member</th><th>Reason</th><th>What got in the way</th><th>What would have kept them</th><th>Come back?</th><th>What they said</th></tr></thead><tbody>'
+    +words.map(c=>'<tr>'
+      +'<td><div class="cxn">'+esc(subN[c.sub]||'Member')+'</div><div class="cxm">'+(c.tier==='elite'?'Elite':'Pro')+' · £'+Math.round(c.amt)+' · '+(c.days!=null? c.days+'d in' : '')+'</div>'
+        +'<div class="cxm">'+new Date(c.t).toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'Europe/London'})+(c.cmd? ' · /cancel'+(c.by? ' by '+esc(c.by) : '') : '')+'</div></td>'
+      +'<td>'+(c.reason? '<span class="pill '+rc(c.reason)+'">'+esc(cxReason(c.reason))+'</span>' : '<span style="color:var(--dim)">—</span>')+'</td>'
+      +'<td>'+cell(c.way)+'</td><td>'+cell(c.kept)+'</td>'
+      +'<td>'+(c.back? '<span class="pill '+bc(c.back)+'">'+esc(c.back)+'</span>' : '<span style="color:var(--dim)">—</span>')+'</td>'
+      +'<td>'+(said(c).length? said(c).map(x=>'<div class="cxw">'+esc(x)+'</div>').join('') : '<span style="color:var(--dim)">—</span>')+'</td></tr>').join('')
+    +'</tbody></table></div></div>' : '';
   el.innerHTML=head+table+backHtml+wordsHtml;
+  const mb=document.getElementById('cxMore'); if(mb) mb.onclick=()=>{ cxShowAll=!cxShowAll; drawCancelReasons(); };
 }
 function cxBySub(){ const m={}; ((S.botLinks&&S.botLinks.cx)||[]).forEach(c=>{ if(!m[c.sub] || c.t>m[c.sub].t) m[c.sub]=c; }); return m; }
 function cxWords(c){ return [c.way&&('Got in the way: '+c.way), c.kept&&('Would have kept them: '+c.kept), c.back&&('Would come back: '+c.back), c.said&&('They said: '+c.said), c.more&&('More: '+c.more), c.note&&('Staff note: '+c.note)].filter(Boolean); }
