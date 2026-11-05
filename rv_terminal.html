@@ -1397,6 +1397,8 @@ html[data-theme^="glassy"] .main:has(#v-command.on) .topbar{margin-bottom:10px}
       <div class="card"><h3>Payment failed</h3><div class="big num gtx gtx-red" id="caInvol">—</div><div class="sn">recoverable with a card update</div></div>
       <div class="card"><h3>Come back rate</h3><div class="big num gtx gtx-green" id="caBack">—</div><div class="sn" id="caBackD">of this range's cancels are paying again</div></div>
     </div>
+    <div class="sec">Why they're leaving <span class="tag" id="cxTag">from #payment-logs</span></div>
+    <div class="card" id="cxCard"><div id="cxBody"><div class="empty">Waiting for the Discord sync.</div></div></div>
     <div class="sec">Cancelled members <span class="tag">click a row to copy</span></div>
     <div class="card">
       <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
@@ -2519,7 +2521,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.95';
+const BUILD = 'v16.96';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -5491,6 +5493,8 @@ function analystDigest(){
           agg.note='subscription-level counts; the customer-level churned figure above can differ slightly'; return agg; })()},
       netMrrMovementLast30dGBP:m.mrrMove },
     emailLogDedupe:S._emailLogDedupe||null,
+    cancelReasons30:(function(){ try{ const W=cxSummary(cxRowsIn(now-30*864e5, now)); return {requested:W.total, withReason:W.withReason, viaCancelCommand:W.cmd, answeredFollowUps:W.answered,
+      reasons:W.reasons.map(r=>({reason:r.l, cancels:r.n, mrrLost:Math.round(r.gbp), medianDays:r.med, firstMonth:r.first})), wouldComeBack:W.back}; }catch(e){ return null; } })(),
     joinReasons30:(function(){ try{ const J=((lastM&&lastM.joinsAll)||[]).filter(j=>now-j.created<30*864e5); const W=joinWhyRows(J); return {asked:W.asked, paying:W.total, fromCheckout:W.fromCheckout, fromGate:W.fromGate, rows:W.rows.map(r=>({reason:r.l, joins:r.n, stillActive:r.act, cancelBooked:r.booked, cancelled:r.gone, avgMonthly:Math.round(r.gbp/r.n*100)/100, elite:r.elite}))}; }catch(e){ return null; } })(),
     monthKpi:(function(){ try{ return rpMonthKpiRows(now).map(({k,c,l})=>({month:k, firstTryPct:c&&c.first!=null? Math.round(c.first*10)/10:null, collectedPct:c&&c.final!=null? Math.round(c.final*10)/10:null, wonBackPct:c&&c.rec!=null? Math.round(c.rec*10)/10:null, signups1h:l&&l.p1Days? l.p1:null, signups72h:l&&l.p72Days? l.p72:null, buyersTracked:l? l.pa:null})); }catch(e){ return null; } })(),
     collectionMonthly:(function(){ try{ return collectionRows(S.invHist||{}, S.recovery||{}, now, 'm', 400).map(x=>({month:x.k, billsDue:x.due, paid:x.paid, pending:x.pending, failed:x.failed,
@@ -6587,6 +6591,8 @@ async function drawProfitPage(){
 }
 function drawCancelsPage(){
   if(!lastM) return;
+  window._cxMap=null;
+  try{ drawCancelReasons(); }catch(e){ reportNonFatal('Why they are leaving', e); }
   const rows=caRows();
   const vol=rows.filter(r=>r.reason==='voluntary'), inv=rows.filter(r=>r.reason==='payment failed');
   const sum=a=>Math.round(a.reduce((x,r)=>x+(r.monthly||0),0));
@@ -6662,7 +6668,53 @@ function drawCancelsPage(){
 const CANCEL_FB={ too_expensive:'Too expensive', missing_features:'Missing features',
   switched_service:'Switched to another', unused:"Wasn't using it", customer_service:'Customer service',
   too_complex:'Too complicated', low_quality:'Not good enough', other:'Other' };
+/* v16.96 — Louie, 5 Nov: "in the payment logs channel it now gives more info on their cancellation reasons,
+   make sure rv stats is pulling this ... its not just why its also this info". Every member-requested cancel
+   from #payment-logs: the reason they picked, and since 2 Nov (/cancel) what got in the way, what would have
+   kept them and whether they would come back, with plan, time as a member and who ran /cancel. */
+function cxRowsIn(t0,t1){ return ((S.botLinks&&S.botLinks.cx)||[]).filter(c=>c.t>=t0 && c.t<=t1); }
+function cxSummary(rows){
+  const by={}, back={}, kept={};
+  rows.forEach(c=>{ const k=c.reason||'No reason given'; const o=by[k]||(by[k]={l:k, n:0, gbp:0, days:[], first:0}); o.n++; o.gbp+=c.amt||0; if(c.days!=null){ o.days.push(c.days); if(c.days<=31) o.first++; }
+    if(c.back){ back[c.back]=(back[c.back]||0)+1; } if(c.kept){ kept[c.kept]=(kept[c.kept]||0)+1; } });
+  const reasons=Object.values(by).map(o=>{ const d=o.days.slice().sort((a,b)=>a-b); return Object.assign(o,{med:d.length? d[Math.floor(d.length/2)] : null}); })
+    .sort((a,b)=> (a.l==='No reason given') - (b.l==='No reason given') || b.n-a.n);
+  return {reasons, back, kept, total:rows.length, withReason:rows.filter(c=>c.reason).length, cmd:rows.filter(c=>c.cmd).length, answered:rows.filter(c=>c.way||c.kept||c.back).length};
+}
+function drawCancelReasons(){
+  const el=document.getElementById('cxBody'); if(!el) return;
+  const all=(S.botLinks&&S.botLinks.cx)||[];
+  if(!all.length){ el.innerHTML='<div class="empty">No cancellation posts from #payment-logs yet. They arrive with the hourly Discord sync.</div>'; return; }
+  const rows=cxRowsIn(caRange.t0, caRange.t1), W=cxSummary(rows);
+  const tag=document.getElementById('cxTag'); if(tag) tag.textContent='from #payment-logs · '+caRange.label;
+  if(!rows.length){ el.innerHTML='<div class="empty">No member-requested cancels in '+esc(caRange.label)+'.</div>'; return; }
+  const subN={}; (S.subs||[]).forEach(x=>{ if(x&&x.id) subN[x.id]=x.duser||x.cname||(x.cemail? String(x.cemail).split('@')[0] : ''); });
+  const max=Math.max(...W.reasons.map(r=>r.n));
+  const head='<div class="sn" style="margin:0 0 10px">'+W.total+' members asked to cancel in '+esc(caRange.label)+' · <b style="color:var(--text)">'+W.withReason+' picked a reason</b>'
+    +(W.cmd? ' · '+W.cmd+' through /cancel ('+W.answered+' answered the follow-up questions)' : '')+'</div>';
+  const table='<div style="overflow-x:auto"><table><thead><tr><th>Reason</th><th style="text-align:left;width:30%"></th><th>Cancels</th><th>Share</th><th title="the plan price they were on">£/mo lost</th><th title="median time as a member when they cancelled">Time as member</th><th title="cancelled within 31 days of joining">First month</th></tr></thead><tbody>'
+    +W.reasons.map(r=>'<tr><td style="font-weight:600'+(r.l==='No reason given'?';color:var(--dim)':'')+'">'+esc(r.l)+'</td><td style="text-align:left"><span style="display:block;height:8px;border-radius:99px;background:var(--cold-soft);overflow:hidden"><i style="display:block;height:100%;width:'+Math.max(3,Math.round(r.n/max*100))+'%;border-radius:99px;background:'+(r.l==='No reason given'?'var(--dim)':/expensive/i.test(r.l)?'var(--gold)':/not using|break|time/i.test(r.l)?'var(--accent)':'var(--violet)')+'"></i></span></td>'
+      +'<td class="num"><b>'+r.n+'</b></td><td class="num">'+Math.round(r.n/W.total*100)+'%</td><td class="num">£'+Math.round(r.gbp).toLocaleString('en-GB')+'</td><td class="num">'+(r.med!=null? r.med+'d' : '—')+'</td><td class="num">'+(r.first||'<span style="color:var(--dim)">0</span>')+'</td></tr>').join('')
+    +'</tbody></table></div>';
+  const backKeys=Object.keys(W.back).sort((a,b)=>W.back[b]-W.back[a]);
+  const backHtml=backKeys.length? '<div style="margin-top:14px"><div class="plab" style="margin:0 0 6px">Would they come back? <span class="sn">(/cancel only)</span></div><div class="row" style="gap:6px">'
+    +backKeys.map(k=>'<span class="pill '+(/^yes/i.test(k)?'good':/not|no\b/i.test(k)?'bad':'mid')+'">'+esc(k)+' · '+W.back[k]+'</span>').join('')+'</div></div>' : '';
+  const words=rows.filter(c=>cxWords(c).length).sort((a,b)=>b.t-a.t).slice(0,15);
+  const wordsHtml=words.length? '<div style="margin-top:16px"><div class="plab" style="margin:0 0 6px">In their words · newest first</div>'
+    +words.map(c=>'<div style="padding:10px 12px;border-radius:14px;background:var(--panel2);margin-bottom:6px">'
+      +'<div class="row" style="gap:8px;justify-content:space-between"><span><b style="color:var(--text)">'+esc(subN[c.sub]||'Member')+'</b> <span class="sn">'+(c.tier==='elite'?'Elite':'Pro')+' · £'+Math.round(c.amt)+'/mo · '+(c.days!=null? c.days+' days in' : '')+'</span></span>'
+      +'<span class="sn">'+new Date(c.t).toLocaleDateString('en-GB',{day:'numeric',month:'short',timeZone:'Europe/London'})+(c.cmd? ' · /cancel'+(c.by? ' by '+esc(c.by) : '') : '')+'</span></div>'
+      +(c.reason? '<div style="margin-top:4px"><span class="pill cold">'+esc(c.reason)+'</span></div>' : '')
+      +'<div style="margin-top:6px;font-size:12.5px;line-height:1.55;color:var(--muted)">'+cxWords(c).map(w=>{ const i=w.indexOf(': '); return '<div><b style="color:var(--text);font-weight:600">'+esc(w.slice(0,i))+':</b> '+esc(w.slice(i+2))+'</div>'; }).join('')+'</div></div>').join('')+'</div>' : '';
+  el.innerHTML=head+table+backHtml+wordsHtml;
+}
+function cxBySub(){ const m={}; ((S.botLinks&&S.botLinks.cx)||[]).forEach(c=>{ if(!m[c.sub] || c.t>m[c.sub].t) m[c.sub]=c; }); return m; }
+function cxWords(c){ return [c.way&&('Got in the way: '+c.way), c.kept&&('Would have kept them: '+c.kept), c.back&&('Would come back: '+c.back), c.said&&('They said: '+c.said), c.more&&('More: '+c.more), c.note&&('Staff note: '+c.note)].filter(Boolean); }
 const cancelWhy=r=>{
+  const c=r&&r.sub? (window._cxMap||(window._cxMap=cxBySub()))[r.sub] : null;
+  if(c && (c.reason || cxWords(c).length)){
+    const w=cxWords(c), tip=esc([c.reason].concat(w).filter(Boolean).join(' · ').slice(0,400)).replace(/"/g,'&quot;');
+    return '<span class="pill '+(/expensive/i.test(c.reason)?'mid':/not using|break|time/i.test(c.reason)?'cold':'good')+'" title="'+tip+'" style="cursor:help">'+esc(c.reason||'Gave a note')+(w.length?' 💬':'')+'</span>'; }
   const fb=r&&r.cfb? (CANCEL_FB[r.cfb]||String(r.cfb).replace(/_/g,' ')) : null;
   const cm=(r&&r.ccm||'').trim();
   if(!fb && !cm) return '<span style="color:var(--dim)">—</span>';
@@ -6676,7 +6728,7 @@ function caExport(kind){
   let lines, fname, note;
   if(kind==='email'){ const e=rows.map(r=>r.email).filter(Boolean); lines=e.join('\n'); fname='cancels_emails'; note=e.length+' emails'; }
   else if(kind==='discord'){ const h=rows.map(r=>r.handle).filter(Boolean); lines=h.join('\n'); fname='cancels_discord'; note=h.length+' discord handles ('+(rows.length-h.length)+' had none)'; }
-  else { lines='date,discord_or_name,tier,monthly_gbp,reason,why_they_said,their_comment,source,email\n'+rows.map(r=>[r.date,(r.handle||r.name||''),r.tier,(r.monthly||0),r.reason,(r.cfb? (CANCEL_FB[r.cfb]||r.cfb):''),(r.ccm||''),(r.src||''),(r.email||'')].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n'); fname='cancels_full'; note=rows.length+' rows'; }
+  else { const cxm=cxBySub(); lines='date,discord_or_name,tier,monthly_gbp,reason,member_reason,what_got_in_the_way,what_would_have_kept_them,would_come_back,they_said,stripe_reason,stripe_comment,source,email\n'+rows.map(r=>{ const c=cxm[r.sub]||{}; return [r.date,(r.handle||r.name||''),r.tier,(r.monthly||0),r.reason,(c.reason||''),(c.way||''),(c.kept||''),(c.back||''),(c.said||''),(r.cfb? (CANCEL_FB[r.cfb]||r.cfb):''),(r.ccm||''),(r.src||''),(r.email||'')]; }).map(a=>a.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n'); fname='cancels_full'; note=rows.length+' rows'; }
   if(!lines){ status('Nothing to export for this filter.','err'); return; }
   const ext=kind==='csv'?'csv':'txt';
   const blob=new Blob([lines],{type:'text/'+(kind==='csv'?'csv':'plain')});
@@ -15099,7 +15151,14 @@ function blNormalize(rec){
   let days=rec.days||null;
   if(!days && hist){ days={}; const t0=Date.parse(hist.from+'T00:00:00Z'), cut=dayKey(Date.now()-120*864e5);
     hist.j.forEach((n,i)=>{ const k=dayKey(t0+i*864e5); if(k>=cut && n) days[k]=n; }); }   /* old map had no zero days */
-  return {v:rec.v||2, updated:rec.updated||'', links, days, hist, invDays:rec.invDays||null, staff, success};
+  /* v16.96: member-requested cancellations from #payment-logs (sync payload cx/cxr):
+     [tMin, sub, cust, reasonIdx, said, way, kept, back, more, cmd, days, amtPence, tier, endsMin, note, by] */
+  const cxr=Array.isArray(rec.cxr)? rec.cxr : [];
+  const cx=Array.isArray(rec.cx)? rec.cx.map(a=> Array.isArray(a)
+    ? {t:a[0]*60000, sub:String(a[1]||''), cust:String(a[2]||''), reason:(a[3]>=0 && cxr[a[3]])||'', said:a[4]||'', way:a[5]||'', kept:a[6]||'', back:a[7]||'',
+       more:a[8]||'', cmd:a[9]===1, days:(a[10]>=0? a[10] : null), amt:(a[11]||0)/100, tier:a[12]==='e'? 'elite':'pro', ends:a[13]? a[13]*60000 : null, note:a[14]||'', by:a[15]||''}
+    : a).filter(x=>x && x.sub) : [];
+  return {v:rec.v||2, updated:rec.updated||'', links, days, hist, invDays:rec.invDays||null, staff, success, cx, cxDays:rec.cxDays||null};
 }
 /* Union of two cash stores. Buckets: incoming wins per key (it is the fresher sweep); keys the
    incoming side lacks are kept. Metadata: the newer all-time pull (`updated`) keeps its `n`;
