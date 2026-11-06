@@ -1114,7 +1114,7 @@ table.cxt tbody tr:nth-child(even) td{background:color-mix(in srgb,var(--text) 2
     <div class="grid c3">
       <div class="card clickable" id="cardCash"><h3>Cash collected · this month</h3><div class="big num" id="ovCash">—</div><div class="sn" id="ovCashD">run Pull all-time data in Settings</div></div>
       <div class="card clickable" id="cardRef"><h3>Refunds · this month</h3><div class="big num" id="ovRef">—</div><div class="sn" id="ovRefD"></div></div>
-      <div class="card clickable" id="cardVAT"><h3>VAT estimate · since 1 Jun</h3><div class="big num gtx gtx-gold" id="ovVAT">—</div><div class="sn" id="ovVATD">run Pull all-time data in Settings</div></div>
+      <div class="card clickable" id="cardVAT"><h3 id="ovVATH">VAT estimate · since 1 Jun</h3><div class="big num gtx gtx-gold" id="ovVAT">—</div><div class="sn" id="ovVATD">run Pull all-time data in Settings</div></div>
       <div class="card clickable" id="cardDraw"><h3>Next drawings</h3><div class="big num gtx gtx-green" id="ovDraw">—</div><div class="sn" id="ovDrawD">needs the Revolut feed</div><div id="ovDrawBar" style="margin-top:12px"></div></div>
       <div class="card clickable" id="cardDisp"><h3>Open disputes</h3><div class="big num" id="ovDisp">—</div><div class="sn" id="ovDispD"></div></div>
       <div class="card clickable" id="cardLTV"><h3>LTV · actual</h3><div class="big num" id="ovLTV">—</div><div class="sn" id="ovLTVD">what the average joiner has really paid · click for the EXPECTED trend</div></div>
@@ -2292,9 +2292,20 @@ const dHandle = s => { let h=String(s||'').trim().toLowerCase(); if(h[0]==='@') 
   return h.replace(/#\d{1,4}$/, ''); };
 const uid = () => Math.random().toString(36).slice(2,9);
 const D = 86400000;
+/* v16.99: a settled period. Louie marks "VAT paid up to end of <month>" and everything up to that month
+   drops out: its sales, its lost disputes, the HMRC payments logged before he settled it, and the input
+   VAT entered up to then. What is left is the open period, from the month after, to now. */
+function vatSettled(cfg){
+  const log=Array.isArray(cfg&&cfg.log)? cfg.log : [];
+  return log.filter(e=>e&&e.kind==='settled'&&!e.undone&&/^\d{4}-\d{2}$/.test(e.to||''))
+    .reduce((m,e)=>(!m||e.to>m.to||(e.to===m.to&&(e.t||0)>(m.t||0)))? e : m, null);
+}
+function vatNextMonth(k){ const y=+k.slice(0,4), mo=+k.slice(5,7); return mo===12? (y+1)+'-01' : y+'-'+String(mo+1).padStart(2,'0'); }
 function vatEstimate(){
   const cfg=S.settings.vat||{}, cash=S.cash, bm=cash&&cash.byMonth;
-  const start=/^\d{4}-\d{2}-01$/.test(cfg.start||'')?cfg.start:'2026-06-01';
+  const base=/^\d{4}-\d{2}-01$/.test(cfg.start||'')?cfg.start:'2026-06-01';
+  const st=vatSettled(cfg), openM=st&&vatNextMonth(st.to)>base.slice(0,7)? vatNextMonth(st.to) : null;
+  const start=openM? openM+'-01' : base;
   const rate=Math.max(0,Number(cfg.rate)||20), startMonth=start.slice(0,7);
   const rows=bm?Object.keys(bm).filter(k=>k>=startMonth).sort().map(k=>{
     const paid=Math.max(0,Number(bm[k]&&bm[k].paid)||0);
@@ -2313,8 +2324,13 @@ function vatEstimate(){
   const lostUndated=lost.filter(d=>!d.created).length;
   const vatInclusiveSales=gross-refunds-chargebacks;
   const outputVat=rows.reduce((a,r)=>a+r.outputVat,0) - (rate>0? chargebacks*rate/(100+rate):0);
-  const inputVat=Math.max(0,Number(cfg.inputVat)||0), paid=Math.max(0,Number(cfg.paid)||0);
-  return {start,rate,rows,gross,refunds,chargebacks,lostUndated,vatInclusiveSales,outputVat,inputVat,paid,outstanding:outputVat-inputVat-paid,
+  const log=Array.isArray(cfg.log)? cfg.log : [], payments=log.filter(e=>e&&e.kind==='paid');
+  /* before any settle the old running total stands (it may predate the log) */
+  const paid=st? Math.round(payments.filter(e=>!e.settled&&(e.t||0)>(st.t||0)).reduce((a,e)=>a+(Number(e.amount)||0),0)*100)/100
+                : Math.max(0,Number(cfg.paid)||0);
+  const inputBase=st? Math.max(0,Number(st.inputAt)||0) : 0;
+  const inputVat=Math.max(0,(Number(cfg.inputVat)||0)-inputBase);
+  return {start,baseStart:base,settled:st,inputBase,rate,rows,gross,refunds,chargebacks,lostUndated,vatInclusiveSales,outputVat,inputVat,paid,outstanding:outputVat-inputVat-paid,
     complete:!!(cash&&cash.updated&&Number.isFinite(Number(cash.n))), updated:cash&&(cash.recentAt||cash.updated)};
 }
 /* v16.53: NEXT DRAWINGS, on Louie's actual routine (26 Sep 2026): drawings every other FRIDAY, and a draw
@@ -2532,7 +2548,7 @@ async function stripeAll(path, params, maxPages, label){
   }
   return out;
 }
-const BUILD = 'v16.98';
+const BUILD = 'v16.99';
 const ROSTER_BIN='6a92d90dda38895dfe1ff992';   /* dedicated roster bin — see record.rosterBin */
 const LEGACY_BINS_UNTIL=Date.UTC(2026,8,9);   /* v15.18: roster/botlinks/profit ride z in the main bundle; old bins stay readable until 9 Sep 2026 */
 const EMAILFLAGS_BIN='6a987bf7da38895dfe30ee33'; /* {emails:{email:{b,s,l,c}}} pushed by rv-emails/push_email_flags.py */
@@ -4744,6 +4760,7 @@ function renderAll(){
       +(refRate!=null? ' · '+(Math.round(refRate*10)/10)+'% of cash'+(refRate>5? ' <span class="pill bad">high — find the why in the DMs</span>':refRate>2.5? ' <span class="pill mid">watch</span>':''):'');
   }
   const vat=vatEstimate();
+  const vatH=document.getElementById('ovVATH'); if(vatH) vatH.textContent='VAT estimate · since '+vatDay(vat.start,'short');
   if(vat.complete){
     const vatEl=document.getElementById('ovVAT');
     vatEl.textContent=fmtGBP2(Math.abs(vat.outstanding));
@@ -5108,6 +5125,7 @@ function buildExport(){
         subscriberChurn30d:{base:m.churnBase30, added:m.churnAdded30, churned:m.churnGone30, churnedVoluntary:m.vol, churnedPaymentFailed:m.invol} },
         vatEstimate:(()=>{ const v=vatEstimate(); return {start:v.start,ratePct:v.rate,complete:v.complete,
           grossCashGBP:+v.gross.toFixed(2),refundsGBP:+v.refunds.toFixed(2),vatInclusiveSalesGBP:+v.vatInclusiveSales.toFixed(2),
+          settledThrough:v.settled? v.settled.to : null,
           outputVatGBP:+v.outputVat.toFixed(2),inputVatGBP:+v.inputVat.toFixed(2),vatPaidGBP:+v.paid.toFixed(2),outstandingGBP:+v.outstanding.toFixed(2)}; })(),
         joins30dSplit:{ total:J30.length, paidDirect:J30.length-jt.length, viaTrial:jt.length, trialNeverPaid:jnp.length,
           inTrialNow:(m.trialsAll||[]).filter(x=>x.status==='trialing').length },
@@ -11983,6 +12001,8 @@ function vatLog(){
     v.log.push({id:'opening', t:0, kind:'paid', d:null, amount:Math.round(Number(v.paid)*100)/100, note:'total entered before the log existed', by:null});
   return v.log;
 }
+function vatDay(k, m){ return new Date(k.slice(0,10)+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:m||'long',year:'numeric',timeZone:'UTC'}); }
+function vatMonthEnd(k){ const t=Date.parse(vatNextMonth(k)+'-01T12:00:00Z')-86400000; return new Date(t).toISOString().slice(0,10); }
 function vatPaidTotal(){ return Math.round(vatLog().filter(e=>e.kind==='paid').reduce((a,e)=>a+(Number(e.amount)||0),0)*100)/100; }
 function openVatModal(){
   const v=vatEstimate();
@@ -11991,29 +12011,41 @@ function openVatModal(){
     return;
   }
   const monthRows=v.rows.map(r=>'<tr><td>'+new Date(r.month+'-01T00:00:00Z').toLocaleDateString('en-GB',{month:'long',year:'numeric',timeZone:'UTC'})+'</td><td>'+fmtGBP2(r.paid)+'</td><td>'+fmtGBP2(r.refunded)+'</td><td>'+fmtGBP2(r.vatInclusiveSales)+'</td><td style="color:var(--gold)">'+fmtGBP2(r.outputVat)+'</td></tr>').join('');
-  openModal('<h2>VAT estimate · since 1 June 2026</h2>'
+  const since=vatDay(v.start);
+  openModal('<h2>VAT estimate · since '+since+'</h2>'
     +'<div class="sn">Last cash-ledger update '+(v.updated?new Date(v.updated).toLocaleString('en-GB'):'unknown')+' · standard rate '+v.rate+'% · VAT-inclusive cash basis</div>'
     +'<div class="grid c3" style="margin-top:14px"><div class="card"><h3>Net VAT-inclusive sales</h3><div class="big num">'+fmtGBP2(v.vatInclusiveSales)+'</div><div class="sn">'+fmtGBP2(v.gross)+' cash − '+fmtGBP2(v.refunds)+' refunds'+(v.chargebacks? ' − '+fmtGBP2(v.chargebacks)+' lost disputes':'')+'</div></div>'
     +'<div class="card"><h3>Output VAT reserve</h3><div class="big num gtx gtx-gold">'+fmtGBP2(v.outputVat)+'</div><div class="sn">20/120 of VAT-inclusive sales (one sixth)</div></div>'
-    +'<div class="card"><h3>'+(v.outstanding<0?'Estimated credit':'Estimated outstanding')+'</h3><div class="big num '+(v.outstanding<0?'gtx gtx-green':'gtx gtx-gold')+'">'+fmtGBP2(Math.abs(v.outstanding))+'</div><div class="sn">output VAT − input VAT − VAT already paid</div></div></div>'
+    +'<div class="card"><h3>'+(v.outstanding<0?'Estimated credit':'Estimated outstanding')+'</h3><div class="big num '+(v.outstanding<0?'gtx gtx-green':'gtx gtx-gold')+'">'+fmtGBP2(Math.abs(v.outstanding))+'</div><div class="sn">output VAT − input VAT − VAT already paid'+(v.settled? ' · '+since+' to now only':'')+'</div></div></div>'
     +'<div style="overflow-x:auto;margin-top:14px"><table><thead><tr><th>Month</th><th>Cash incl. VAT</th><th>Refunds</th><th>Net incl. VAT</th><th>Output VAT</th></tr></thead><tbody>'+monthRows+'</tbody></table></div>'
     +(function(){
-        const log=vatLog().slice().sort((a,b)=>(b.t||0)-(a.t||0));
-        const when=e=>e.kind==='paid'? (e.d? new Date(e.d+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}) : '—') : (e.t? new Date(e.t).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—');
+        const log=vatLog().filter(e=>!e.undone).slice().sort((a,b)=>(b.t||0)-(a.t||0));
+        const when=e=>e.kind==='settled'? (e.to? vatDay(vatMonthEnd(e.to),'short') : '—') : e.kind==='paid'? (e.d? new Date(e.d+'T12:00:00Z').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}) : '—') : (e.t? new Date(e.t).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : '—');
         const rows=log.map(e=>'<tr><td>'+when(e)+'</td>'
-          +'<td>'+(e.kind==='paid'? '<span class="pill good">PAID TO HMRC</span>' : '<span class="pill mid">INPUT VAT</span>')+'</td>'
-          +'<td class="num" style="color:var(--text)">'+(e.kind==='paid'? fmtGBP2(Number(e.amount)||0) : fmtGBP2(Number(e.to)||0)+' <span class="sn">was '+fmtGBP2(Number(e.from)||0)+'</span>')+'</td>'
+          +'<td>'+(e.kind==='settled'? '<span class="pill good">PERIOD PAID</span>' : e.kind==='paid'? '<span class="pill good">PAID TO HMRC</span>' : '<span class="pill mid">INPUT VAT</span>')+'</td>'
+          +'<td class="num" style="color:var(--text)">'+(e.kind==='settled'? '<span class="sn">'+esc(vatDay(e.from+'-01','short'))+' to '+esc(vatDay(vatMonthEnd(e.to),'short'))+' wiped</span>' : e.kind==='paid'? fmtGBP2(Number(e.amount)||0) : fmtGBP2(Number(e.to)||0)+' <span class="sn">was '+fmtGBP2(Number(e.from)||0)+'</span>')+'</td>'
           +'<td>'+esc(e.note||'')+'</td>'
           +'<td class="sn">'+esc(e.by||'—')+(e.t? ' · '+new Date(e.t).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '')+'</td>'
-          +'<td>'+(e.kind==='paid'&&e.id!=='opening'? '<button class="btn ghost sm" data-vatdel="'+esc(e.id)+'" title="remove this entry">×</button>' : '')+'</td></tr>').join('');
+          +'<td>'+(e.kind==='paid'&&e.id!=='opening'? '<button class="btn ghost sm" data-vatdel="'+esc(e.id)+'" title="remove this entry">×</button>'
+                  : e.kind==='settled'? '<button class="btn ghost sm" data-vatundo="'+esc(e.id)+'" title="undo: bring this period back into the estimate">×</button>' : '')+'</td></tr>').join('');
         const today=new Date().toISOString().slice(0,10);
+        /* months that can be settled: from the VAT start to last month */
+        const thisM=today.slice(0,7), opts=[]; for(let k=v.baseStart.slice(0,7); k<thisM; k=vatNextMonth(k)) opts.push(k);
+        const lastM=opts.length? opts[opts.length-1] : null;
+        const settleForm=opts.length? '<div class="sec" style="margin-top:16px">Mark a period as paid <span class="tag">wipes it out of VAT due</span></div>'
+          +'<div class="card"><div class="sn" style="margin-bottom:8px">'+(v.settled? 'Paid up to <b style="color:var(--text)">'+vatDay(vatMonthEnd(v.settled.to))+'</b>. VAT due counts '+since+' to now.' : 'Nothing marked paid yet. VAT due counts everything since '+since+'.')+' Payments logged before you mark a period count toward that period.</div>'
+          +'<div class="formrow" style="grid-template-columns:200px 150px 1fr auto;align-items:end"><div><label for="vatSetTo">Paid up to end of</label><select id="vatSetTo">'
+          +opts.map(k=>'<option value="'+k+'"'+(k===lastM?' selected':'')+'>'+new Date(k+'-01T12:00:00Z').toLocaleDateString('en-GB',{month:'long',year:'numeric',timeZone:'UTC'})+'</option>').join('')+'</select></div>'
+          +'<div><label for="vatSetA">Paid £ (optional)</label><input id="vatSetA" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>'
+          +'<div><label for="vatSetN">Note</label><input id="vatSetN" placeholder="e.g. Jul to Sep return"></div><button class="btn" id="vatSetAdd" style="margin-bottom:1px">Mark as paid</button></div></div>' : '';
         return '<div class="sec" style="margin-top:16px">VAT payments to HMRC <span class="tag">every payment logged here · the total feeds the estimate above</span></div>'
-          +'<div class="card"><div class="sn" style="margin-bottom:8px"><b style="color:var(--text)">'+fmtGBP2(vatPaidTotal())+'</b> paid to HMRC since 1 June 2026 across '+log.filter(e=>e.kind==='paid').length+' payment'+(log.filter(e=>e.kind==='paid').length===1?'':'s')+' · newest first</div>'
+          +'<div class="card"><div class="sn" style="margin-bottom:8px"><b style="color:var(--text)">'+fmtGBP2(vatPaidTotal())+'</b> paid to HMRC since '+vatDay(v.baseStart)+' across '+log.filter(e=>e.kind==='paid').length+' payment'+(log.filter(e=>e.kind==='paid').length===1?'':'s')+' · newest first</div>'
           +(rows? '<div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Entry</th><th>£</th><th>Note</th><th>Logged by</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>' : '<div class="empty">No VAT payments logged yet.</div>')
           +'<div class="formrow" style="grid-template-columns:150px 150px 1fr auto;margin-top:12px;align-items:end"><div><label for="vatPayD">Paid on</label><input id="vatPayD" type="date" value="'+today+'"></div>'
           +'<div><label for="vatPayA">Amount £</label><input id="vatPayA" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div>'
           +'<div><label for="vatPayN">Note</label><input id="vatPayN" placeholder="e.g. Q2 return, HMRC ref"></div><button class="btn" id="vatPayAdd" style="margin-bottom:1px">Log payment</button></div></div>'
-          +'<div class="formrow" style="grid-template-columns:1fr auto;margin-top:14px;align-items:end"><div><label for="vatInput">Eligible input VAT since 1 June 2026</label><input id="vatInput" type="number" min="0" step="0.01" inputmode="decimal" value="'+v.inputVat.toFixed(2)+'"></div><button class="btn" id="vatSave" style="margin-bottom:1px">Save input VAT</button></div>';
+          +'<div class="formrow" style="grid-template-columns:1fr auto;margin-top:14px;align-items:end"><div><label for="vatInput">Eligible input VAT since '+since+'</label><input id="vatInput" type="number" min="0" step="0.01" inputmode="decimal" value="'+v.inputVat.toFixed(2)+'"></div><button class="btn" id="vatSave" style="margin-bottom:1px">Save input VAT</button></div>'
+          +settleForm;
       })()
     +'<div class="note" style="margin-top:14px"><b>Every piece of Stripe revenue counts.</b> The cash ledger is built from the raw charge list with no filtering — memberships, the £5/£20 AI-credit top-ups, reshipping, mentorship, every one-off — so nothing is missed. Lost disputes (chargebacks) are netted off like refunds; the dispute fee itself is a cost, not a sale reversal, so it has no VAT effect.'
     +(v.lostUndated? ' <b style="color:var(--gold)">'+v.lostUndated+' lost dispute'+(v.lostUndated===1?'':'s')+' predate'+(v.lostUndated===1?'s':'')+' dispute dating — run Pull all-time data once to include '+(v.lostUndated===1?'it':'them')+'.</b>':'')
@@ -12022,10 +12054,10 @@ function openVatModal(){
   const save=document.getElementById('vatSave');
   save.onclick=()=>{
     const from=Math.round((Number(S.settings.vat.inputVat)||0)*100)/100;
-    const to=Math.round(Math.max(0,Number(document.getElementById('vatInput').value)||0)*100)/100;
+    const to=Math.round((v.inputBase+Math.max(0,Number(document.getElementById('vatInput').value)||0))*100)/100;
     if(to!==from) vatLog().push({id:'i'+Date.now().toString(36), t:Date.now(), kind:'input', from, to, by:vatWho()});
     S.settings.vat.inputVat=to;
-    jset('rv_settings',S.settings); status(to!==from? 'Input VAT set to '+fmtGBP2(to)+' · logged.' : 'Input VAT unchanged.','ok'); renderAll(); openVatModal();
+    jset('rv_settings',S.settings); status(to!==from? 'Input VAT set to '+fmtGBP2(to-v.inputBase)+' · logged.' : 'Input VAT unchanged.','ok'); renderAll(); openVatModal();
   };
   const add=document.getElementById('vatPayAdd');
   if(add) add.onclick=()=>{
@@ -12037,6 +12069,26 @@ function openVatModal(){
     S.settings.vat.paid=vatPaidTotal();
     jset('rv_settings',S.settings); status(fmtGBP2(a)+' logged as paid to HMRC on '+d+'.','ok'); renderAll(); openVatModal();
   };
+  const setAdd=document.getElementById('vatSetAdd');
+  if(setAdd) setAdd.onclick=()=>{
+    const to=(document.getElementById('vatSetTo').value||'').trim(), a=Math.round(Math.max(0,Number(document.getElementById('vatSetA').value)||0)*100)/100;
+    const note=(document.getElementById('vatSetN').value||'').trim();
+    if(!/^\d{4}-\d{2}$/.test(to)) return;
+    if(v.settled && to<=v.settled.to){ status('Already paid up to '+vatDay(vatMonthEnd(v.settled.to))+'.','err'); return; }
+    const from=v.start.slice(0,7), t=Date.now();
+    if(!confirm('Mark VAT paid from '+vatDay(from+'-01')+' to '+vatDay(vatMonthEnd(to))+'? That period drops out of VAT due.')) return;
+    if(a) vatLog().push({id:'p'+t.toString(36), t, kind:'paid', d:new Date().toISOString().slice(0,10), amount:a, note:note||('for '+from+' to '+to), settled:true, by:vatWho()});
+    vatLog().push({id:'s'+t.toString(36), t:t+1, kind:'settled', from, to, inputAt:Math.round((Number(S.settings.vat.inputVat)||0)*100)/100, note, by:vatWho()});
+    S.settings.vat.paid=vatPaidTotal();
+    jset('rv_settings',S.settings); status('VAT marked paid up to '+vatDay(vatMonthEnd(to))+'.','ok'); renderAll(); openVatModal();
+  };
+  /* undo is a flag, not a delete: the synced log only ever adds, so a deleted entry would come back */
+  document.querySelectorAll('[data-vatundo]').forEach(b=>{ b.onclick=()=>{
+    const e=vatLog().find(x=>x.id===b.getAttribute('data-vatundo')); if(!e) return;
+    if(!confirm('Undo the period marked paid up to '+vatDay(vatMonthEnd(e.to))+'? It comes back into VAT due.')) return;
+    e.undone=Date.now();
+    jset('rv_settings',S.settings); status('Period brought back into VAT due.','ok'); renderAll(); openVatModal();
+  }; });
   document.querySelectorAll('[data-vatdel]').forEach(b=>{ b.onclick=()=>{
     const id=b.getAttribute('data-vatdel'); const e=vatLog().find(x=>x.id===id); if(!e) return;
     if(!confirm('Remove the '+fmtGBP2(Number(e.amount)||0)+' payment logged for '+(e.d||'—')+'?')) return;
